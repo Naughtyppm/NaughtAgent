@@ -1,0 +1,19 @@
+{
+  "name": "naughtagent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI 编程助手 - 类似 Claude Code",
+  "scripts": {
+    "dev": "pnpm -C packages/agent dev",
+    "build": "pnpm -C packages/agent build",
+    "typecheck": "pnpm -C packages/agent typecheck"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "coding-assistant",
+    "vscode"
+  ],
+  "author": "",
+  "license": "MIT"
+}
