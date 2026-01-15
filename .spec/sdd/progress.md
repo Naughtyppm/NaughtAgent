@@ -592,4 +592,8 @@ rules:
 | Phase 3 | [summaries/phase-3-agent.md](./summaries/phase-3-agent.md) | ✅ 完成 |
 | Phase 4 | [summaries/phase-4-interaction.md](./summaries/phase-4-interaction.md) | ✅ 完成 |
 | Phase 4.5 | [summaries/phase-4.5-enhancement.md](./summaries/phase-4.5-enhancement.md) | ✅ 完成 |
-| Phase 5 | - | ⬜ 未开始 |
+| Phase 5.1 | [summaries/phase-5.1-subtask.md](./summaries/phase-5.1-subtask.md) | ✅ 完成 |
+| Phase 5.2 | [summaries/phase-5.2-interaction.md](./summaries/phase-5.2-interaction.md) | ✅ 完成 |
+| Phase 5.3 | - | ⬜ 未开始 |
+| Phase 5.4 | - | ⬜ 未开始 |
+| Phase 5.5 | - | ⬜ 未开始 |
