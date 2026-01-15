@@ -5,19 +5,28 @@
 ## 当前阶段
 
 ```
-██████████████████████████████  Phase 1-4.5 完成 (95%)
+██████████████████████████████  Phase 5.1 完成 (96%)
 
-当前位置: Phase 4.5 全部完成
-下一步: Phase 5 扩展能力
+当前位置: Phase 5.1 SubTask 完成
+下一步: Phase 5.2 交互工具 (question/todo)
 ```
 
 **测试覆盖率报告 (2026-01-15)**
 
 | 模块 | 语句 | 分支 | 函数 | 状态 |
 |------|------|------|------|------|
-| 总体 | 90.23% | 80.70% | 89.34% | ✅ 达标 |
-| Agent | 91.26% | 74% | 94.11% | ✅ |
+| 总体 | 89.20% | 79.62% | 90.22% | ✅ 达标 |
+| Agent | 93.20% | 78% | 94.11% | ✅ |
 | Session | 97.63% | 89.36% | 100% | ✅ |
+| Tool | 93.27% | 82.23% | 96.96% | ✅ |
+| CLI | 70.16% | 78.72% | 72% | ⚠️ main函数难测 |
+| Permission | 100% | 100% | 100% | ✅ |
+| Provider | 33.33% | 22.72% | 66.66% | ⚠️ Mock |
+| Context | 90.21% | 86.36% | 63.63% | ✅ |
+| Token | 100% | 97.36% | 100% | ✅ |
+| Security | 95.89% | 89.13% | 92.3% | ✅ |
+| UX | 93.98% | 77.82% | 100% | ✅ |
+| SubTask | 78.19% | 69.56% | 90.9% | ✅ |
 | Tool | 93.27% | 82.23% | 96.96% | ✅ |
 | CLI | 70.16% | 78.72% | 72% | ⚠️ main函数难测 |
 | Permission | 100% | 100% | 100% | ✅ |
@@ -368,13 +377,14 @@ Phase 5 分为五个子阶段，按依赖关系开发：
 ### Phase 5.1: SubTask 子任务系统
 
 > 三种子任务执行模式，复杂任务分解的基础
+> **状态：代码 + 测试完成**
 
-| 模块 | 状态 | 规格 | 实现 | 说明 |
-|------|------|------|------|------|
-| **API 模式** | ⬜ | [subtask.spec.md](./interfaces/subtask.spec.md) | - | 单次 LLM 调用，无工具 |
-| **Workflow 模式** | ⬜ | [subtask.spec.md](./interfaces/subtask.spec.md) | - | 预定义流程执行 |
-| **Agent 模式** | ⬜ | [subtask.spec.md](./interfaces/subtask.spec.md) | - | 子 Agent Loop |
-| **Task 工具** | ⬜ | [subtask.spec.md](./interfaces/subtask.spec.md) | - | 统一入口工具 |
+| 模块 | 代码 | 测试 | 规格 | 实现 | 说明 |
+|------|------|------|------|------|------|
+| **API 模式** | ✅ | ✅ | [subtask.spec.md](./interfaces/subtask.spec.md) | `src/subtask/api.ts` | 单次 LLM 调用，无工具 |
+| **Workflow 模式** | ✅ | ✅ | [subtask.spec.md](./interfaces/subtask.spec.md) | `src/subtask/workflow.ts` | 预定义流程执行 |
+| **Agent 模式** | ✅ | ✅ | [subtask.spec.md](./interfaces/subtask.spec.md) | `src/subtask/agent.ts` | 子 Agent Loop |
+| **Task 工具** | ✅ | ✅ | [subtask.spec.md](./interfaces/subtask.spec.md) | `src/subtask/task-tool.ts` | 统一入口工具 |
 
 **三种模式对比：**
 
