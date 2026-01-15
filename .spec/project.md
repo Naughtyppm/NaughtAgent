@@ -340,18 +340,25 @@ naughtagent -y "运行测试"  # -y 自动确认
 
 ### Phase 5: 扩展能力 ⬜
 
-> Agent 的"进化"
+> Agent 的"协作层"：从执行者变成协作者
 
-| 模块 | 说明 | 状态 | 规格 |
-|------|------|------|------|
-| API 模式 | 单次调用 | ⬜ | [subtask.spec.md](./sdd/interfaces/subtask.spec.md) |
-| Workflow 模式 | 预定义流程 | ⬜ | [subtask.spec.md](./sdd/interfaces/subtask.spec.md) |
-| Agent 模式 | 子 Agent | ⬜ | [subtask.spec.md](./sdd/interfaces/subtask.spec.md) |
-| Skills | /commit /pr | ⬜ | - |
-| question | 向用户提问 | ⬜ | - |
-| todo | 任务展示 | ⬜ | - |
-| HTTP Server | REST API | ⬜ | - |
-| MCP | 外部工具 | ⬜ | - |
+| 子阶段 | 模块 | 说明 | 状态 |
+|--------|------|------|------|
+| **5.1 SubTask** | Task 工具 | 子任务分解和执行 | ⬜ |
+| | API 模式 | 单次 LLM 调用 | ⬜ |
+| | Workflow 模式 | 预定义流程 | ⬜ |
+| | Agent 模式 | 子 Agent Loop | ⬜ |
+| **5.2 交互工具** | question | 向用户提问，澄清需求 | ⬜ |
+| | todo | 任务管理和进度展示 | ⬜ |
+| **5.3 Skills** | Skill 系统 | 快捷命令注册和执行 | ⬜ |
+| | /commit | 生成 commit 消息 | ⬜ |
+| | /pr | 生成 PR 描述 | ⬜ |
+| | /review | 代码审查 | ⬜ |
+| **5.4 Rules 索引** | 规则索引 | 规则文件元数据 | ⬜ |
+| | 按需加载 | 根据任务加载规则 | ⬜ |
+| | 动态指令 | 发现 Justfile/Makefile | ⬜ |
+| **5.5 外部集成** | HTTP Server | REST API 服务 | ⬜ |
+| | MCP Client | 连接外部工具 | ⬜ |
 
 ---
 
@@ -376,6 +383,10 @@ packages/
 │       ├── tool/          # 工具系统
 │       ├── permission/    # 权限控制
 │       ├── provider/      # LLM 调用
+│       ├── context/       # 上下文管理
+│       ├── token/         # Token 管理
+│       ├── security/      # 安全系统
+│       ├── ux/            # 用户体验
 │       └── cli/           # 命令行
 └── vscode/                # VS Code 插件（未开始）
 ```
@@ -384,3 +395,4 @@ packages/
 
 - [OpenCode 架构调研](../docs/opencode-architecture.md)
 - [Zed AI 设计理念](../docs/zed-ai-philosophy.md)
+- [AI 协作开发指南](../Agent相关/AI协作开发指南.md)
