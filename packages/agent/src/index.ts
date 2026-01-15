@@ -48,6 +48,9 @@ export * from "./ux"
 // SubTask 子任务系统
 export * from "./subtask"
 
+// Interaction 交互工具
+export * from "./interaction"
+
 // CLI 运行器
 export {
   createRunner,
