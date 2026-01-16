@@ -51,8 +51,10 @@ export interface RunnerConfig {
   permissions?: Partial<PermissionSet>
   /** 确认回调 */
   onConfirm?: ConfirmCallback
-  /** 自动确认所有操作 */
+  /** 自动确认所有操作（静态值） */
   autoConfirm?: boolean
+  /** 自动确认状态（动态引用，优先级高于 autoConfirm） */
+  autoConfirmRef?: { value: boolean }
 }
 
 /**
@@ -87,6 +89,7 @@ export function createRunner(config: RunnerConfig) {
     permissions: customPermissions,
     onConfirm,
     autoConfirm = false,
+    autoConfirmRef,
   } = config
 
   // 注册内置工具
@@ -116,9 +119,10 @@ export function createRunner(config: RunnerConfig) {
       }
     : basePermissions
 
-  // 确认回调
+  // 确认回调（autoConfirmRef 优先级高于 autoConfirm）
   const confirmCallback: ConfirmCallback = async (request) => {
-    if (autoConfirm) {
+    const isAutoConfirm = autoConfirmRef ? autoConfirmRef.value : autoConfirm
+    if (isAutoConfirm) {
       return true
     }
     if (onConfirm) {

@@ -98,43 +98,66 @@ function printAIHeader(modelName: string): void {
 }
 
 /**
+ * 计算字符串显示宽度（中文算2，英文算1）
+ */
+function getDisplayWidth(str: string): number {
+  let width = 0
+  for (const char of str) {
+    // 中文、日文、韩文等宽字符
+    if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(char)) {
+      width += 2
+    } else {
+      width += 1
+    }
+  }
+  return width
+}
+
+/**
  * 打印欢迎界面
  */
 function printWelcome(config: ReplConfig, autoConfirm: boolean): void {
-  // 每行固定 19 字符（包含空格填充）
-  const W = 19
-  const pad = (s: string) => s + " ".repeat(Math.max(0, W - s.length))
-
-  const cat = [
-    pad("   /\\_____/\\"),
-    pad("  /  o   o  \\"),
-    pad(" ( ==  ^  == )"),
-    pad("  )         ("),
-    pad(" (           )"),
-    pad("( (  )   (  ) )"),
-    pad("(__(__)___(__)__)"),
-  ]
-
   const modeStr = autoConfirm
-    ? `\x1b[32m自动\x1b[0m`
-    : `\x1b[33m手动\x1b[0m`
+    ? `\x1b[92mauto\x1b[0m`
+    : `\x1b[93mmanual\x1b[0m`
 
-  const info = [
-    `\x1b[1mNaughtyAgent\x1b[0m v0.1.0`,
-    `\x1b[33m${config.agent}\x1b[0m · \x1b[36m${getProviderInfo()}\x1b[0m`,
-    `权限: ${modeStr}`,
-    `\x1b[90m${config.cwd}\x1b[0m`,
-    ``,
-    `\x1b[90m/help 查看命令\x1b[0m`,
-    ``,
+  // 猫咪 ASCII art
+  const cat = [
+    "  /\\_/\\  ",
+    " ( o.o ) ",
+    "  > ^ <  ",
+    " /|   |\\ ",
+    "(_|   |_)",
   ]
+
+  // 右侧信息（全英文）
+  const infoRaw = [
+    { text: `NaughtyAgent v0.1.0`, colored: `\x1b[1;95mNaughtyAgent\x1b[0m \x1b[90mv0.1.0\x1b[0m` },
+    { text: `${config.agent} · ${getProviderInfo()}`, colored: `\x1b[93m${config.agent}\x1b[0m · \x1b[96m${getProviderInfo()}\x1b[0m` },
+    { text: `mode: ${autoConfirm ? "auto" : "manual"}`, colored: `mode: ${modeStr}` },
+    { text: config.cwd, colored: `\x1b[92m${config.cwd}\x1b[0m` },
+    { text: `/help for commands`, colored: `\x1b[93m/help for commands\x1b[0m` },
+  ]
+
+  const W = 10  // 猫咪宽度
+  // 动态计算总宽度
+  const maxInfoWidth = Math.max(...infoRaw.map(i => i.text.length))
+  const totalWidth = W + 3 + maxInfoWidth + 3  // 猫咪 + 间隔 + 信息 + 右边距
+
+  // 填充右侧到固定宽度
+  const padRight = (text: string, colored: string, width: number) => {
+    const pad = width - text.length
+    return colored + " ".repeat(Math.max(0, pad))
+  }
 
   console.log()
-  console.log(`\x1b[90m╭${"─".repeat(W)}┬${"─".repeat(42)}╮\x1b[0m`)
+  console.log(`\x1b[90m╭${"─".repeat(totalWidth)}╮\x1b[0m`)
   for (let i = 0; i < cat.length; i++) {
-    console.log(`\x1b[90m│\x1b[36m${cat[i]}\x1b[90m│\x1b[0m ${info[i]}`)
+    const info = infoRaw[i] || { text: "", colored: "" }
+    const rightContent = padRight(info.text, info.colored, maxInfoWidth)
+    console.log(`\x1b[90m│\x1b[95m${cat[i]}\x1b[0m  ${rightContent}   \x1b[90m│\x1b[0m`)
   }
-  console.log(`\x1b[90m╰${"─".repeat(W)}┴${"─".repeat(42)}╯\x1b[0m`)
+  console.log(`\x1b[90m╰${"─".repeat(totalWidth)}╯\x1b[0m`)
   console.log()
 }
 
@@ -146,14 +169,15 @@ function printHelp(): void {
   console.log("\x1b[1m命令：\x1b[0m")
   console.log("  /help           显示帮助")
   console.log("  /cancel         取消当前任务")
-  console.log("  /agent <mode>   切换模式 (build/plan/explore)")
-  console.log("  /auto           切换自动/手动确认")
+  console.log("  /manual         切换为手动确认模式")
+  console.log("  /auto           切换为自动确认模式")
+  console.log("  /agent <mode>   切换 Agent (build/plan/explore)")
   console.log("  /run [file]     执行计划文件 (默认 plan.md)")
   console.log("  /clear          清屏")
   console.log("  /exit           退出")
   console.log("")
   console.log("\x1b[1m快捷键：\x1b[0m")
-  console.log("  Ctrl+C          取消任务（自动模式下同时切为手动）")
+  console.log("  Esc / Alt+P     切换为手动模式（任务执行中可用）")
   console.log("")
   console.log("\x1b[1m模式：\x1b[0m")
   console.log("  \x1b[33mbuild\x1b[0m    直接执行，边想边做")
@@ -342,10 +366,36 @@ function createOutputHandlers(spinner: ThinkingSpinner, modelName: string = "Cla
       if (isError) {
         console.log(`\x1b[31m✗\x1b[0m ${output.substring(0, 100)}`)
       } else {
-        const preview = output.length > 80 ? output.substring(0, 80) + "..." : output
-        // 简短显示结果
-        const firstLine = preview.split("\n")[0]
-        console.log(`\x1b[32m✓\x1b[0m \x1b[90m${firstLine}\x1b[0m`)
+        // 检查是否包含 diff（有 +/- 开头的行）
+        const hasDiff = output.includes("\n-") || output.includes("\n+")
+        if (hasDiff) {
+          // 显示带颜色和背景的 diff
+          const lines = output.split("\n")
+          console.log(`\x1b[32m✓\x1b[0m \x1b[90m${lines[0]}\x1b[0m`)
+          for (let i = 1; i < lines.length; i++) {
+            const line = lines[i]
+            if (line.startsWith("+++") || line.startsWith("---")) {
+              // 文件头：灰色
+              console.log(`\x1b[90m${line}\x1b[0m`)
+            } else if (line.startsWith("+")) {
+              // 新增行：绿色文字 + 淡绿背景
+              console.log(`\x1b[32;48;5;22m${line}\x1b[0m`)
+            } else if (line.startsWith("-")) {
+              // 删除行：红色文字 + 淡红背景
+              console.log(`\x1b[31;48;5;52m${line}\x1b[0m`)
+            } else if (line.startsWith("@@")) {
+              // 位置信息：青色
+              console.log(`\x1b[36m${line}\x1b[0m`)
+            } else {
+              // 上下文：灰色
+              console.log(`\x1b[90m${line}\x1b[0m`)
+            }
+          }
+        } else {
+          // 简短显示结果
+          const firstLine = output.split("\n")[0]
+          console.log(`\x1b[32m✓\x1b[0m \x1b[90m${firstLine}\x1b[0m`)
+        }
       }
 
       // 工具执行完后，开始等待下一轮 LLM 响应
@@ -405,14 +455,21 @@ export async function startRepl(config: ReplConfig): Promise<void> {
     }
   }
 
+  // 启用 keypress 事件
+  const { emitKeypressEvents } = await import("readline")
+  emitKeypressEvents(process.stdin)
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true)
+  }
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: "\x1b[32m>\x1b[0m ",
   })
 
-  // 默认手动模式
-  let autoConfirm = false
+  // 默认手动模式（使用对象引用以支持动态修改）
+  const autoConfirmRef = { value: false }
 
   // 可变状态
   let currentAgent = config.agent
@@ -426,9 +483,9 @@ export async function startRepl(config: ReplConfig): Promise<void> {
       case "allow":
         return true
       case "always":
-        // 切换为自动模式
-        autoConfirm = true
-        console.log(`\x1b[32m✓\x1b[0m 已切换为自动模式 \x1b[90m(/auto 或 Ctrl+C 切回手动)\x1b[0m`)
+        // 切换为自动模式（直接修改引用，立即生效）
+        autoConfirmRef.value = true
+        console.log(`\x1b[32m✓\x1b[0m 已切换为自动模式 \x1b[90m(Esc/Alt+P 切回手动)\x1b[0m`)
         return true
       case "skip":
         // 取消当前任务
@@ -447,28 +504,25 @@ export async function startRepl(config: ReplConfig): Promise<void> {
     cwd: config.cwd,
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseURL: process.env.ANTHROPIC_BASE_URL,
-    autoConfirm,
+    autoConfirmRef,
     onConfirm: handleConfirm,
   })
 
-  printWelcome(config, autoConfirm)
+  printWelcome(config, autoConfirmRef.value)
 
   let runner = makeRunner()
   const spinner = new ThinkingSpinner()
 
+  // 分隔线：区分 agent 信息和用户输入区域
+  console.log(`\x1b[90m${"─".repeat(60)}\x1b[0m\n`)
+
   /**
-   * 取消当前任务（自动模式下同时切换为手动）
+   * 取消当前任务
    */
   const cancelTask = () => {
     if (taskState.cancel()) {
       spinner.stop()
-      if (autoConfirm) {
-        autoConfirm = false
-        runner = makeRunner()
-        console.log("\n\x1b[33m⚠️  已取消，切换为手动模式\x1b[0m")
-      } else {
-        console.log("\n\x1b[33m⚠️  已取消\x1b[0m")
-      }
+      console.log("\n\x1b[33m⚠️  已取消\x1b[0m")
       rl.prompt()
     }
   }
@@ -535,19 +589,30 @@ export async function startRepl(config: ReplConfig): Promise<void> {
         case "clear":
         case "cls":
           console.clear()
-          printWelcome({ ...config, agent: currentAgent }, autoConfirm)
+          printWelcome({ ...config, agent: currentAgent }, autoConfirmRef.value)
+          if (!taskState.isRunning) rl.prompt()
+          return true
+
+        case "manual":
+        case "m":
+          if (!autoConfirmRef.value) {
+            console.log(`\n已经是手动确认模式\n`)
+          } else {
+            autoConfirmRef.value = false
+            console.log(`\n权限模式: \x1b[33m手动确认\x1b[0m (每次操作需确认)\n`)
+          }
           if (!taskState.isRunning) rl.prompt()
           return true
 
         case "auto":
         case "yes":
         case "y":
-          autoConfirm = !autoConfirm
-          runner = makeRunner()
-          const modeStr = autoConfirm
-            ? "\x1b[32m自动确认\x1b[0m (所有操作自动放行)"
-            : "\x1b[33m手动确认\x1b[0m (每次操作需确认)"
-          console.log(`\n权限模式: ${modeStr}\n`)
+          if (autoConfirmRef.value) {
+            console.log(`\n已经是自动确认模式\n`)
+          } else {
+            autoConfirmRef.value = true
+            console.log(`\n权限模式: \x1b[32m自动确认\x1b[0m (所有操作自动放行)\n`)
+          }
           if (!taskState.isRunning) rl.prompt()
           return true
 
@@ -649,6 +714,19 @@ export async function startRepl(config: ReplConfig): Promise<void> {
     } else {
       console.log("\n再见！🐱\n")
       rl.close()
+    }
+  })
+
+  // 快捷键处理
+  process.stdin.on("keypress", (_str, key) => {
+    if (!key) return
+
+    // Escape 或 Alt+P: 切换为手动模式
+    if (key.name === "escape" || (key.meta && key.name === "p")) {
+      if (autoConfirmRef.value) {
+        autoConfirmRef.value = false
+        console.log("\n\x1b[33m⚠️  已切换为手动模式\x1b[0m")
+      }
     }
   })
 }
