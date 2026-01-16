@@ -19,7 +19,7 @@ export interface DiffChange {
 }
 
 export class DiffProvider {
-  private readonly scheme = 'naughtagent-diff';
+  private readonly scheme = 'naughtyagent-diff';
   private contentProvider: vscode.TextDocumentContentProvider;
   private contents: Map<string, string> = new Map();
   private disposables: vscode.Disposable[] = [];

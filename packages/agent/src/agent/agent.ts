@@ -85,9 +85,9 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
     type: "plan",
     mode: "primary",
     name: "Plan",
-    description: "只读分析 Agent，用于规划和分析，不执行修改",
+    description: "规划分析 Agent，可读取代码并保存计划，不执行命令",
     systemPrompt: "",
-    tools: ["read", "glob", "grep"],
+    tools: ["read", "write", "glob", "grep"],  // 允许写入计划文件
     maxSteps: 50,
   },
   explore: {

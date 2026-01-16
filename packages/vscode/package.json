@@ -1,9 +1,9 @@
 {
-  "name": "naughtagent",
-  "displayName": "NaughtAgent",
+  "name": "naughtyagent",
+  "displayName": "NaughtyAgent",
   "description": "AI 编程助手 - 类似 Claude Code 的 VS Code 插件",
   "version": "0.1.0",
-  "publisher": "naughtagent",
+  "publisher": "naughtyagent",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -27,139 +27,139 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "naughtagent",
-          "title": "NaughtAgent",
+          "id": "naughtyagent",
+          "title": "NaughtyAgent",
           "icon": "resources/icon.svg"
         }
       ]
     },
     "views": {
-      "naughtagent": [
+      "naughtyagent": [
         {
           "type": "webview",
-          "id": "naughtagent.chatView",
+          "id": "naughtyagent.chatView",
           "name": "Chat"
         }
       ]
     },
     "commands": [
       {
-        "command": "naughtagent.openChat",
+        "command": "naughtyagent.openChat",
         "title": "打开 AI 助手",
-        "category": "NaughtAgent",
+        "category": "NaughtyAgent",
         "icon": "$(comment-discussion)"
       },
       {
-        "command": "naughtagent.askAboutSelection",
+        "command": "naughtyagent.askAboutSelection",
         "title": "询问选中代码",
-        "category": "NaughtAgent"
+        "category": "NaughtyAgent"
       },
       {
-        "command": "naughtagent.explainCode",
+        "command": "naughtyagent.explainCode",
         "title": "解释代码",
-        "category": "NaughtAgent"
+        "category": "NaughtyAgent"
       },
       {
-        "command": "naughtagent.fixCode",
+        "command": "naughtyagent.fixCode",
         "title": "修复代码",
-        "category": "NaughtAgent"
+        "category": "NaughtyAgent"
       },
       {
-        "command": "naughtagent.newChat",
+        "command": "naughtyagent.newChat",
         "title": "新建对话",
-        "category": "NaughtAgent",
+        "category": "NaughtyAgent",
         "icon": "$(add)"
       },
       {
-        "command": "naughtagent.clearChat",
+        "command": "naughtyagent.clearChat",
         "title": "清空对话",
-        "category": "NaughtAgent",
+        "category": "NaughtyAgent",
         "icon": "$(clear-all)"
       },
       {
-        "command": "naughtagent.selectSession",
+        "command": "naughtyagent.selectSession",
         "title": "选择会话",
-        "category": "NaughtAgent",
+        "category": "NaughtyAgent",
         "icon": "$(list-selection)"
       },
       {
-        "command": "naughtagent.newSession",
+        "command": "naughtyagent.newSession",
         "title": "新建会话",
-        "category": "NaughtAgent",
+        "category": "NaughtyAgent",
         "icon": "$(add)"
       },
       {
-        "command": "naughtagent.deleteSession",
+        "command": "naughtyagent.deleteSession",
         "title": "删除会话",
-        "category": "NaughtAgent",
+        "category": "NaughtyAgent",
         "icon": "$(trash)"
       },
       {
-        "command": "naughtagent.reconnect",
+        "command": "naughtyagent.reconnect",
         "title": "重新连接",
-        "category": "NaughtAgent",
+        "category": "NaughtyAgent",
         "icon": "$(refresh)"
       },
       {
-        "command": "naughtagent.showDaemonStatus",
+        "command": "naughtyagent.showDaemonStatus",
         "title": "显示 Daemon 状态",
-        "category": "NaughtAgent",
+        "category": "NaughtyAgent",
         "icon": "$(info)"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "naughtagent.askAboutSelection",
+          "command": "naughtyagent.askAboutSelection",
           "when": "editorHasSelection",
-          "group": "naughtagent@1"
+          "group": "naughtyagent@1"
         },
         {
-          "command": "naughtagent.explainCode",
+          "command": "naughtyagent.explainCode",
           "when": "editorHasSelection",
-          "group": "naughtagent@2"
+          "group": "naughtyagent@2"
         },
         {
-          "command": "naughtagent.fixCode",
+          "command": "naughtyagent.fixCode",
           "when": "editorHasSelection",
-          "group": "naughtagent@3"
+          "group": "naughtyagent@3"
         }
       ],
       "view/title": [
         {
-          "command": "naughtagent.newChat",
-          "when": "view == naughtagent.chatView",
+          "command": "naughtyagent.newChat",
+          "when": "view == naughtyagent.chatView",
           "group": "navigation"
         },
         {
-          "command": "naughtagent.clearChat",
-          "when": "view == naughtagent.chatView",
+          "command": "naughtyagent.clearChat",
+          "when": "view == naughtyagent.chatView",
           "group": "navigation"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "naughtagent.openChat",
+        "command": "naughtyagent.openChat",
         "key": "ctrl+shift+a",
         "mac": "cmd+shift+a"
       },
       {
-        "command": "naughtagent.askAboutSelection",
+        "command": "naughtyagent.askAboutSelection",
         "key": "ctrl+shift+e",
         "mac": "cmd+shift+e",
         "when": "editorHasSelection"
       }
     ],
     "configuration": {
-      "title": "NaughtAgent",
+      "title": "NaughtyAgent",
       "properties": {
-        "naughtagent.serverUrl": {
+        "naughtyagent.serverUrl": {
           "type": "string",
           "default": "",
           "description": "Agent Daemon 服务地址（留空使用默认 127.0.0.1:31415）"
         },
-        "naughtagent.defaultAgent": {
+        "naughtyagent.defaultAgent": {
           "type": "string",
           "enum": [
             "build",
@@ -169,42 +169,42 @@
           "default": "build",
           "description": "默认 Agent 类型"
         },
-        "naughtagent.autoConfirm.read": {
+        "naughtyagent.autoConfirm.read": {
           "type": "boolean",
           "default": true,
           "description": "自动确认读取文件操作"
         },
-        "naughtagent.autoConfirm.glob": {
+        "naughtyagent.autoConfirm.glob": {
           "type": "boolean",
           "default": true,
           "description": "自动确认文件搜索操作"
         },
-        "naughtagent.autoConfirm.grep": {
+        "naughtyagent.autoConfirm.grep": {
           "type": "boolean",
           "default": true,
           "description": "自动确认内容搜索操作"
         },
-        "naughtagent.autoConfirm.write": {
+        "naughtyagent.autoConfirm.write": {
           "type": "boolean",
           "default": false,
           "description": "自动确认写入文件操作"
         },
-        "naughtagent.autoConfirm.edit": {
+        "naughtyagent.autoConfirm.edit": {
           "type": "boolean",
           "default": false,
           "description": "自动确认编辑文件操作"
         },
-        "naughtagent.autoConfirm.bash": {
+        "naughtyagent.autoConfirm.bash": {
           "type": "boolean",
           "default": false,
           "description": "自动确认执行命令操作"
         },
-        "naughtagent.includeCurrentFile": {
+        "naughtyagent.includeCurrentFile": {
           "type": "boolean",
           "default": true,
           "description": "自动包含当前文件作为上下文"
         },
-        "naughtagent.includeSelection": {
+        "naughtyagent.includeSelection": {
           "type": "boolean",
           "default": true,
           "description": "自动包含选中代码作为上下文"

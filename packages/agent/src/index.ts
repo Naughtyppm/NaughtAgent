@@ -1,7 +1,7 @@
 /**
- * @naughtagent/agent
+ * @naughtyagent/agent
  *
- * NaughtAgent 核心 Agent 服务
+ * NaughtyAgent 核心 Agent 服务
  */
 
 // Tool 工具系统

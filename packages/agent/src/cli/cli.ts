@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * NaughtAgent CLI 入口
+ * NaughtyAgent CLI 入口
  *
  * 用法:
- *   naughtagent "你的问题"
- *   naughtagent daemon start|stop|status
- *   naughtagent sessions list|delete
- *   naughtagent --help
+ *   naughtyagent "你的问题"
+ *   naughtyagent daemon start|stop|status
+ *   naughtyagent sessions list|delete
+ *   naughtyagent --help
  *
  * 工作模式:
  *   - 如果 daemon 运行中，通过 WebSocket 连接 daemon
@@ -126,7 +126,7 @@ function printBanner(): void {
 (__(__)___(__)__)
 `
   console.log(cat)
-  console.log(`  NaughtAgent v0.1.0`)
+  console.log(`  NaughtyAgent v0.1.0`)
   console.log(`  AI 编程助手 🐱`)
   console.log(``)
 }
@@ -138,10 +138,10 @@ function printHelp(): void {
   printBanner()
   console.log(`
 用法:
-  naughtagent                     交互式对话模式（REPL）
-  naughtagent [选项] <消息>        单次对话模式
-  naughtagent daemon <命令>       后台服务管理
-  naughtagent sessions <命令>     会话管理
+  naughtyagent                     交互式对话模式（REPL）
+  naughtyagent [选项] <消息>        单次对话模式
+  naughtyagent daemon <命令>       后台服务管理
+  naughtyagent sessions <命令>     会话管理
 
 对话选项:
   -h, --help       显示帮助信息
@@ -171,10 +171,10 @@ REPL 命令:
   /exit           退出
 
 示例:
-  naughtagent                           进入交互模式
-  naughtagent "帮我创建一个 hello.ts"    单次对话
-  naughtagent --agent plan "分析架构"   使用 plan agent
-  naughtagent daemon start              启动后台服务
+  naughtyagent                           进入交互模式
+  naughtyagent "帮我创建一个 hello.ts"    单次对话
+  naughtyagent --agent plan "分析架构"   使用 plan agent
+  naughtyagent daemon start              启动后台服务
 
 环境变量:
   ANTHROPIC_API_KEY   Claude API Key（直接调用 Anthropic）
@@ -298,7 +298,7 @@ async function handleSessions(args: CLIArgs): Promise<void> {
     case "delete": {
       if (!args.sessionId) {
         console.error("错误: 请指定要删除的会话 ID")
-        console.log("用法: naughtagent sessions delete <session-id>")
+        console.log("用法: naughtyagent sessions delete <session-id>")
         return
       }
 
@@ -347,7 +347,7 @@ async function handleChat(args: CLIArgs): Promise<void> {
  */
 async function handleChatDaemon(args: CLIArgs): Promise<void> {
   console.log(``)
-  console.log(`🤖 NaughtAgent (${args.agent}) [daemon]`)
+  console.log(`🤖 NaughtyAgent (${args.agent}) [daemon]`)
   console.log(`📁 ${args.cwd}`)
   console.log(``)
 
@@ -408,7 +408,7 @@ async function handleChatDaemon(args: CLIArgs): Promise<void> {
  */
 async function handleChatStandalone(args: CLIArgs): Promise<void> {
   console.log(``)
-  console.log(`🤖 NaughtAgent (${args.agent}) [standalone]`)
+  console.log(`🤖 NaughtyAgent (${args.agent}) [standalone]`)
   console.log(`📁 ${args.cwd}`)
   console.log(``)
 

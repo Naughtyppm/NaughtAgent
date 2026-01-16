@@ -140,8 +140,8 @@ export class DaemonClient {
   private async startDaemon(): Promise<boolean> {
     return new Promise((resolve) => {
       try {
-        // 使用 npx 或全局安装的 naughtagent
-        const command = process.platform === 'win32' ? 'naughtagent.cmd' : 'naughtagent';
+        // 使用 npx 或全局安装的 naughtyagent
+        const command = process.platform === 'win32' ? 'naughtyagent.cmd' : 'naughtyagent';
 
         this.daemonProcess = spawn(command, ['daemon', 'start'], {
           detached: true,

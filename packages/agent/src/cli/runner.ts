@@ -56,6 +56,14 @@ export interface RunnerConfig {
 }
 
 /**
+ * 运行选项
+ */
+export interface RunOptions {
+  /** 取消信号 */
+  abort?: AbortSignal
+}
+
+/**
  * Runner 事件处理器
  */
 export interface RunnerEventHandlers {
@@ -129,7 +137,8 @@ export function createRunner(config: RunnerConfig) {
      */
     async run(
       input: string,
-      handlers: RunnerEventHandlers = {}
+      handlers: RunnerEventHandlers = {},
+      options: RunOptions = {}
     ): Promise<void> {
       // 创建或复用会话
       if (!session) {
@@ -144,12 +153,25 @@ export function createRunner(config: RunnerConfig) {
         runConfig: {
           sessionId: session.id,
           cwd,
+          abort: options.abort,
         },
       })
 
       // 处理事件
-      for await (const event of loop.run(input)) {
-        await handleEvent(event, handlers, permissions, confirmCallback)
+      try {
+        for await (const event of loop.run(input)) {
+          // 检查是否已取消
+          if (options.abort?.aborted) {
+            break
+          }
+          await handleEvent(event, handlers, permissions, confirmCallback)
+        }
+      } catch (error) {
+        // 如果是取消错误，忽略
+        if (options.abort?.aborted) {
+          return
+        }
+        throw error
       }
     },
 

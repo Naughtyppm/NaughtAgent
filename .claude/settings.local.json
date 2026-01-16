@@ -24,7 +24,30 @@
       "Bash(pnpm add:*)",
       "Bash(pnpm typecheck:*)",
       "Bash(pnpm test:*)",
-      "Bash(pnpm test:coverage:*)"
+      "Bash(pnpm test:coverage:*)",
+      "Bash(pnpm tsc:*)",
+      "Bash(pnpm build:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run build:*)",
+      "Bash(node dist/cli/cli.js:*)",
+      "Bash(KIRO_DEBUG=true node:*)",
+      "Bash(node -e \"\nconst fs = require\\(''fs''\\);\nconst path = require\\(''path''\\);\nconst os = require\\(''os''\\);\nconst crypto = require\\(''crypto''\\);\n\n// 读取 token\nconst cacheDir = path.join\\(os.homedir\\(\\), ''.aws'', ''sso'', ''cache''\\);\nconst files = fs.readdirSync\\(cacheDir\\).filter\\(f => f.endsWith\\(''.json''\\)\\);\nlet token = null;\n\nfor \\(const file of files\\) {\n  const data = JSON.parse\\(fs.readFileSync\\(path.join\\(cacheDir, file\\), ''utf-8''\\)\\);\n  if \\(data.accessToken && data.refreshToken\\) {\n    token = data;\n    break;\n  }\n}\n\nif \\(!token\\) {\n  console.log\\(''No token found''\\);\n  process.exit\\(1\\);\n}\n\nconsole.log\\(''Token found, expires:'', token.expiresAt\\);\n\n// 构建简单请求（无工具）\nconst machineId = crypto.createHash\\(''sha256''\\).update\\(''test-lite''\\).digest\\(''hex''\\).substring\\(0, 32\\);\n\nconst headers = {\n  ''content-type'': ''application/json'',\n  ''x-amzn-codewhisperer-optout'': ''true'',\n  ''x-amzn-kiro-agent-mode'': ''vibe'',\n  ''x-amz-user-agent'': ''aws-sdk-js/1.0.0 KiroIDE-1.7.1-'' + machineId,\n  ''user-agent'': ''aws-sdk-js/1.0.0 ua/2.1 os/windows lang/js api/codewhispererruntime#1.0.0 m/E KiroIDE-1.7.1-'' + machineId,\n  ''amz-sdk-invocation-id'': crypto.randomUUID\\(\\),\n  ''amz-sdk-request'': ''attempt=1; max=1'',\n  ''Authorization'': ''Bearer '' + token.accessToken,\n  ''Connection'': ''close'',\n};\n\nconst body = {\n  conversationState: {\n    agentContinuationId: crypto.randomUUID\\(\\),\n    agentTaskType: ''vibe'',\n    chatTriggerType: ''MANUAL'',\n    conversationId: crypto.randomUUID\\(\\),\n    currentMessage: {\n      userInputMessage: {\n        content: ''你好'',\n        modelId: ''claude-sonnet-4'',\n        origin: ''AI_EDITOR'',\n      }\n    },\n    history: [],\n  }\n};\n\nconsole.log\\(''Request body:'', JSON.stringify\\(body, null, 2\\)\\);\n\nfetch\\(''https://q.us-east-1.amazonaws.com/generateAssistantResponse'', {\n  method: ''POST'',\n  headers,\n  body: JSON.stringify\\(body\\),\n}\\).then\\(async res => {\n  console.log\\(''Status:'', res.status\\);\n  if \\(!res.ok\\) {\n    const text = await res.text\\(\\);\n    console.log\\(''Error:'', text\\);\n  } else {\n    const buffer = await res.arrayBuffer\\(\\);\n    console.log\\(''Response size:'', buffer.byteLength, ''bytes''\\);\n  }\n}\\).catch\\(err => {\n  console.log\\(''Fetch error:'', err.message\\);\n}\\);\n\")",
+      "Bash(node -e:*)",
+      "Bash(npm install)",
+      "Bash(npm test:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pnpm --filter @naughtagent/agent build:*)",
+      "Bash(pnpm start:*)",
+      "Bash(curl:*)",
+      "Bash(npm run package:*)",
+      "Bash(npm link)",
+      "Bash(naughtagent --version:*)",
+      "Bash(naughtagent daemon status:*)",
+      "Bash(naughtagent:*)",
+      "Bash(node:*)",
+      "Bash(pnpm run build)",
+      "Bash(git reset:*)",
+      "Bash(naughtyagent --version:*)"
     ]
   }
 }

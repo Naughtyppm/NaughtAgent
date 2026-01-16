@@ -1,7 +1,7 @@
 /**
  * MCP Tools 集成
  *
- * 将 MCP 工具转换为 NaughtAgent 工具格式
+ * 将 MCP 工具转换为 NaughtyAgent 工具格式
  */
 
 import { Tool } from "../tool/tool"

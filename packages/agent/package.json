@@ -1,12 +1,12 @@
 {
-  "name": "@naughtagent/agent",
+  "name": "@naughtyagent/agent",
   "version": "0.1.0",
-  "description": "NaughtAgent 核心 Agent 服务",
+  "description": "NaughtyAgent 核心 Agent 服务",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "naughtagent": "./dist/cli/cli.js"
+    "naughtyagent": "./dist/cli/cli.js"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",

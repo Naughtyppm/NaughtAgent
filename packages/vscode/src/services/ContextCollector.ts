@@ -39,7 +39,7 @@ export class ContextCollector {
    */
   async collect(): Promise<CollectedContext> {
     const context: CollectedContext = {};
-    const config = vscode.workspace.getConfiguration('naughtagent');
+    const config = vscode.workspace.getConfiguration('naughtyagent');
 
     // 工作区信息
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];

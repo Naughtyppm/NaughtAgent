@@ -3,7 +3,7 @@
  *
  * 全局会话管理，支持：
  * - 按 cwd 路由会话
- * - 会话持久化到 ~/.naughtagent/sessions/
+ * - 会话持久化到 ~/.naughtyagent/sessions/
  * - 多客户端共享会话
  */
 
@@ -17,7 +17,7 @@ import type { AgentType } from "../agent"
 // 配置
 // ============================================================================
 
-const NAUGHT_DIR = path.join(os.homedir(), ".naughtagent")
+const NAUGHT_DIR = path.join(os.homedir(), ".naughtyagent")
 const SESSIONS_DIR = path.join(NAUGHT_DIR, "sessions")
 
 // ============================================================================

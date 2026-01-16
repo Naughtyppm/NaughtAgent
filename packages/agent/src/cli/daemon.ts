@@ -1,5 +1,5 @@
 /**
- * NaughtAgent Daemon - 后台服务
+ * NaughtyAgent Daemon - 后台服务
  *
  * 提供 HTTP API 和 WebSocket，支持多客户端连接
  *
@@ -20,7 +20,7 @@ import type { ServerConfig } from "../server/types"
 // ============================================================================
 
 const DEFAULT_PORT = 31415  // 用 π 的前几位，好记又不容易冲突
-const NAUGHT_DIR = path.join(os.homedir(), ".naughtagent")
+const NAUGHT_DIR = path.join(os.homedir(), ".naughtyagent")
 const PID_FILE = path.join(NAUGHT_DIR, "daemon.pid")
 const LOG_FILE = path.join(NAUGHT_DIR, "daemon.log")
 const PORT_FILE = path.join(NAUGHT_DIR, "daemon.port")
@@ -160,7 +160,7 @@ export async function startDaemon(config?: Partial<DaemonFullConfig>): Promise<v
   // 清理旧的 PID 文件
   removePidFile()
 
-  log(`Starting NaughtAgent Daemon...`)
+  log(`Starting NaughtyAgent Daemon...`)
 
   // 获取 API Key
   const claudeApiKey = config?.claudeApiKey || savedConfig.claudeApiKey || process.env.ANTHROPIC_API_KEY || ""
@@ -186,7 +186,7 @@ export async function startDaemon(config?: Partial<DaemonFullConfig>): Promise<v
 
     console.log(``)
     console.log(`  ╭─────────────────────────────────────╮`)
-    console.log(`  │       NaughtAgent Daemon            │`)
+    console.log(`  │       NaughtyAgent Daemon            │`)
     console.log(`  ├─────────────────────────────────────┤`)
     console.log(`  │  Status:  Running                   │`)
     console.log(`  │  PID:     ${String(process.pid).padEnd(27)}│`)
@@ -336,7 +336,7 @@ export async function printStatus(): Promise<void> {
   console.log(``)
   if (status.running) {
     console.log(`  ╭─────────────────────────────────────╮`)
-    console.log(`  │       NaughtAgent Daemon            │`)
+    console.log(`  │       NaughtyAgent Daemon            │`)
     console.log(`  ├─────────────────────────────────────┤`)
     console.log(`  │  Status:  Running ✓                 │`)
     console.log(`  │  PID:     ${String(status.pid).padEnd(27)}│`)
@@ -345,7 +345,7 @@ export async function printStatus(): Promise<void> {
     console.log(`  ╰─────────────────────────────────────╯`)
   } else {
     console.log(`  ╭─────────────────────────────────────╮`)
-    console.log(`  │       NaughtAgent Daemon            │`)
+    console.log(`  │       NaughtyAgent Daemon            │`)
     console.log(`  ├─────────────────────────────────────┤`)
     console.log(`  │  Status:  Stopped                   │`)
     console.log(`  │                                     │`)

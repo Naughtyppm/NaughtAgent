@@ -1,5 +1,5 @@
 /**
- * NaughtAgent VS Code Extension
+ * NaughtyAgent VS Code Extension
  *
  * 入口文件
  */
@@ -20,10 +20,10 @@ let diffProvider: DiffProvider | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log('NaughtAgent is now active!');
+  console.log('NaughtyAgent is now active!');
 
   // 获取配置
-  const config = vscode.workspace.getConfiguration('naughtagent');
+  const config = vscode.workspace.getConfiguration('naughtyagent');
   const serverUrl = config.get<string>('serverUrl', '');
 
   // 创建服务实例
@@ -68,7 +68,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 注册会话相关命令
   context.subscriptions.push(
-    vscode.commands.registerCommand('naughtagent.selectSession', async () => {
+    vscode.commands.registerCommand('naughtyagent.selectSession', async () => {
       const session = await sessionPicker.pick({
         allowCreate: true,
         filterByCwd: true,
@@ -88,7 +88,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('naughtagent.newSession', async () => {
+    vscode.commands.registerCommand('naughtyagent.newSession', async () => {
       const session = await sessionPicker.createNewSession();
       if (session) {
         try {
@@ -103,13 +103,13 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('naughtagent.deleteSession', async () => {
+    vscode.commands.registerCommand('naughtyagent.deleteSession', async () => {
       await sessionPicker.deleteSession();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('naughtagent.reconnect', async () => {
+    vscode.commands.registerCommand('naughtyagent.reconnect', async () => {
       const success = await daemonClient!.reconnect();
       if (success) {
         vscode.window.showInformationMessage('已重新连接到 Daemon');
@@ -120,7 +120,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('naughtagent.showDaemonStatus', async () => {
+    vscode.commands.registerCommand('naughtyagent.showDaemonStatus', async () => {
       const status = daemonClient!.getStatus();
       const message = `Daemon 状态: ${status.status}${
         status.pid ? ` (PID: ${status.pid})` : ''
@@ -132,9 +132,9 @@ export function activate(context: vscode.ExtensionContext) {
   // 监听配置变化
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('naughtagent.serverUrl')) {
+      if (e.affectsConfiguration('naughtyagent.serverUrl')) {
         const newUrl = vscode.workspace
-          .getConfiguration('naughtagent')
+          .getConfiguration('naughtyagent')
           .get<string>('serverUrl', '');
 
         const newConfig = newUrl
@@ -147,7 +147,7 @@ export function activate(context: vscode.ExtensionContext) {
         agentClient?.updateConfig(newConfig);
 
         vscode.window.showInformationMessage(
-          `NaughtAgent: 服务地址已更新为 ${newConfig.baseURL}`
+          `NaughtyAgent: 服务地址已更新为 ${newConfig.baseURL}`
         );
       }
     })
@@ -158,7 +158,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.StatusBarAlignment.Right,
     100
   );
-  statusBarItem.command = 'naughtagent.showDaemonStatus';
+  statusBarItem.command = 'naughtyagent.showDaemonStatus';
   context.subscriptions.push(statusBarItem);
 
   // 监听 Daemon 状态变化
@@ -191,7 +191,7 @@ async function initializeDaemon(): Promise<void> {
   const success = await daemonClient.initialize();
   if (!success) {
     vscode.window.showWarningMessage(
-      'NaughtAgent: 无法连接到 Daemon 服务。请确保已安装 naughtagent CLI。',
+      'NaughtyAgent: 无法连接到 Daemon 服务。请确保已安装 naughtyagent CLI。',
       '重试',
       '忽略'
     ).then((action) => {
@@ -210,32 +210,32 @@ function updateStatusBar(status: string): void {
 
   switch (status) {
     case 'connected':
-      statusBarItem.text = '$(check) NaughtAgent';
-      statusBarItem.tooltip = 'NaughtAgent: 已连接';
+      statusBarItem.text = '$(check) NaughtyAgent';
+      statusBarItem.tooltip = 'NaughtyAgent: 已连接';
       statusBarItem.backgroundColor = undefined;
       break;
     case 'connecting':
-      statusBarItem.text = '$(sync~spin) NaughtAgent';
-      statusBarItem.tooltip = 'NaughtAgent: 连接中...';
+      statusBarItem.text = '$(sync~spin) NaughtyAgent';
+      statusBarItem.tooltip = 'NaughtyAgent: 连接中...';
       statusBarItem.backgroundColor = undefined;
       break;
     case 'disconnected':
-      statusBarItem.text = '$(debug-disconnect) NaughtAgent';
-      statusBarItem.tooltip = 'NaughtAgent: 未连接 (点击查看状态)';
+      statusBarItem.text = '$(debug-disconnect) NaughtyAgent';
+      statusBarItem.tooltip = 'NaughtyAgent: 未连接 (点击查看状态)';
       statusBarItem.backgroundColor = new vscode.ThemeColor(
         'statusBarItem.warningBackground'
       );
       break;
     case 'error':
-      statusBarItem.text = '$(error) NaughtAgent';
-      statusBarItem.tooltip = 'NaughtAgent: 连接错误 (点击查看状态)';
+      statusBarItem.text = '$(error) NaughtyAgent';
+      statusBarItem.tooltip = 'NaughtyAgent: 连接错误 (点击查看状态)';
       statusBarItem.backgroundColor = new vscode.ThemeColor(
         'statusBarItem.errorBackground'
       );
       break;
     default:
-      statusBarItem.text = '$(hubot) NaughtAgent';
-      statusBarItem.tooltip = 'NaughtAgent';
+      statusBarItem.text = '$(hubot) NaughtyAgent';
+      statusBarItem.tooltip = 'NaughtyAgent';
       statusBarItem.backgroundColor = undefined;
   }
 

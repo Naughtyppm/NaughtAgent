@@ -24,7 +24,7 @@ interface ChatMessage {
 }
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'naughtagent.chatView';
+  public static readonly viewType = 'naughtyagent.chatView';
 
   private _view?: vscode.WebviewView;
   private messages: ChatMessage[] = [];
@@ -95,7 +95,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // 确保有会话
     if (!this.agentClient.getSessionId()) {
       try {
-        const config = vscode.workspace.getConfiguration('naughtagent');
+        const config = vscode.workspace.getConfiguration('naughtyagent');
         const agentType = config.get<string>('defaultAgent', 'build');
         await this.agentClient.createSession(workspaceRoot, agentType);
         await this.agentClient.connect();

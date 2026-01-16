@@ -1,8 +1,8 @@
 {
-  "name": "naughtagent",
+  "name": "naughtyagent",
   "version": "0.1.0",
   "private": true,
-  "description": "AI 编程助手 - 类似 Claude Code",
+  "description": "NaughtyAgent - AI 编程助手",
   "scripts": {
     "dev": "pnpm -C packages/agent dev",
     "build": "pnpm -C packages/agent build",
