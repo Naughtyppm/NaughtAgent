@@ -105,15 +105,18 @@ describe('CLI', () => {
   describe('createOutputHandlers', () => {
     let consoleSpy: ReturnType<typeof vi.spyOn>
     let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+    let stdoutSpy: ReturnType<typeof vi.spyOn>
 
     beforeEach(() => {
       consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     })
 
     afterEach(() => {
       consoleSpy.mockRestore()
       consoleErrorSpy.mockRestore()
+      stdoutSpy.mockRestore()
     })
 
     it('should create handlers object', () => {
@@ -132,7 +135,7 @@ describe('CLI', () => {
 
       handlers.onText!('Hello world')
 
-      expect(consoleSpy).toHaveBeenCalledWith('\nHello world')
+      expect(stdoutSpy).toHaveBeenCalledWith('Hello world')
     })
 
     it('onToolStart should log tool name and input', () => {

@@ -24,6 +24,8 @@ export namespace Tool {
     title: string
     /** 主要输出内容 */
     output: string
+    /** 是否为错误结果（可选） */
+    isError?: boolean
     /** 元数据（可选） */
     metadata?: Record<string, unknown>
   }

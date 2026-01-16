@@ -12,7 +12,7 @@
 import { z } from "zod"
 import { Tool } from "../tool/tool"
 import { invokeTodoUpdateCallback } from "./callbacks"
-import type { TodoItem, TodoList, TodoStatus, TodoAction } from "./types"
+import type { TodoItem, TodoList, TodoStatus } from "./types"
 
 const DESCRIPTION = `Manage a task list to track progress on complex tasks.
 

@@ -14,6 +14,50 @@ import {
   DEFAULT_TOKEN_LIMITS,
 } from "../../src/token"
 import type { Message } from "../../src/session"
+import { createUserMessage, createAssistantMessage } from "../../src/session"
+
+// Helper to create test messages with proper structure
+function createTestUserMessage(text: string): Message {
+  return {
+    id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    role: "user",
+    content: [{ type: "text", text }],
+    timestamp: Date.now(),
+  }
+}
+
+function createTestAssistantMessage(text: string): Message {
+  return {
+    id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    role: "assistant",
+    content: [{ type: "text", text }],
+    timestamp: Date.now(),
+  }
+}
+
+function createTestAssistantMessageWithToolCall(
+  text: string,
+  toolCall: { id: string; name: string; input: unknown }
+): Message {
+  return {
+    id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    role: "assistant",
+    content: [
+      { type: "text", text },
+      { type: "tool_use", id: toolCall.id, name: toolCall.name, input: toolCall.input },
+    ],
+    timestamp: Date.now(),
+  }
+}
+
+function createTestToolResultMessage(toolUseId: string, content: string): Message {
+  return {
+    id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: toolUseId, content }],
+    timestamp: Date.now(),
+  }
+}
 
 describe("Token", () => {
   describe("estimateTokens", () => {
@@ -57,46 +101,30 @@ describe("Token", () => {
 
   describe("countMessageTokens", () => {
     it("should count user message tokens", () => {
-      const message: Message = {
-        role: "user",
-        content: "Hello world",
-      }
+      const message = createTestUserMessage("Hello world")
       const tokens = countMessageTokens(message)
       expect(tokens).toBeGreaterThan(4) // MESSAGE_OVERHEAD
     })
 
     it("should count assistant message tokens", () => {
-      const message: Message = {
-        role: "assistant",
-        content: "Hello! How can I help?",
-      }
+      const message = createTestAssistantMessage("Hello! How can I help?")
       const tokens = countMessageTokens(message)
       expect(tokens).toBeGreaterThan(4)
     })
 
     it("should count assistant message with tool calls", () => {
-      const message: Message = {
-        role: "assistant",
-        content: "Let me read that file.",
-        toolCalls: [
-          {
-            id: "call_1",
-            name: "read",
-            args: { filePath: "/test.txt" },
-          },
-        ],
-      }
+      const message = createTestAssistantMessageWithToolCall("Let me read that file.", {
+        id: "call_1",
+        name: "read",
+        input: { filePath: "/test.txt" },
+      })
       const tokens = countMessageTokens(message)
       // Should include tool call overhead
       expect(tokens).toBeGreaterThan(20)
     })
 
     it("should count tool result message tokens", () => {
-      const message: Message = {
-        role: "tool",
-        toolCallId: "call_1",
-        content: "File content here",
-      }
+      const message = createTestToolResultMessage("call_1", "File content here")
       const tokens = countMessageTokens(message)
       expect(tokens).toBeGreaterThan(4)
     })
@@ -105,9 +133,9 @@ describe("Token", () => {
   describe("countMessagesTokens", () => {
     it("should count multiple messages", () => {
       const messages: Message[] = [
-        { role: "user", content: "Hello" },
-        { role: "assistant", content: "Hi there!" },
-        { role: "user", content: "How are you?" },
+        createTestUserMessage("Hello"),
+        createTestAssistantMessage("Hi there!"),
+        createTestUserMessage("How are you?"),
       ]
       const tokens = countMessagesTokens(messages)
       expect(tokens).toBeGreaterThan(12) // 3 * MESSAGE_OVERHEAD
@@ -141,8 +169,8 @@ describe("Token", () => {
       const context = {
         system: "You are a helpful assistant.",
         messages: [
-          { role: "user" as const, content: "Hello" },
-          { role: "assistant" as const, content: "Hi!" },
+          createTestUserMessage("Hello"),
+          createTestAssistantMessage("Hi!"),
         ],
         tools: [
           {
@@ -162,7 +190,7 @@ describe("Token", () => {
 
     it("should handle missing optional fields", () => {
       const context = {
-        messages: [{ role: "user" as const, content: "Hello" }],
+        messages: [createTestUserMessage("Hello")],
       }
       const count = countContextTokens(context)
 
@@ -209,11 +237,11 @@ describe("Token", () => {
   describe("truncateDropOld", () => {
     it("should keep recent messages within limit", () => {
       const messages: Message[] = [
-        { role: "user", content: "This is a longer message that should take more tokens to represent" },
-        { role: "assistant", content: "This is also a longer response with more content" },
-        { role: "user", content: "Another message with substantial content here" },
-        { role: "assistant", content: "Yet another response that adds to the token count" },
-        { role: "user", content: "Final message" },
+        createTestUserMessage("This is a longer message that should take more tokens to represent"),
+        createTestAssistantMessage("This is also a longer response with more content"),
+        createTestUserMessage("Another message with substantial content here"),
+        createTestAssistantMessage("Yet another response that adds to the token count"),
+        createTestUserMessage("Final message"),
       ]
 
       // Very small limit to force truncation
@@ -222,13 +250,15 @@ describe("Token", () => {
       expect(result.messages.length).toBeLessThan(messages.length)
       expect(result.removedCount).toBeGreaterThan(0)
       // Should keep the most recent messages
-      expect(result.messages[result.messages.length - 1].content).toBe("Final message")
+      const lastContent = result.messages[result.messages.length - 1].content
+      const lastText = lastContent.find((b) => b.type === "text")
+      expect(lastText && "text" in lastText ? lastText.text : "").toBe("Final message")
     })
 
     it("should keep all messages if under limit", () => {
       const messages: Message[] = [
-        { role: "user", content: "Hi" },
-        { role: "assistant", content: "Hello" },
+        createTestUserMessage("Hi"),
+        createTestAssistantMessage("Hello"),
       ]
 
       const result = truncateDropOld(messages, 10000)
@@ -241,25 +271,31 @@ describe("Token", () => {
   describe("truncateSlidingWindow", () => {
     it("should keep only recent N messages", () => {
       const messages: Message[] = [
-        { role: "user", content: "Message 1" },
-        { role: "assistant", content: "Response 1" },
-        { role: "user", content: "Message 2" },
-        { role: "assistant", content: "Response 2" },
-        { role: "user", content: "Message 3" },
+        createTestUserMessage("Message 1"),
+        createTestAssistantMessage("Response 1"),
+        createTestUserMessage("Message 2"),
+        createTestAssistantMessage("Response 2"),
+        createTestUserMessage("Message 3"),
       ]
 
       const result = truncateSlidingWindow(messages, 2)
 
       expect(result.messages.length).toBe(2)
       expect(result.removedCount).toBe(3)
-      expect(result.messages[0].content).toBe("Response 2")
-      expect(result.messages[1].content).toBe("Message 3")
+
+      const firstContent = result.messages[0].content
+      const firstText = firstContent.find((b) => b.type === "text")
+      expect(firstText && "text" in firstText ? firstText.text : "").toBe("Response 2")
+
+      const lastContent = result.messages[1].content
+      const lastText = lastContent.find((b) => b.type === "text")
+      expect(lastText && "text" in lastText ? lastText.text : "").toBe("Message 3")
     })
 
     it("should keep all if count exceeds length", () => {
       const messages: Message[] = [
-        { role: "user", content: "Hi" },
-        { role: "assistant", content: "Hello" },
+        createTestUserMessage("Hi"),
+        createTestAssistantMessage("Hello"),
       ]
 
       const result = truncateSlidingWindow(messages, 10)
@@ -272,9 +308,9 @@ describe("Token", () => {
   describe("truncateMessages", () => {
     it("should use drop_old strategy by default", () => {
       const messages: Message[] = [
-        { role: "user", content: "Message 1" },
-        { role: "assistant", content: "Response 1" },
-        { role: "user", content: "Message 2" },
+        createTestUserMessage("Message 1"),
+        createTestAssistantMessage("Response 1"),
+        createTestUserMessage("Message 2"),
       ]
 
       const result = truncateMessages(messages, { targetTokens: 30 })
@@ -284,10 +320,10 @@ describe("Token", () => {
 
     it("should use sliding_window strategy", () => {
       const messages: Message[] = [
-        { role: "user", content: "Message 1" },
-        { role: "assistant", content: "Response 1" },
-        { role: "user", content: "Message 2" },
-        { role: "assistant", content: "Response 2" },
+        createTestUserMessage("Message 1"),
+        createTestAssistantMessage("Response 1"),
+        createTestUserMessage("Message 2"),
+        createTestAssistantMessage("Response 2"),
       ]
 
       const result = truncateMessages(messages, {
@@ -323,8 +359,8 @@ describe("Token", () => {
     it("should count messages", () => {
       const manager = createTokenManager()
       const messages: Message[] = [
-        { role: "user", content: "Hello" },
-        { role: "assistant", content: "Hi!" },
+        createTestUserMessage("Hello"),
+        createTestAssistantMessage("Hi!"),
       ]
       const tokens = manager.countMessages(messages)
 
@@ -335,7 +371,7 @@ describe("Token", () => {
       const manager = createTokenManager()
       const count = manager.countContext({
         system: "You are helpful",
-        messages: [{ role: "user", content: "Hello" }],
+        messages: [createTestUserMessage("Hello")],
       })
 
       expect(count.total).toBeGreaterThan(0)
@@ -358,9 +394,9 @@ describe("Token", () => {
     it("should truncate messages", () => {
       const manager = createTokenManager()
       const messages: Message[] = [
-        { role: "user", content: "Message 1" },
-        { role: "assistant", content: "Response 1" },
-        { role: "user", content: "Message 2" },
+        createTestUserMessage("Message 1"),
+        createTestAssistantMessage("Response 1"),
+        createTestUserMessage("Message 2"),
       ]
 
       const result = manager.truncate(messages, { targetTokens: 30 })

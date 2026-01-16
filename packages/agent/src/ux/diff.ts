@@ -48,12 +48,12 @@ export interface DiffOptions {
 /**
  * Diff 行类型
  */
-type DiffLineType = "context" | "addition" | "deletion" | "header" | "hunk"
+export type DiffLineType = "context" | "addition" | "deletion" | "header" | "hunk"
 
 /**
  * Diff 行
  */
-interface DiffLine {
+export interface DiffLine {
   type: DiffLineType
   content: string
   oldLineNo?: number

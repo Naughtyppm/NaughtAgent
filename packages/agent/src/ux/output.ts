@@ -199,7 +199,7 @@ export function createStreamOutput(config: OutputConfig = {}): StreamOutput {
   /**
    * 写入工具调用结束
    */
-  function writeToolEnd(name: string, output: string, isError?: boolean): void {
+  function writeToolEnd(_name: string, output: string, isError?: boolean): void {
     const icon = isError ? "✗" : "✓"
     const iconColor = isError ? ANSI.red : ANSI.green
     const reset = useColors ? ANSI.reset : ""

@@ -110,14 +110,17 @@ export const TaskTool = Tool.define({
       throw new Error("Task runtime not configured. Call setTaskRuntime() first.")
     }
 
+    // 确保 mode 有默认值
+    const mode = params.mode || "agent"
+
     // 构建子任务配置
-    const config = buildSubTaskConfig(params, ctx.cwd)
+    const config = buildSubTaskConfig({ ...params, mode }, ctx.cwd)
 
     // 执行子任务
     const result = await runSubTask(config, taskRuntime)
 
     // 格式化输出
-    const output = formatTaskOutput(result, params.mode)
+    const output = formatTaskOutput(result, mode)
 
     return {
       title: `${params.mode} task`,

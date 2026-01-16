@@ -6,8 +6,6 @@
 
 import type {
   InteractionCallbacks,
-  QuestionCallback,
-  TodoUpdateCallback,
   Question,
   QuestionResult,
   TodoList,

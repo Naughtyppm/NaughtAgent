@@ -7,7 +7,8 @@
  * - 压缩会话历史
  */
 
-import type { Message, AssistantMessage } from "../session/message"
+import type { Message } from "../session/message"
+import { getMessageText, getToolCalls } from "../session/message"
 
 // ============================================================================
 // Types
@@ -143,29 +144,26 @@ export function estimateTokens(text: string): number {
 export function countMessageTokens(message: Message): number {
   let tokens = MESSAGE_OVERHEAD
 
-  switch (message.role) {
-    case "user":
-      tokens += estimateTokens(message.content)
-      break
+  // 计算文本内容
+  const text = getMessageText(message)
+  tokens += estimateTokens(text)
 
-    case "assistant": {
-      const assistantMsg = message as AssistantMessage
-      tokens += estimateTokens(assistantMsg.content)
-      // 工具调用
-      if (assistantMsg.toolCalls) {
-        for (const toolCall of assistantMsg.toolCalls) {
-          tokens += estimateTokens(toolCall.name)
-          tokens += estimateTokens(JSON.stringify(toolCall.args))
-          tokens += 10 // 工具调用结构开销
-        }
-      }
-      break
+  // 计算工具调用
+  if (message.role === "assistant") {
+    const toolCalls = getToolCalls(message)
+    for (const toolCall of toolCalls) {
+      tokens += estimateTokens(toolCall.name)
+      tokens += estimateTokens(JSON.stringify(toolCall.input))
+      tokens += 10 // 工具调用结构开销
     }
+  }
 
-    case "tool":
-      tokens += estimateTokens(message.content)
-      tokens += 5 // tool_call_id 等开销
-      break
+  // 计算工具结果
+  for (const block of message.content) {
+    if (block.type === "tool_result") {
+      tokens += estimateTokens(block.content)
+      tokens += 5 // tool_use_id 等开销
+    }
   }
 
   return tokens

@@ -20,22 +20,27 @@ vi.mock('../../src/agent', async (importOriginal) => {
 })
 
 // Mock the provider module
+const mockProvider = {
+  type: 'anthropic' as const,
+  chat: vi.fn(async () => ({
+    text: 'Hello! I am here to help.',
+    toolCalls: [],
+    usage: { inputTokens: 10, outputTokens: 20 },
+  })),
+  stream: vi.fn(async function* () {
+    yield { type: 'text', text: 'Hello' }
+    yield { type: 'message_end', usage: { inputTokens: 10, outputTokens: 20 } }
+  }),
+}
+
 vi.mock('../../src/provider', () => ({
-  Provider: {
-    createAnthropicProvider: vi.fn(() => ({
-      chat: vi.fn(async () => ({
-        text: 'Hello! I am here to help.',
-        toolCalls: [],
-        usage: { inputTokens: 10, outputTokens: 20 },
-      })),
-      stream: vi.fn(),
-    })),
-    DEFAULT_MODEL: {
-      provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
-      temperature: 0,
-      maxTokens: 8192,
-    },
+  createProvider: vi.fn(() => mockProvider),
+  createProviderFromEnv: vi.fn(() => mockProvider),
+  DEFAULT_MODEL: {
+    provider: 'auto',
+    model: 'claude-sonnet-4-20250514',
+    temperature: 0,
+    maxTokens: 8192,
   },
 }))
 

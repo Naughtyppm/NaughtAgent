@@ -14,7 +14,17 @@ import type { AgentDefinition, AgentEvent, AgentRunConfig, TokenUsage } from "./
 import { buildSystemPrompt } from "./prompt"
 import { Tool } from "../tool/tool"
 import { ToolRegistry } from "../tool/registry"
-import { Provider } from "../provider/provider"
+import type {
+  LLMProvider,
+  ToolDefinition,
+  Message,
+  ChatResult,
+  MessageContent,
+  TextContent,
+  ToolUseContent,
+  ToolResultContent,
+} from "../provider"
+import { DEFAULT_MODEL } from "../provider"
 import type { Session } from "../session/session"
 import {
   addMessage,
@@ -33,7 +43,7 @@ export interface AgentLoopConfig {
   /** 会话 */
   session: Session
   /** Provider 实例 */
-  provider: ReturnType<typeof Provider.createAnthropicProvider>
+  provider: LLMProvider
   /** 运行配置 */
   runConfig: AgentRunConfig
 }
@@ -53,7 +63,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
   /**
    * 获取可用工具定义（给 LLM）
    */
-  function getToolDefinitions(): Provider.ToolDefinition[] {
+  function getToolDefinitions(): ToolDefinition[] {
     return definition.tools
       .map((toolId) => {
         const tool = ToolRegistry.get(toolId)
@@ -64,7 +74,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
           parameters: tool.parameters,
         }
       })
-      .filter((t): t is Provider.ToolDefinition => t !== null)
+      .filter((t): t is ToolDefinition => t !== null)
   }
 
   /**
@@ -97,18 +107,37 @@ export function createAgentLoop(config: AgentLoopConfig) {
   /**
    * 将会话消息转换为 Provider 消息格式
    */
-  function convertMessages(): Provider.Message[] {
+  function convertMessages(): Message[] {
     return session.messages.map((msg) => {
       if (msg.role === "user") {
-        // 用户消息：提取文本
-        const textContent = msg.content
-          .filter((b): b is { type: "text"; text: string } => b.type === "text")
-          .map((b) => b.text)
-          .join("")
-        return { role: "user" as const, content: textContent }
+        // 用户消息：提取文本或工具结果
+        const textParts: string[] = []
+        const toolResults: ToolResultContent[] = []
+
+        for (const block of msg.content) {
+          if (block.type === "text") {
+            textParts.push(block.text)
+          } else if (block.type === "tool_result") {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: block.tool_use_id,
+              content: block.content,
+              is_error: block.is_error,
+            })
+          }
+        }
+
+        // 如果有工具结果，返回数组格式
+        if (toolResults.length > 0) {
+          const content: MessageContent = toolResults
+          return { role: "user" as const, content }
+        }
+
+        // 否则返回纯文本
+        return { role: "user" as const, content: textParts.join("") }
       } else {
         // 助手消息：转换内容块
-        const content: Array<{ type: string; [key: string]: unknown }> = []
+        const content: Array<TextContent | ToolUseContent> = []
 
         for (const block of msg.content) {
           if (block.type === "text") {
@@ -119,13 +148,6 @@ export function createAgentLoop(config: AgentLoopConfig) {
               id: block.id,
               name: block.name,
               input: block.input,
-            })
-          } else if (block.type === "tool_result") {
-            content.push({
-              type: "tool_result",
-              tool_use_id: block.tool_use_id,
-              content: block.content,
-              is_error: block.is_error,
             })
           }
         }
@@ -144,7 +166,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
 
     const systemPrompt = buildSystemPrompt(definition, { cwd: runConfig.cwd })
     const tools = getToolDefinitions()
-    const modelConfig = definition.model || Provider.DEFAULT_MODEL
+    const modelConfig = definition.model || DEFAULT_MODEL
 
     let stepCount = 0
     const maxSteps = definition.maxSteps || 100
@@ -161,7 +183,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
 
       // 调用 LLM
       const messages = convertMessages()
-      let response: Provider.ChatResult
+      let response: ChatResult
 
       try {
         response = await provider.chat({

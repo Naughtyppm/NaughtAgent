@@ -14,7 +14,11 @@ import {
   type AgentEvent,
 } from "../agent"
 import { createSession, type Session } from "../session"
-import { Provider } from "../provider"
+import {
+  createProvider,
+  createProviderFromEnv,
+  type LLMProvider,
+} from "../provider"
 import { ToolRegistry } from "../tool/registry"
 import { ReadTool } from "../tool/read"
 import { WriteTool } from "../tool/write"
@@ -39,8 +43,8 @@ export interface RunnerConfig {
   agentType?: AgentType
   /** 工作目录 */
   cwd?: string
-  /** API Key */
-  apiKey: string
+  /** API Key（可选，如果不提供则尝试使用 Kiro） */
+  apiKey?: string
   /** API Base URL */
   baseURL?: string
   /** 权限配置 */
@@ -80,11 +84,17 @@ export function createRunner(config: RunnerConfig) {
   // 注册内置工具
   registerBuiltinTools()
 
-  // 创建 Provider
-  const provider = Provider.createAnthropicProvider({
-    apiKey,
-    baseURL,
-  })
+  // 创建 Provider（自动选择 Anthropic 或 Kiro）
+  let provider: LLMProvider
+  if (apiKey) {
+    provider = createProvider({
+      type: "anthropic",
+      config: { apiKey, baseURL },
+    })
+  } else {
+    // 自动选择：优先 API Key，否则 Kiro
+    provider = createProviderFromEnv()
+  }
 
   // 获取 Agent 定义
   const definition = getAgentDefinition(agentType)

@@ -118,7 +118,7 @@ export async function runWorkflowTask(
     }
 
     // 确定入口步骤
-    let currentStepName = workflow.entryStep || workflow.steps[0]?.name
+    let currentStepName: string | undefined = workflow.entryStep || workflow.steps[0]?.name
     if (!currentStepName) {
       return {
         success: false,
@@ -202,7 +202,7 @@ export async function runWorkflowTask(
       }
 
       // 确定下一步
-      currentStepName = stepResult.nextStep || getNextStep(workflow, currentStepName)
+      currentStepName = stepResult.nextStep ?? getNextStep(workflow, currentStepName)
     }
 
     return {
@@ -409,8 +409,8 @@ async function executeConditionStep(
  */
 async function executeParallelStep(
   step: WorkflowStep,
-  context: WorkflowContext,
-  runtime: WorkflowModeRuntime
+  _context: WorkflowContext,
+  _runtime: WorkflowModeRuntime
 ): Promise<{
   success: boolean
   output: unknown
@@ -443,7 +443,7 @@ function getNextStep(workflow: WorkflowDefinition, currentStep: string): string 
 /**
  * 构建输出
  */
-function buildOutput(context: WorkflowContext, steps: SubTaskStep[]): string {
+function buildOutput(_context: WorkflowContext, steps: SubTaskStep[]): string {
   const lastStep = steps[steps.length - 1]
   if (lastStep?.output) {
     return typeof lastStep.output === "string"

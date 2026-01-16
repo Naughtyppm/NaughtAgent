@@ -1,0 +1,233 @@
+{
+  "name": "naughtagent",
+  "displayName": "NaughtAgent",
+  "description": "AI 编程助手 - 类似 Claude Code 的 VS Code 插件",
+  "version": "0.1.0",
+  "publisher": "naughtagent",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "assistant",
+    "claude",
+    "copilot",
+    "agent"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "naughtagent",
+          "title": "NaughtAgent",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "naughtagent": [
+        {
+          "type": "webview",
+          "id": "naughtagent.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "naughtagent.openChat",
+        "title": "打开 AI 助手",
+        "category": "NaughtAgent",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "naughtagent.askAboutSelection",
+        "title": "询问选中代码",
+        "category": "NaughtAgent"
+      },
+      {
+        "command": "naughtagent.explainCode",
+        "title": "解释代码",
+        "category": "NaughtAgent"
+      },
+      {
+        "command": "naughtagent.fixCode",
+        "title": "修复代码",
+        "category": "NaughtAgent"
+      },
+      {
+        "command": "naughtagent.newChat",
+        "title": "新建对话",
+        "category": "NaughtAgent",
+        "icon": "$(add)"
+      },
+      {
+        "command": "naughtagent.clearChat",
+        "title": "清空对话",
+        "category": "NaughtAgent",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "naughtagent.selectSession",
+        "title": "选择会话",
+        "category": "NaughtAgent",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "naughtagent.newSession",
+        "title": "新建会话",
+        "category": "NaughtAgent",
+        "icon": "$(add)"
+      },
+      {
+        "command": "naughtagent.deleteSession",
+        "title": "删除会话",
+        "category": "NaughtAgent",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "naughtagent.reconnect",
+        "title": "重新连接",
+        "category": "NaughtAgent",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "naughtagent.showDaemonStatus",
+        "title": "显示 Daemon 状态",
+        "category": "NaughtAgent",
+        "icon": "$(info)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "naughtagent.askAboutSelection",
+          "when": "editorHasSelection",
+          "group": "naughtagent@1"
+        },
+        {
+          "command": "naughtagent.explainCode",
+          "when": "editorHasSelection",
+          "group": "naughtagent@2"
+        },
+        {
+          "command": "naughtagent.fixCode",
+          "when": "editorHasSelection",
+          "group": "naughtagent@3"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "naughtagent.newChat",
+          "when": "view == naughtagent.chatView",
+          "group": "navigation"
+        },
+        {
+          "command": "naughtagent.clearChat",
+          "when": "view == naughtagent.chatView",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "naughtagent.openChat",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      },
+      {
+        "command": "naughtagent.askAboutSelection",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "editorHasSelection"
+      }
+    ],
+    "configuration": {
+      "title": "NaughtAgent",
+      "properties": {
+        "naughtagent.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Agent Daemon 服务地址（留空使用默认 127.0.0.1:31415）"
+        },
+        "naughtagent.defaultAgent": {
+          "type": "string",
+          "enum": [
+            "build",
+            "plan",
+            "explore"
+          ],
+          "default": "build",
+          "description": "默认 Agent 类型"
+        },
+        "naughtagent.autoConfirm.read": {
+          "type": "boolean",
+          "default": true,
+          "description": "自动确认读取文件操作"
+        },
+        "naughtagent.autoConfirm.glob": {
+          "type": "boolean",
+          "default": true,
+          "description": "自动确认文件搜索操作"
+        },
+        "naughtagent.autoConfirm.grep": {
+          "type": "boolean",
+          "default": true,
+          "description": "自动确认内容搜索操作"
+        },
+        "naughtagent.autoConfirm.write": {
+          "type": "boolean",
+          "default": false,
+          "description": "自动确认写入文件操作"
+        },
+        "naughtagent.autoConfirm.edit": {
+          "type": "boolean",
+          "default": false,
+          "description": "自动确认编辑文件操作"
+        },
+        "naughtagent.autoConfirm.bash": {
+          "type": "boolean",
+          "default": false,
+          "description": "自动确认执行命令操作"
+        },
+        "naughtagent.includeCurrentFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "自动包含当前文件作为上下文"
+        },
+        "naughtagent.includeSelection": {
+          "type": "boolean",
+          "default": true,
+          "description": "自动包含选中代码作为上下文"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

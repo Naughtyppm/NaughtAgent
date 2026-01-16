@@ -9,7 +9,7 @@
  */
 
 import type { Tool } from "../tool/tool"
-import type { Provider } from "../provider/provider"
+import type { ModelConfig } from "../provider"
 import type { AgentType, TokenUsage } from "../session/session"
 
 // 重新导出 Session 中的类型
@@ -49,7 +49,7 @@ export interface AgentDefinition {
   /** 可用工具 ID 列表 */
   tools: string[]
   /** 模型配置（可选，覆盖默认） */
-  model?: Provider.ModelConfig
+  model?: ModelConfig
   /** 温度参数 */
   temperature?: number
   /** 最大步数限制 */

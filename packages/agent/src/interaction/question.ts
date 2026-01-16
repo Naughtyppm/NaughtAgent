@@ -76,7 +76,7 @@ export const QuestionTool = Tool.define({
   description: DESCRIPTION,
   parameters: QuestionParamsSchema,
 
-  async execute(params, ctx) {
+  async execute(params, _ctx) {
     // 验证参数
     const validationError = validateQuestionParams(params)
     if (validationError) {

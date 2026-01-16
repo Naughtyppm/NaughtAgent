@@ -19,15 +19,14 @@ import {
   type AgentType,
 } from "../agent"
 import { createSession } from "../session"
-import { Provider } from "../provider"
-import { ToolRegistry } from "../tool/registry"
+import { createProviderFromEnv, createProvider } from "../provider"
 
 /**
  * Agent 模式运行时配置
  */
 export interface AgentModeRuntime {
-  /** API Key */
-  apiKey: string
+  /** API Key（可选，如果不提供则尝试使用 Kiro） */
+  apiKey?: string
   /** API Base URL */
   baseURL?: string
 }
@@ -59,11 +58,13 @@ export async function runAgentTask(
     const cwd = config.cwd || process.cwd()
     const maxSteps = config.maxSteps || 30
 
-    // 创建 Provider
-    const provider = Provider.createAnthropicProvider({
-      apiKey: runtime.apiKey,
-      baseURL: runtime.baseURL,
-    })
+    // 创建 Provider（自动选择 Anthropic 或 Kiro）
+    const provider = runtime.apiKey
+      ? createProvider({
+          type: "anthropic",
+          config: { apiKey: runtime.apiKey, baseURL: runtime.baseURL },
+        })
+      : createProviderFromEnv()
 
     // 获取 Agent 定义
     const definition = getAgentDefinition(agentType)
@@ -92,7 +93,6 @@ export async function runAgentTask(
       runConfig: {
         sessionId: session.id,
         cwd,
-        maxSteps,
       },
     })
 
