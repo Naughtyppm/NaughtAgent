@@ -85,8 +85,10 @@ function getModelName(): string {
  * 打印用户输入标题
  */
 function printUserHeader(): void {
+  // 上方横线
+  console.log(`\n\x1b[90m${"─".repeat(60)}\x1b[0m`)
   // 黄色背景黑字
-  console.log(`\n\x1b[43m\x1b[30m ## Me \x1b[0m`)
+  console.log(`\x1b[43m\x1b[30m ## Me \x1b[0m`)
 }
 
 /**
@@ -686,6 +688,8 @@ export async function startRepl(config: ReplConfig): Promise<void> {
     // 显示用户输入
     printUserHeader()
     console.log(input)
+    // 下方横线
+    console.log(`\x1b[90m${"─".repeat(60)}\x1b[0m`)
     spinner.start("思考中")
     const handlers = createOutputHandlers(spinner, getModelName())
     runTask(input, handlers)
