@@ -8,7 +8,6 @@ import type {
   SubTaskConfig,
   SubTaskResult,
   TaskExecution,
-  TaskExecutionStatus,
 } from "../types"
 import type { SubTaskRuntime } from "../runner"
 import { runSubTask } from "../runner"

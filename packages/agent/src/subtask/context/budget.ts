@@ -4,8 +4,9 @@
  * 管理子任务的 Token 预算分配，防止上下文过爆
  */
 
-import type { TokenBudget, Message } from "../types"
+import type { TokenBudget } from "../types"
 import { DEFAULT_TOKEN_BUDGET } from "../types"
+import type { Message } from "../../session/message"
 
 /**
  * Token 计数器接口
@@ -61,7 +62,16 @@ export class SimpleTokenCounter implements TokenCounter {
         total += this.count(block.name)
         total += this.count(JSON.stringify(block.input))
       } else if (block.type === "tool_result") {
-        total += this.count(block.content)
+        if (typeof block.content === "string") {
+          total += this.count(block.content)
+        } else {
+          // ContentBlock[] 情况，递归计算
+          for (const subBlock of block.content) {
+            if (subBlock.type === "text") {
+              total += this.count(subBlock.text)
+            }
+          }
+        }
       }
     }
 

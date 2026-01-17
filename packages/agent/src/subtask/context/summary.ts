@@ -7,7 +7,6 @@
 import type {
   ContextSummary,
   CompressionConfig,
-  CompressionStrategy,
   SubTaskProvider,
 } from "../types"
 import type { Message } from "../../session"

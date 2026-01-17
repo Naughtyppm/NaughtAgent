@@ -2931,6 +2931,269 @@ class Agent {
 
 ---
 
+## Phase 1 基础设施层实现状态
+
+### 已完成模块
+
+#### 1. 消息协议扩展 ✅
+**实现位置**: `packages/agent/src/session/message.ts`
+
+**核心功能**:
+- 多模态类型支持（ImageBlock, AudioBlock）
+- 工具函数（createImageMessage, createAudioMessage, getImages, getAudios）
+- 完整的类型定义和工具函数
+
+**测试覆盖**: 38 个测试用例，100% 覆盖率
+
+**文档**: [消息协议文档](../core/message-protocol.md)
+
+---
+
+#### 2. 会话管理增强 ✅
+**实现位置**: `packages/agent/src/session/`
+
+**核心功能**:
+- **会话分支**: `branch()` 方法，从历史对话点创建分支
+- **标签管理**: `addTags()`, `removeTags()`, `getAllTags()`, `findByTags()`
+- **成本追踪**: `updateCost()`, `getCostStats()`, `getTotalCostStats()`, `generateCostReport()`
+- **数据迁移**: `migrateAllSessions()`, `migrateSingleSession()`
+
+**测试覆盖**: 157 个测试用例，95% 覆盖率
+
+**文档**: 
+- [会话管理器文档](../core/session-manager.md)
+- [会话存储格式文档](../core/session-storage.md)
+
+---
+
+#### 3. 错误处理统一 ⏳
+**实现位置**: `packages/agent/src/error/`
+
+**核心功能**:
+- **AgentError 类**: 统一的错误类，包含错误码、可恢复性、上下文
+- **ErrorCode 枚举**: 11 种错误类型分类
+- **withRetry() 函数**: 带指数退避的自动重试
+
+**待完成**:
+- 应用到现有代码（Provider, Tool, Agent）
+- 编写单元测试
+
+**文档**: [错误处理文档](../core/error-handling.md)
+
+---
+
+#### 4. 日志与监控 ⏸️
+**计划位置**: `packages/agent/src/logging/`
+
+**计划功能**:
+- **Logger 类**: 结构化日志系统
+- **PerformanceMonitor 类**: 性能监控
+- **TraceId 管理**: 基于 AsyncLocalStorage 的请求追踪
+
+**状态**: 待实现
+
+---
+
+### Phase 1 模块集成架构
+
+```mermaid
+graph TB
+    subgraph "Phase 1: 基础设施层"
+        MessageProtocol[消息协议<br/>✅ 已完成]
+        SessionManager[会话管理<br/>✅ 已完成]
+        ErrorHandling[错误处理<br/>⏳ 部分完成]
+        Logging[日志监控<br/>⏸️ 待实现]
+    end
+    
+    subgraph "Agent 核心层"
+        AgentLoop[Agent 主循环]
+        Provider[LLM Provider]
+        ToolSystem[工具系统]
+    end
+    
+    subgraph "存储层"
+        SessionStorage[会话存储]
+        LogStorage[日志存储]
+    end
+    
+    AgentLoop --> MessageProtocol
+    AgentLoop --> SessionManager
+    AgentLoop --> ErrorHandling
+    AgentLoop --> Logging
+    
+    Provider --> ErrorHandling
+    ToolSystem --> ErrorHandling
+    
+    SessionManager --> SessionStorage
+    Logging --> LogStorage
+    
+    MessageProtocol --> Provider
+    
+    style MessageProtocol fill:#4caf50,color:#fff
+    style SessionManager fill:#4caf50,color:#fff
+    style ErrorHandling fill:#ff9800,color:#fff
+    style Logging fill:#9e9e9e,color:#fff
+```
+
+---
+
+### 模块间依赖关系
+
+```mermaid
+graph LR
+    A[消息协议] --> B[Agent 主循环]
+    C[会话管理] --> B
+    D[错误处理] --> B
+    D --> E[Provider]
+    D --> F[工具系统]
+    G[日志监控] --> B
+    G --> E
+    G --> F
+    
+    C --> H[会话存储]
+    G --> I[日志存储]
+    
+    style A fill:#4caf50
+    style C fill:#4caf50
+    style D fill:#ff9800
+    style G fill:#9e9e9e
+```
+
+---
+
+### 数据流示例
+
+#### 1. 多模态消息流
+```typescript
+// 用户发送图片
+const imageMsg = createImageMessage(base64Data, 'image/png');
+
+// Agent 处理
+const response = await agent.run(imageMsg);
+
+// 会话保存（包含图片）
+await sessionManager.append(sessionId, imageMsg);
+```
+
+#### 2. 会话分支流
+```typescript
+// 创建主会话
+const session = await sessionManager.create();
+
+// 进行对话
+await agent.run('重构登录模块', { sessionId: session.id });
+
+// 从历史点分支
+const branched = sessionManager.branch(session.id, 5);
+
+// 在分支中尝试新方案
+await agent.run('尝试另一种方案', { sessionId: branched.id });
+```
+
+#### 3. 错误处理流
+```typescript
+// Agent 执行（带自动重试）
+try {
+  const result = await withRetry(async () => {
+    return await provider.chat(messages);
+  });
+} catch (error) {
+  if (error instanceof AgentError) {
+    logger.error('执行失败', {
+      code: error.code,
+      recoverable: error.recoverable,
+      suggestion: error.getRecoverySuggestion()
+    });
+  }
+}
+```
+
+#### 4. 日志监控流（计划）
+```typescript
+// Agent 执行（带监控）
+const result = await monitor.measure('agent.run', async () => {
+  logger.info('Agent 开始执行', { prompt });
+  
+  const result = await agent.executeLoop(prompt);
+  
+  logger.info('Agent 执行完成', {
+    turns: result.num_turns,
+    cost: result.total_cost_usd
+  });
+  
+  return result;
+});
+```
+
+---
+
+### 关键设计决策
+
+#### 1. 消息协议：为什么选择 ContentBlock 模式？
+- **可扩展性**: 易于添加新的内容类型（视频、文档等）
+- **类型安全**: TypeScript 联合类型提供编译时检查
+- **与 Anthropic API 对齐**: 直接映射到 Claude API 格式
+
+#### 2. 会话管理：为什么分离 SessionManager 和 Storage？
+- **职责分离**: SessionManager 负责业务逻辑，Storage 负责持久化
+- **可测试性**: 可以轻松 mock Storage 进行单元测试
+- **灵活性**: 可以切换不同的存储后端（文件系统、数据库、云存储）
+
+#### 3. 错误处理：为什么区分可恢复和不可恢复错误？
+- **智能重试**: 只重试临时性错误，避免无效重试
+- **用户体验**: 提供针对性的恢复建议
+- **系统稳定性**: 快速失败不可恢复错误，避免资源浪费
+
+#### 4. 日志监控：为什么使用 AsyncLocalStorage？
+- **自动传递**: trace_id 自动传递到所有异步调用
+- **无侵入性**: 不需要手动传递 trace_id 参数
+- **分布式追踪**: 支持跨服务的请求追踪
+
+---
+
+### 性能考虑
+
+#### 1. 会话存储
+- **内存优化**: SessionManager 使用 Map 存储，O(1) 查找
+- **延迟加载**: 只在需要时加载会话数据
+- **批量操作**: 支持批量迁移和查询
+
+#### 2. 消息协议
+- **零拷贝**: 使用 Array.slice() 创建浅拷贝
+- **类型检查**: 编译时类型检查，运行时无开销
+
+#### 3. 错误处理
+- **指数退避**: 避免频繁重试导致的资源浪费
+- **快速失败**: 不可恢复错误立即抛出
+
+---
+
+### 后续集成计划
+
+#### 短期（1-2 天）
+1. **完成错误处理应用**:
+   - 在 Provider 中使用 `withRetry()`
+   - 在 Tool 执行中使用错误分类
+   - 在 Agent 循环中使用错误处理
+
+2. **实现日志监控**:
+   - 创建 Logger 类
+   - 创建 PerformanceMonitor 类
+   - 实现 TraceId 管理
+
+#### 中期（1 周）
+1. **性能优化**:
+   - 优化会话搜索性能
+   - 添加性能基准测试
+   - 优化日志写入性能
+
+2. **文档完善**:
+   - 编写迁移指南
+   - 更新 API 文档
+   - 添加最佳实践指南
+
+---
+
 ## 架构优势
 
 ### 1. 简单性（Simplicity）

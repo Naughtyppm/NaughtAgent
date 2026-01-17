@@ -33,14 +33,43 @@ export interface ToolUseBlock {
 export interface ToolResultBlock {
   type: "tool_result"
   tool_use_id: string
-  content: string
+  content: string | ContentBlock[]  // 支持多模态内容
   is_error?: boolean
+}
+
+/**
+ * 图片内容块
+ */
+export interface ImageBlock {
+  type: "image"
+  source: {
+    type: "base64" | "url"
+    media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+    data: string  // base64 数据或 URL
+  }
+}
+
+/**
+ * 音频内容块
+ */
+export interface AudioBlock {
+  type: "audio"
+  source: {
+    type: "base64"
+    media_type: "audio/wav" | "audio/mp3"
+    data: string  // base64 数据
+  }
 }
 
 /**
  * 消息内容块
  */
-export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock
+export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ImageBlock | AudioBlock
+
+/**
+ * 停止原因
+ */
+export type StopReason = "end_turn" | "max_tokens" | "tool_use" | "stop_sequence"
 
 /**
  * 消息
@@ -54,6 +83,8 @@ export interface Message {
   content: ContentBlock[]
   /** 时间戳 */
   timestamp: number
+  /** 停止原因（仅 assistant 消息有） */
+  stop_reason?: StopReason
 }
 
 /**
@@ -92,7 +123,7 @@ export function createAssistantMessage(content: ContentBlock[]): Message {
  */
 export function createToolResult(
   toolUseId: string,
-  content: string,
+  content: string | ContentBlock[],
   isError = false
 ): ToolResultBlock {
   return {
@@ -127,4 +158,59 @@ export function getToolCalls(message: Message): ToolUseBlock[] {
  */
 export function hasToolCalls(message: Message): boolean {
   return message.content.some((block) => block.type === "tool_use")
+}
+
+/**
+ * 创建图片消息
+ */
+export function createImageMessage(
+  imageData: string,
+  mediaType: ImageBlock["source"]["media_type"],
+  sourceType: "base64" | "url" = "base64"
+): Message {
+  return {
+    id: generateMessageId(),
+    role: "user",
+    content: [{
+      type: "image",
+      source: { type: sourceType, media_type: mediaType, data: imageData }
+    }],
+    timestamp: Date.now()
+  }
+}
+
+/**
+ * 创建音频消息
+ */
+export function createAudioMessage(
+  audioData: string,
+  mediaType: AudioBlock["source"]["media_type"]
+): Message {
+  return {
+    id: generateMessageId(),
+    role: "user",
+    content: [{
+      type: "audio",
+      source: { type: "base64", media_type: mediaType, data: audioData }
+    }],
+    timestamp: Date.now()
+  }
+}
+
+/**
+ * 从消息中提取图片
+ */
+export function getImages(message: Message): ImageBlock[] {
+  return message.content.filter(
+    (block): block is ImageBlock => block.type === "image"
+  )
+}
+
+/**
+ * 从消息中提取音频
+ */
+export function getAudios(message: Message): AudioBlock[] {
+  return message.content.filter(
+    (block): block is AudioBlock => block.type === "audio"
+  )
 }

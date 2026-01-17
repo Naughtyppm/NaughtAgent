@@ -201,8 +201,8 @@ export {
 
 // 保留旧的导出名称，标记为 deprecated
 /** @deprecated 使用 runAskLlm */
-export { runAskLlm as runAPITask_v2 }
+export { runAskLlm as runAPITask_v2 } from "./ask-llm"
 /** @deprecated 使用 runRunAgent */
-export { runRunAgent as runAgentTask_v2 }
+export { runRunAgent as runAgentTask_v2 } from "./run-agent"
 /** @deprecated 使用 runRunWorkflow */
-export { runRunWorkflow as runWorkflowTask_v2 }
+export { runRunWorkflow as runWorkflowTask_v2 } from "./run-workflow"

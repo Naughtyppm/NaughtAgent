@@ -50,6 +50,16 @@ export interface Session {
   updatedAt: number
   /** Token 使用统计 */
   usage: TokenUsage
+  /** 会话标签（用于分类和搜索） */
+  tags?: string[]
+  /** 总成本（美元） */
+  total_cost_usd?: number
+  /** 对话轮次 */
+  num_turns?: number
+  /** 父会话 ID（分支时） */
+  parent_session_id?: string
+  /** 分支点（消息索引） */
+  branch_point?: number
 }
 
 /**
@@ -88,6 +98,9 @@ export function createSession(options: CreateSessionOptions = {}): Session {
       inputTokens: 0,
       outputTokens: 0,
     },
+    tags: [],
+    total_cost_usd: 0,
+    num_turns: 0,
   }
 }
 

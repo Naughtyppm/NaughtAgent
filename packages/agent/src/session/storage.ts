@@ -26,6 +26,11 @@ interface SessionMeta {
   createdAt: number
   updatedAt: number
   usage: Session["usage"]
+  tags?: string[]
+  total_cost_usd?: number
+  num_turns?: number
+  parent_session_id?: string
+  branch_point?: number
 }
 
 /**
@@ -71,6 +76,11 @@ export async function saveSession(
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     usage: session.usage,
+    tags: session.tags,
+    total_cost_usd: session.total_cost_usd,
+    num_turns: session.num_turns,
+    parent_session_id: session.parent_session_id,
+    branch_point: session.branch_point,
   }
   await fs.writeFile(getMetaPath(sessionDir), JSON.stringify(meta, null, 2))
 

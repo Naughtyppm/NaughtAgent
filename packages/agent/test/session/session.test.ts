@@ -53,6 +53,16 @@ describe('Session', () => {
       expect(session.cwd).toBe('/custom/path')
       expect(session.agentType).toBe('plan')
     })
+
+    it('should initialize new fields with default values', () => {
+      const session = createSession()
+
+      expect(session.tags).toEqual([])
+      expect(session.total_cost_usd).toBe(0)
+      expect(session.num_turns).toBe(0)
+      expect(session.parent_session_id).toBeUndefined()
+      expect(session.branch_point).toBeUndefined()
+    })
   })
 
   describe('addMessage', () => {
@@ -204,6 +214,76 @@ describe('Session', () => {
 
       updateStatus(session, 'error')
       expect(isEnded(session)).toBe(true)
+    })
+  })
+
+  describe('new fields', () => {
+    it('should support tags field', () => {
+      const session = createSession()
+
+      expect(session.tags).toEqual([])
+
+      // 可以直接操作 tags 数组
+      session.tags?.push('refactor', 'auth')
+      expect(session.tags).toEqual(['refactor', 'auth'])
+    })
+
+    it('should support total_cost_usd field', () => {
+      const session = createSession()
+
+      expect(session.total_cost_usd).toBe(0)
+
+      // 可以累加成本
+      session.total_cost_usd = (session.total_cost_usd || 0) + 0.05
+      expect(session.total_cost_usd).toBe(0.05)
+
+      session.total_cost_usd = (session.total_cost_usd || 0) + 0.03
+      expect(session.total_cost_usd).toBe(0.08)
+    })
+
+    it('should support num_turns field', () => {
+      const session = createSession()
+
+      expect(session.num_turns).toBe(0)
+
+      // 可以增加轮次
+      session.num_turns = (session.num_turns || 0) + 1
+      expect(session.num_turns).toBe(1)
+    })
+
+    it('should support parent_session_id and branch_point fields', () => {
+      const session = createSession()
+
+      expect(session.parent_session_id).toBeUndefined()
+      expect(session.branch_point).toBeUndefined()
+
+      // 可以设置分支信息
+      session.parent_session_id = 'session_parent_123'
+      session.branch_point = 5
+
+      expect(session.parent_session_id).toBe('session_parent_123')
+      expect(session.branch_point).toBe(5)
+    })
+
+    it('should maintain backward compatibility with optional fields', () => {
+      // 模拟旧格式的会话（没有新字段）
+      const oldSession: Session = {
+        id: 'old-session',
+        status: 'idle',
+        cwd: '/path',
+        messages: [],
+        agentType: 'build',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        usage: { inputTokens: 0, outputTokens: 0 },
+      }
+
+      // 应该可以正常使用
+      expect(oldSession.tags).toBeUndefined()
+      expect(oldSession.total_cost_usd).toBeUndefined()
+      expect(oldSession.num_turns).toBeUndefined()
+      expect(oldSession.parent_session_id).toBeUndefined()
+      expect(oldSession.branch_point).toBeUndefined()
     })
   })
 })

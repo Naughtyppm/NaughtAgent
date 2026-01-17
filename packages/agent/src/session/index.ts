@@ -10,7 +10,10 @@ export {
   type TextBlock,
   type ToolUseBlock,
   type ToolResultBlock,
+  type ImageBlock,
+  type AudioBlock,
   type ContentBlock,
+  type StopReason,
   type Message,
   generateMessageId,
   createUserMessage,
@@ -54,3 +57,12 @@ export {
   isSessionSaved,
   appendMessage,
 } from "./storage"
+
+// Migration 数据迁移
+export {
+  type MigrationOptions,
+  type MigrationResult,
+  migrateAllSessions,
+  migrateSingleSession,
+  printMigrationResult,
+} from "./migrate"

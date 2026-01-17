@@ -17,6 +17,7 @@ export type {
   MessageRole,
   TextContent,
   ImageContent,
+  AudioContent,
   ToolUseContent,
   ToolResultContent,
   MessageContent,

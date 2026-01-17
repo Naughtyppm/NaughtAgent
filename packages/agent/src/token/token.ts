@@ -161,7 +161,21 @@ export function countMessageTokens(message: Message): number {
   // 计算工具结果
   for (const block of message.content) {
     if (block.type === "tool_result") {
-      tokens += estimateTokens(block.content)
+      // content 可能是 string 或 ContentBlock[]
+      if (typeof block.content === "string") {
+        tokens += estimateTokens(block.content)
+      } else {
+        // 处理多模态内容
+        for (const contentBlock of block.content) {
+          if (contentBlock.type === "text") {
+            tokens += estimateTokens(contentBlock.text)
+          } else if (contentBlock.type === "image") {
+            tokens += 1000 // 图片估算固定 token
+          } else if (contentBlock.type === "audio") {
+            tokens += 500 // 音频估算固定 token
+          }
+        }
+      }
       tokens += 5 // tool_use_id 等开销
     }
   }

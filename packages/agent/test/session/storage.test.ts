@@ -70,6 +70,58 @@ describe('Storage', () => {
 
       expect(loaded.messages).toEqual([])
     })
+
+    it('should save and load new fields (tags, cost, turns, branch info)', async () => {
+      const session = createSession({ id: 'new-fields-test', cwd: tempDir })
+      
+      // 设置新字段
+      session.tags = ['refactor', 'auth']
+      session.total_cost_usd = 0.15
+      session.num_turns = 5
+      session.parent_session_id = 'parent-session-123'
+      session.branch_point = 3
+
+      await saveSession(session, tempDir)
+      const loaded = await loadSession('new-fields-test', tempDir)
+
+      expect(loaded.tags).toEqual(['refactor', 'auth'])
+      expect(loaded.total_cost_usd).toBe(0.15)
+      expect(loaded.num_turns).toBe(5)
+      expect(loaded.parent_session_id).toBe('parent-session-123')
+      expect(loaded.branch_point).toBe(3)
+    })
+
+    it('should maintain backward compatibility when loading old sessions', async () => {
+      // 模拟旧格式的会话文件（没有新字段）
+      const session = createSession({ id: 'old-format', cwd: tempDir })
+      const sessionDir = path.join(tempDir, '.naught', 'sessions', 'old-format')
+      await fs.mkdir(sessionDir, { recursive: true })
+
+      // 写入旧格式的元数据（不包含新字段）
+      const oldMeta = {
+        id: 'old-format',
+        status: 'idle',
+        cwd: tempDir,
+        agentType: 'build',
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        usage: { inputTokens: 0, outputTokens: 0 }
+      }
+      await fs.writeFile(
+        path.join(sessionDir, 'session.json'),
+        JSON.stringify(oldMeta, null, 2)
+      )
+      await fs.writeFile(path.join(sessionDir, 'messages.jsonl'), '')
+
+      // 加载应该成功，新字段为 undefined
+      const loaded = await loadSession('old-format', tempDir)
+      expect(loaded.id).toBe('old-format')
+      expect(loaded.tags).toBeUndefined()
+      expect(loaded.total_cost_usd).toBeUndefined()
+      expect(loaded.num_turns).toBeUndefined()
+      expect(loaded.parent_session_id).toBeUndefined()
+      expect(loaded.branch_point).toBeUndefined()
+    })
   })
 
   describe('deleteSessionStorage', () => {

@@ -66,8 +66,20 @@ export interface TextContent {
 export interface ImageContent {
   type: "image"
   source: {
+    type: "base64" | "url"
+    media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+    data: string
+  }
+}
+
+/**
+ * 音频内容块
+ */
+export interface AudioContent {
+  type: "audio"
+  source: {
     type: "base64"
-    media_type: string
+    media_type: "audio/wav" | "audio/mp3"
     data: string
   }
 }
@@ -88,7 +100,7 @@ export interface ToolUseContent {
 export interface ToolResultContent {
   type: "tool_result"
   tool_use_id: string
-  content: string
+  content: string | Array<TextContent | ImageContent | AudioContent>
   is_error?: boolean
 }
 
@@ -97,7 +109,7 @@ export interface ToolResultContent {
  */
 export type MessageContent =
   | string
-  | Array<TextContent | ImageContent | ToolUseContent | ToolResultContent>
+  | Array<TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent>
 
 /**
  * 消息

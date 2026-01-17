@@ -19,7 +19,7 @@ import {
   getAgentDefinition,
   type AgentType,
 } from "../agent"
-import { createSession, type Message, type ContentBlock } from "../session"
+import { createSession, type Message } from "../session"
 import { createProviderFromEnv, createProvider } from "../provider"
 import { createContextManager, type PreparedContext } from "./context"
 
