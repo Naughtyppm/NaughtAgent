@@ -256,8 +256,11 @@ export const KIRO_MODEL_MAP: Record<string, string> = {
   "claude-haiku-4-20250514": "claude-haiku-4.5",
   // 简写
   sonnet: "claude-sonnet-4",
+  "sonnet-4.5": "claude-sonnet-4.5",
   opus: "claude-opus-4.5",
+  "opus-4.5": "claude-opus-4.5",
   haiku: "claude-haiku-4.5",
+  "haiku-4.5": "claude-haiku-4.5",
   // OpenAI 兼容
   "gpt-4o": "claude-sonnet-4",
   "gpt-4o-mini": "claude-haiku-4.5",

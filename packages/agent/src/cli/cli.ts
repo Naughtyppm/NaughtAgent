@@ -35,6 +35,7 @@ interface CLIArgs {
   subCommand?: "start" | "stop" | "restart" | "status" | "list" | "delete" | "phase1"
   message: string
   agent: "build" | "plan" | "explore"
+  model: string
   cwd: string
   port: number
   autoConfirm: boolean
@@ -52,6 +53,7 @@ function parseArgs(args: string[]): CLIArgs {
     command: "chat",
     message: "",
     agent: "build",
+    model: "claude-sonnet-4-20250514",  // 默认模型
     cwd: process.cwd(),
     port: getDefaultPort(),
     autoConfirm: false,
@@ -74,6 +76,8 @@ function parseArgs(args: string[]): CLIArgs {
       if (value === "build" || value === "plan" || value === "explore") {
         result.agent = value
       }
+    } else if (arg === "--model" || arg === "-m") {
+      result.model = args[++i] || result.model
     } else if (arg === "--cwd" || arg === "-d") {
       result.cwd = args[++i] || process.cwd()
     } else if (arg === "--port" || arg === "-p") {
@@ -156,9 +160,21 @@ function printHelp(): void {
   -h, --help       显示帮助信息
   -v, --version    显示版本号
   -a, --agent      Agent 类型 (build|plan|explore)，默认 build
+  -m, --model      模型名称，默认 claude-sonnet-4-20250514
   -d, --cwd        工作目录，默认当前目录
   -y, --yes        自动确认所有操作
   -s, --standalone 独立模式，不使用 daemon（直接运行）
+
+可用模型:
+  claude-sonnet-4-20250514  (默认) Claude Sonnet 4
+  claude-opus-4-20250514    Claude Opus 4 (最强)
+  claude-haiku-4-20250514   Claude Haiku 4 (最快)
+  sonnet                    简写，等同于 claude-sonnet-4
+  sonnet-4.5                Claude Sonnet 4.5 (更强)
+  opus                      简写，等同于 claude-opus-4
+  opus-4.5                  Claude Opus 4.5 (最强)
+  haiku                     简写，等同于 claude-haiku-4
+  haiku-4.5                 Claude Haiku 4.5 (更快)
 
 Daemon 命令:
   daemon start    启动后台服务
@@ -368,6 +384,7 @@ async function handleChat(args: CLIArgs): Promise<void> {
     await startRepl({
       cwd: args.cwd,
       agent: args.agent,
+      model: args.model,
       autoConfirm: args.autoConfirm,
     })
     return
@@ -457,6 +474,7 @@ async function handleChatStandalone(args: CLIArgs): Promise<void> {
   const config: RunnerConfig = {
     agentType: args.agent,
     cwd: args.cwd,
+    model: args.model,
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseURL: process.env.ANTHROPIC_BASE_URL,
     autoConfirm: args.autoConfirm,

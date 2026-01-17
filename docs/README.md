@@ -14,9 +14,15 @@
 ### 🧠 core/ - SDK 核心组件
 基于 Claude Agent SDK 的核心组件实现。
 
-- `agent-harness.md` - Agent 执行引擎（query/ClaudeSDKClient）
-- `message-protocol.md` - 消息协议（UserMessage/AssistantMessage/ResultMessage）
-- `streaming.md` - 流式响应处理
+- `message-protocol.md` - 消息协议（多模态支持）✅ Phase 1
+- `session-manager.md` - 会话管理器（分支、标签、成本追踪）✅ Phase 1
+- `session-storage.md` - 会话存储（持久化）✅ Phase 1
+- `error-handling.md` - 错误处理系统（统一错误分类和重试）✅ Phase 1
+- `logging-monitoring.md` - 日志与监控系统（结构化日志和性能监控）✅ Phase 1
+- `migration-guide.md` - Phase 1 迁移指南 ✅
+- `phase-1-completion-report.md` - Phase 1 完成报告 ✅
+- `agent-harness.md` - Agent 执行引擎（query/ClaudeSDKClient）⏸️
+- `streaming.md` - 流式响应处理 ⏸️
 
 ### 🛠️ tools/ - 工具系统
 Agent 可用的工具实现。

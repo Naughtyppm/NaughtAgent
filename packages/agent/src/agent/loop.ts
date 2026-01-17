@@ -14,6 +14,8 @@ import type { AgentDefinition, AgentEvent, AgentRunConfig, TokenUsage } from "./
 import { buildSystemPrompt } from "./prompt"
 import { Tool } from "../tool/tool"
 import { ToolRegistry } from "../tool/registry"
+import { AgentError, ErrorCode } from "../error"
+import { Logger, PerformanceMonitor, generateTraceId } from "../logging"
 import type {
   LLMProvider,
   ToolDefinition,
@@ -60,6 +62,10 @@ export function createAgentLoop(config: AgentLoopConfig) {
   const { definition, session, provider, runConfig } = config
   const abortController = new AbortController()
 
+  // 创建日志器和性能监控器
+  const logger = new Logger('agent-loop')
+  const monitor = new PerformanceMonitor()
+
   // 合并 abort 信号
   if (runConfig.abort) {
     runConfig.abort.addEventListener("abort", () => abortController.abort())
@@ -95,9 +101,42 @@ export function createAgentLoop(config: AgentLoopConfig) {
     }
 
     try {
-      const result = await ToolRegistry.execute(toolCall.name, toolCall.args, ctx)
+      // 使用性能监控测量工具执行
+      const result = await monitor.measure(`tool:${toolCall.name}`, async () => {
+        logger.debug(`执行工具: ${toolCall.name}`, { 
+          toolId: toolCall.id, 
+          args: toolCall.args 
+        })
+        return await ToolRegistry.execute(toolCall.name, toolCall.args, ctx)
+      })
+      
+      logger.debug(`工具执行成功: ${toolCall.name}`, { 
+        toolId: toolCall.id,
+        outputLength: result.output.length 
+      })
+      
       return { result, isError: false }
     } catch (error) {
+      // 记录错误
+      logger.error(`工具执行失败: ${toolCall.name}`, { 
+        toolId: toolCall.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      
+      // 处理 AgentError
+      if (error instanceof AgentError) {
+        const errorMessage = `${error.message}\n\n💡 建议: ${error.getRecoverySuggestion()}`
+        return {
+          result: {
+            title: `Error (${error.code})`,
+            output: errorMessage,
+            metadata: { code: error.code, recoverable: error.recoverable, context: error.context },
+          },
+          isError: true,
+        }
+      }
+
+      // 其他错误
       const errorMessage = error instanceof Error ? error.message : String(error)
       return {
         result: {
@@ -197,6 +236,24 @@ export function createAgentLoop(config: AgentLoopConfig) {
    * 运行 Agent Loop
    */
   async function* run(input: string): AsyncGenerator<AgentEvent> {
+    // 生成 TraceId
+    const traceId = generateTraceId()
+    
+    logger.info('Agent Loop 开始', { 
+      traceId,
+      sessionId: runConfig.sessionId,
+      agentType: definition.type,
+      inputLength: input.length 
+    })
+
+    // 直接执行（TraceId 已通过日志记录）
+    yield* executeLoop(input)
+  }
+
+  /**
+   * 执行 Agent Loop 主逻辑
+   */
+  async function* executeLoop(input: string): AsyncGenerator<AgentEvent> {
     // 添加用户消息
     addMessage(session, "user", [{ type: "text", text: input }])
 
@@ -210,10 +267,22 @@ export function createAgentLoop(config: AgentLoopConfig) {
 
     while (stepCount < maxSteps) {
       stepCount++
+      
+      logger.debug(`Agent Loop 步骤 ${stepCount}`, { 
+        stepCount, 
+        maxSteps,
+        messageCount: session.messages.length 
+      })
 
       // 检查是否被中止
       if (abortController.signal.aborted) {
-        yield { type: "error", error: new Error("Agent execution aborted") }
+        logger.warn('Agent Loop 被中止', { stepCount })
+        const abortError = new AgentError(
+          "Agent execution aborted",
+          ErrorCode.INTERNAL_ERROR,
+          false
+        )
+        yield { type: "error", error: abortError }
         break
       }
 
@@ -222,17 +291,46 @@ export function createAgentLoop(config: AgentLoopConfig) {
       let response: ChatResult
 
       try {
-        response = await provider.chat({
-          model: modelConfig,
-          messages,
-          system: systemPrompt,
-          tools: tools.length > 0 ? tools : undefined,
-          abortSignal: abortController.signal,
+        // 使用性能监控测量 LLM 调用
+        response = await monitor.measure('llm:chat', async () => {
+          logger.debug('调用 LLM', { 
+            model: modelConfig.model,
+            messageCount: messages.length,
+            toolCount: tools.length 
+          })
+          
+          return await provider.chat({
+            model: modelConfig,
+            messages,
+            system: systemPrompt,
+            tools: tools.length > 0 ? tools : undefined,
+            abortSignal: abortController.signal,
+          })
+        })
+        
+        logger.debug('LLM 响应成功', { 
+          textLength: response.text.length,
+          toolCallCount: response.toolCalls.length,
+          inputTokens: response.usage.inputTokens,
+          outputTokens: response.usage.outputTokens
         })
       } catch (error) {
-        yield {
-          type: "error",
-          error: error instanceof Error ? error : new Error(String(error)),
+        logger.error('LLM 调用失败', { 
+          error: error instanceof Error ? error.message : String(error)
+        })
+        
+        // 处理 AgentError
+        if (error instanceof AgentError) {
+          yield { type: "error", error }
+        } else {
+          // 转换为 AgentError
+          const agentError = new AgentError(
+            error instanceof Error ? error.message : String(error),
+            ErrorCode.API_ERROR,
+            false,
+            { originalError: error }
+          )
+          yield { type: "error", error: agentError }
         }
         break
       }
@@ -269,6 +367,11 @@ export function createAgentLoop(config: AgentLoopConfig) {
 
       // 如果没有工具调用，结束循环
       if (response.toolCalls.length === 0) {
+        logger.info('Agent Loop 完成（无工具调用）', { 
+          stepCount,
+          totalInputTokens: totalUsage.inputTokens,
+          totalOutputTokens: totalUsage.outputTokens
+        })
         break
       }
 
@@ -309,10 +412,30 @@ export function createAgentLoop(config: AgentLoopConfig) {
 
     // 检查是否达到最大步数
     if (stepCount >= maxSteps) {
-      yield {
-        type: "error",
-        error: new Error(`Agent reached maximum steps limit (${maxSteps})`),
-      }
+      logger.warn('Agent Loop 达到最大步数限制', { maxSteps, stepCount })
+      const maxStepsError = new AgentError(
+        `Agent reached maximum steps limit (${maxSteps})`,
+        ErrorCode.INTERNAL_ERROR,
+        false,
+        { maxSteps, stepCount }
+      )
+      yield { type: "error", error: maxStepsError }
+    }
+
+    logger.info('Agent Loop 结束', { 
+      stepCount,
+      totalInputTokens: totalUsage.inputTokens,
+      totalOutputTokens: totalUsage.outputTokens
+    })
+
+    // 输出性能统计
+    const llmStats = monitor.getStats('llm:chat')
+    if (llmStats) {
+      logger.info('LLM 性能统计', {
+        count: llmStats.count,
+        avgDuration: Math.round(llmStats.avg_duration),
+        successRate: (llmStats.success_rate * 100).toFixed(1) + '%'
+      })
     }
 
     yield { type: "done", usage: totalUsage }

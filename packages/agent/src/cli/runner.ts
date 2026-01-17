@@ -29,6 +29,7 @@ import { GrepTool } from "../tool/grep"
 import {
   createDefaultPermissions,
   enforcePermission,
+  checkPermission,
   type PermissionSet,
   type PermissionRequest,
   type ConfirmCallback,
@@ -43,6 +44,8 @@ export interface RunnerConfig {
   agentType?: AgentType
   /** 工作目录 */
   cwd?: string
+  /** 模型名称 */
+  model?: string
   /** API Key（可选，如果不提供则尝试使用 Kiro） */
   apiKey?: string
   /** API Base URL */
@@ -84,6 +87,7 @@ export function createRunner(config: RunnerConfig) {
   const {
     agentType = "build",
     cwd = process.cwd(),
+    model,
     apiKey,
     baseURL,
     permissions: customPermissions,
@@ -109,6 +113,16 @@ export function createRunner(config: RunnerConfig) {
 
   // 获取 Agent 定义
   const definition = getAgentDefinition(agentType)
+  
+  // 如果指定了模型，覆盖默认模型
+  if (model) {
+    definition.model = {
+      provider: "auto",
+      model,
+      temperature: definition.model?.temperature || 0,
+      maxTokens: definition.model?.maxTokens || 8192,
+    }
+  }
 
   // 创建权限集合
   const basePermissions = createDefaultPermissions(agentType)
@@ -122,12 +136,30 @@ export function createRunner(config: RunnerConfig) {
   // 确认回调（autoConfirmRef 优先级高于 autoConfirm）
   const confirmCallback: ConfirmCallback = async (request) => {
     const isAutoConfirm = autoConfirmRef ? autoConfirmRef.value : autoConfirm
+    
+    // 如果是自动模式，直接允许
     if (isAutoConfirm) {
       return true
     }
+    
+    // 如果是手动模式，先检查权限规则
+    const result = checkPermission(request, permissions)
+    
+    // 如果规则明确允许，直接返回 true
+    if (result.action === "allow") {
+      return true
+    }
+    
+    // 如果规则明确拒绝，直接返回 false
+    if (result.action === "deny") {
+      return false
+    }
+    
+    // 如果规则要求确认（ask），调用用户确认回调
     if (onConfirm) {
       return onConfirm(request)
     }
+    
     // 默认拒绝
     return false
   }

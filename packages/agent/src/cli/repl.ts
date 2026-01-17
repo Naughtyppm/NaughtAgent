@@ -17,6 +17,7 @@ import { StreamMarkdownRenderer } from "./markdown"
 export interface ReplConfig {
   cwd: string
   agent: "build" | "plan" | "explore"
+  model?: string
   autoConfirm: boolean
 }
 
@@ -85,18 +86,17 @@ function getModelName(): string {
  * 打印用户输入标题
  */
 function printUserHeader(): void {
-  // 上方横线
-  console.log(`\n\x1b[90m${"─".repeat(60)}\x1b[0m`)
-  // 黄色背景黑字
-  console.log(`\x1b[43m\x1b[30m ## Me \x1b[0m`)
+  console.log(`\n\x1b[43m\x1b[30m ${"═".repeat(25)} Me ${"═".repeat(25)} \x1b[0m`)
 }
 
 /**
  * 打印 AI 回复标题
  */
 function printAIHeader(modelName: string): void {
-  // 紫色背景白字
-  console.log(`\x1b[45m\x1b[37m ## ${modelName} \x1b[0m\n`)
+  const padding = Math.floor((50 - modelName.length) / 2)
+  const leftPad = "═".repeat(padding)
+  const rightPad = "═".repeat(50 - modelName.length - padding)
+  console.log(`\x1b[45m\x1b[37m ${leftPad} ${modelName} ${rightPad} \x1b[0m`)
 }
 
 /**
@@ -174,6 +174,7 @@ function printHelp(): void {
   console.log("  /manual         切换为手动确认模式")
   console.log("  /auto           切换为自动确认模式")
   console.log("  /agent <mode>   切换 Agent (build/plan/explore)")
+  console.log("  /model <name>   切换模型")
   console.log("  /run [file]     执行计划文件 (默认 plan.md)")
   console.log("  /clear          清屏")
   console.log("  /exit           退出")
@@ -185,6 +186,14 @@ function printHelp(): void {
   console.log("  \x1b[33mbuild\x1b[0m    直接执行，边想边做")
   console.log("  \x1b[33mplan\x1b[0m     先规划，生成 plan.md 后 /run 执行")
   console.log("  \x1b[33mexplore\x1b[0m  只读探索，快速了解代码")
+  console.log("")
+  console.log("\x1b[1m模型：\x1b[0m")
+  console.log("  \x1b[33msonnet\x1b[0m      Claude Sonnet 4 (默认，平衡)")
+  console.log("  \x1b[33msonnet-4.5\x1b[0m  Claude Sonnet 4.5 (更强)")
+  console.log("  \x1b[33mopus\x1b[0m        Claude Opus 4 (最强)")
+  console.log("  \x1b[33mopus-4.5\x1b[0m    Claude Opus 4.5 (最强)")
+  console.log("  \x1b[33mhaiku\x1b[0m       Claude Haiku 4 (最快，便宜)")
+  console.log("  \x1b[33mhaiku-4.5\x1b[0m   Claude Haiku 4.5 (更快)")
   console.log("")
 }
 
@@ -394,9 +403,20 @@ function createOutputHandlers(spinner: ThinkingSpinner, modelName: string = "Cla
             }
           }
         } else {
-          // 简短显示结果
-          const firstLine = output.split("\n")[0]
-          console.log(`\x1b[32m✓\x1b[0m \x1b[90m${firstLine}\x1b[0m`)
+          // 检查是否是文件列表（多行输出）
+          const lines = output.split("\n").filter(l => l.trim())
+          if (lines.length > 3) {
+            // 紧凑显示文件列表
+            console.log(`\x1b[32m✓\x1b[0m \x1b[90m找到 ${lines.length} 个文件:\x1b[0m`)
+            // 每行显示一个文件，去掉多余空行
+            lines.forEach(line => {
+              console.log(`  \x1b[90m${line.trim()}\x1b[0m`)
+            })
+          } else {
+            // 简短显示结果
+            const firstLine = output.split("\n")[0]
+            console.log(`\x1b[32m✓\x1b[0m \x1b[90m${firstLine}\x1b[0m`)
+          }
         }
       }
 
@@ -424,9 +444,7 @@ function createOutputHandlers(spinner: ThinkingSpinner, modelName: string = "Cla
       const input = usage.inputTokens || 0
       const output = usage.outputTokens || 0
       if (input > 0 || output > 0) {
-        console.log(`\n\x1b[90m[${input}+${output} tokens]\x1b[0m`)
-      } else {
-        console.log()
+        console.log(`\x1b[90m[${input}+${output} tokens]\x1b[0m`)
       }
     },
     onPermissionRequest: () => {
@@ -504,6 +522,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
   const makeRunner = () => createRunner({
     agentType: currentAgent,
     cwd: config.cwd,
+    model: config.model,
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseURL: process.env.ANTHROPIC_BASE_URL,
     autoConfirmRef,
@@ -515,8 +534,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
   let runner = makeRunner()
   const spinner = new ThinkingSpinner()
 
-  // 分隔线：区分 agent 信息和用户输入区域
-  console.log(`\x1b[90m${"─".repeat(60)}\x1b[0m\n`)
+  // 不需要额外分隔线，直接开始
 
   /**
    * 取消当前任务
@@ -525,7 +543,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
     if (taskState.cancel()) {
       spinner.stop()
       console.log("\n\x1b[33m⚠️  已取消\x1b[0m")
-      rl.prompt()
+      showPrompt()
     }
   }
 
@@ -545,7 +563,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
       .finally(() => {
         taskState.end()
         if (!abortSignal.aborted) {
-          rl.prompt()
+          showPrompt()
         }
       })
   }
@@ -556,7 +574,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
 
     if (!input) {
       if (!taskState.isRunning) {
-        rl.prompt()
+        showPrompt()
       }
       return true // 继续
     }
@@ -585,14 +603,14 @@ export async function startRepl(config: ReplConfig): Promise<void> {
         case "h":
         case "?":
           printHelp()
-          if (!taskState.isRunning) rl.prompt()
+          if (!taskState.isRunning) showPrompt()
           return true
 
         case "clear":
         case "cls":
           console.clear()
           printWelcome({ ...config, agent: currentAgent }, autoConfirmRef.value)
-          if (!taskState.isRunning) rl.prompt()
+          if (!taskState.isRunning) showPrompt()
           return true
 
         case "manual":
@@ -603,7 +621,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
             autoConfirmRef.value = false
             console.log(`\n权限模式: \x1b[33m手动确认\x1b[0m (每次操作需确认)\n`)
           }
-          if (!taskState.isRunning) rl.prompt()
+          if (!taskState.isRunning) showPrompt()
           return true
 
         case "auto":
@@ -615,7 +633,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
             autoConfirmRef.value = true
             console.log(`\n权限模式: \x1b[32m自动确认\x1b[0m (所有操作自动放行)\n`)
           }
-          if (!taskState.isRunning) rl.prompt()
+          if (!taskState.isRunning) showPrompt()
           return true
 
         case "agent":
@@ -631,7 +649,27 @@ export async function startRepl(config: ReplConfig): Promise<void> {
           } else {
             console.log("\n用法: /agent <build|plan|explore>\n")
           }
-          rl.prompt()
+          showPrompt()
+          return true
+
+        case "model":
+          if (taskState.isRunning) {
+            console.log("\n\x1b[33m⚠️  任务执行中，请先 /cancel\x1b[0m\n")
+            return true
+          }
+          const newModel = args[0]
+          if (newModel) {
+            config.model = newModel
+            runner = makeRunner()
+            console.log(`\n已切换到模型 \x1b[36m${newModel}\x1b[0m\n`)
+          } else {
+            console.log("\n用法: /model <model-name>")
+            console.log("可用模型:")
+            console.log("  sonnet, sonnet-4.5")
+            console.log("  opus, opus-4.5")
+            console.log("  haiku, haiku-4.5\n")
+          }
+          showPrompt()
           return true
 
         case "run":
@@ -668,13 +706,13 @@ export async function startRepl(config: ReplConfig): Promise<void> {
             runTask(executePrompt, handlers)
           } catch (error) {
             console.error(`\n\x1b[31m✗\x1b[0m 执行失败:`, error instanceof Error ? error.message : error)
-            rl.prompt()
+            showPrompt()
           }
           return true
 
         default:
           console.log(`\n未知命令: /${cmd}，输入 /help 查看帮助\n`)
-          if (!taskState.isRunning) rl.prompt()
+          if (!taskState.isRunning) showPrompt()
           return true
       }
     }
@@ -685,10 +723,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
       return true
     }
 
-    // 显示用户输入
-    printUserHeader()
-    console.log(input)
-    // 下方横线
+    // 显示分隔线
     console.log(`\x1b[90m${"─".repeat(60)}\x1b[0m`)
     spinner.start("思考中")
     const handlers = createOutputHandlers(spinner, getModelName())
@@ -697,7 +732,16 @@ export async function startRepl(config: ReplConfig): Promise<void> {
     return true // 继续
   }
 
-  // 主循环
+  // 自定义提示符处理
+  const showPrompt = () => {
+    if (!taskState.isRunning) {
+      // 在提示符之前显示用户标题
+      printUserHeader()
+    }
+    rl.prompt()
+  }
+
+  // 主循环（第一次不显示标题）
   rl.prompt()
 
   rl.on("line", (line) => {

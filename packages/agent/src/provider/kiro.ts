@@ -10,6 +10,8 @@ import * as path from "path"
 import * as os from "os"
 import * as crypto from "crypto"
 import { zodToJsonSchema } from "zod-to-json-schema"
+import { withRetry, AgentError, ErrorCode } from "../error"
+import { Logger } from "../logging"
 import type {
   LLMProvider,
   KiroConfig,
@@ -675,68 +677,130 @@ function parseSSEResponse(content: Buffer, debug = false): ParsedResponse {
 // ==================== Provider 实现 ====================
 
 /**
+ * 将原生错误转换为 AgentError
+ */
+function convertKiroError(error: unknown, context?: Record<string, unknown>): AgentError {
+  if (error instanceof AgentError) {
+    return error
+  }
+
+  const err = error instanceof Error ? error : new Error(String(error))
+  const message = err.message.toLowerCase()
+
+  // Token 相关错误
+  if (message.includes("no kiro token") || message.includes("token")) {
+    return new AgentError(err.message, ErrorCode.AUTHENTICATION_ERROR, false, { ...context, originalError: err })
+  }
+
+  // 网络错误
+  if (message.includes("network") || message.includes("econnrefused") || message.includes("fetch failed")) {
+    return new AgentError(err.message, ErrorCode.NETWORK_ERROR, true, { ...context, originalError: err })
+  }
+
+  // API 错误（根据状态码）
+  if (message.includes("401") || message.includes("403")) {
+    return new AgentError(err.message, ErrorCode.AUTHENTICATION_ERROR, false, { ...context, originalError: err })
+  }
+
+  if (message.includes("429")) {
+    return new AgentError(err.message, ErrorCode.RATE_LIMIT, true, { ...context, originalError: err })
+  }
+
+  if (message.includes("400")) {
+    return new AgentError(err.message, ErrorCode.INVALID_REQUEST, false, { ...context, originalError: err })
+  }
+
+  // 默认为 API 错误
+  return new AgentError(err.message, ErrorCode.API_ERROR, false, { ...context, originalError: err })
+}
+
+/**
  * 创建 Kiro Provider
  */
 export function createKiroProvider(config?: KiroConfig): LLMProvider {
   const cacheDir = config?.tokenCacheDir || getDefaultTokenCacheDir()
   const debug = config?.debug || false
 
+  // 创建日志器
+  const logger = new Logger('provider:kiro')
+
   return {
     type: "kiro",
 
     async *stream(params: ChatParams): AsyncGenerator<StreamEvent> {
-      const token = loadToken(cacheDir)
-      if (!token) {
-        yield {
-          type: "error",
-          error: new Error(
-            "No Kiro token available. Please login to Kiro IDE first."
-          ),
-        }
-        return
-      }
-
-      // 检查是否需要刷新
-      if (needsRefresh(token)) {
-        await refreshToken(config?.proxy)
-      }
-
-      const model = mapToKiroModel(params.model.model)
-      const { userContent, history, toolResults } = convertMessages(
-        params.messages,
-        params.system,
-        model
-      )
-      const tools = convertTools(params.tools)
-      const kiroReq = buildKiroRequest(
-        userContent,
-        model,
-        history,
-        tools,
-        toolResults
-      )
-      const headers = buildHeaders(token.accessToken, token.machineId)
+      logger.debug('开始流式调用', {
+        model: params.model.model,
+        messageCount: params.messages.length,
+        hasTools: !!params.tools,
+        toolCount: params.tools?.length || 0
+      })
 
       try {
-        const resp = await fetch(KIRO_API_URL, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(kiroReq),
-        })
-
-        if (!resp.ok) {
-          const errText = await resp.text()
-          console.error(`[Kiro] API error: ${resp.status} - ${errText.substring(0, 300)}`)
-          yield {
-            type: "error",
-            error: new Error(`Kiro API error: ${resp.status}`),
-          }
-          return
+        const token = loadToken(cacheDir)
+        if (!token) {
+          throw new AgentError(
+            "No Kiro token available. Please login to Kiro IDE first.",
+            ErrorCode.AUTHENTICATION_ERROR,
+            false
+          )
         }
+
+        // 检查是否需要刷新
+        if (needsRefresh(token)) {
+          logger.debug('Token 需要刷新')
+          await refreshToken(config?.proxy)
+        }
+
+        const model = mapToKiroModel(params.model.model)
+        const { userContent, history, toolResults } = convertMessages(
+          params.messages,
+          params.system,
+          model
+        )
+        const tools = convertTools(params.tools)
+        const kiroReq = buildKiroRequest(
+          userContent,
+          model,
+          history,
+          tools,
+          toolResults
+        )
+        const headers = buildHeaders(token.accessToken, token.machineId)
+
+        const resp = await withRetry(async () => {
+          const response = await fetch(KIRO_API_URL, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(kiroReq),
+          })
+
+          if (!response.ok) {
+            const errText = await response.text()
+            logger.error('Kiro API 错误', { 
+              status: response.status, 
+              error: errText.substring(0, 300) 
+            })
+            throw new AgentError(
+              `Kiro API error: ${response.status}`,
+              response.status === 429 ? ErrorCode.RATE_LIMIT : ErrorCode.API_ERROR,
+              response.status === 429,
+              { status: response.status, body: errText.substring(0, 300) }
+            )
+          }
+
+          return response
+        })
 
         // 读取完整响应（Kiro 不支持真正的流式）
         const buffer = Buffer.from(await resp.arrayBuffer())
         const parsed = parseSSEResponse(buffer, debug)
+
+        logger.debug('流式调用完成', {
+          textLength: parsed.text.length,
+          toolCallCount: parsed.toolUses.length,
+          inputTokens: parsed.inputTokens,
+          outputTokens: parsed.outputTokens
+        })
 
         // 输出文本
         if (parsed.text) {
@@ -762,68 +826,110 @@ export function createKiroProvider(config?: KiroConfig): LLMProvider {
           },
         }
       } catch (err) {
-        yield {
-          type: "error",
-          error: err instanceof Error ? err : new Error(String(err)),
-        }
+        const agentError = convertKiroError(err, { provider: "kiro", model: params.model.model })
+        logger.error('流式调用失败', {
+          error: agentError.message,
+          code: agentError.code,
+          recoverable: agentError.recoverable
+        })
+        yield { type: "error", error: agentError }
       }
     },
 
     async chat(params: ChatParams): Promise<ChatResult> {
-      const token = loadToken(cacheDir)
-      if (!token) {
-        throw new Error(
-          "No Kiro token available. Please login to Kiro IDE first."
-        )
-      }
-
-      // 检查是否需要刷新
-      if (needsRefresh(token)) {
-        await refreshToken(config?.proxy)
-      }
-
-      const model = mapToKiroModel(params.model.model)
-      const { userContent, history, toolResults } = convertMessages(
-        params.messages,
-        params.system,
-        model
-      )
-      const tools = convertTools(params.tools)
-      const kiroReq = buildKiroRequest(
-        userContent,
-        model,
-        history,
-        tools,
-        toolResults
-      )
-      const headers = buildHeaders(token.accessToken, token.machineId)
-
-      const resp = await fetch(KIRO_API_URL, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(kiroReq),
+      logger.debug('开始非流式调用', {
+        model: params.model.model,
+        messageCount: params.messages.length,
+        hasTools: !!params.tools,
+        toolCount: params.tools?.length || 0
       })
 
-      if (!resp.ok) {
-        const errText = await resp.text()
-        console.error(`[Kiro] API error: ${resp.status} - ${errText.substring(0, 300)}`)
-        throw new Error(`Kiro API error: ${resp.status}`)
-      }
+      try {
+        const token = loadToken(cacheDir)
+        if (!token) {
+          throw new AgentError(
+            "No Kiro token available. Please login to Kiro IDE first.",
+            ErrorCode.AUTHENTICATION_ERROR,
+            false
+          )
+        }
 
-      const buffer = Buffer.from(await resp.arrayBuffer())
-      const parsed = parseSSEResponse(buffer, debug)
+        // 检查是否需要刷新
+        if (needsRefresh(token)) {
+          logger.debug('Token 需要刷新')
+          await refreshToken(config?.proxy)
+        }
 
-      return {
-        text: parsed.text,
-        toolCalls: parsed.toolUses.map((tu) => ({
-          id: tu.toolUseId,
-          name: tu.name,
-          args: tu.input,
-        })),
-        usage: {
+        const model = mapToKiroModel(params.model.model)
+        const { userContent, history, toolResults } = convertMessages(
+          params.messages,
+          params.system,
+          model
+        )
+        const tools = convertTools(params.tools)
+        const kiroReq = buildKiroRequest(
+          userContent,
+          model,
+          history,
+          tools,
+          toolResults
+        )
+        const headers = buildHeaders(token.accessToken, token.machineId)
+
+        const resp = await withRetry(async () => {
+          const response = await fetch(KIRO_API_URL, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(kiroReq),
+          })
+
+          if (!response.ok) {
+            const errText = await response.text()
+            logger.error('Kiro API 错误', { 
+              status: response.status, 
+              error: errText.substring(0, 300) 
+            })
+            throw new AgentError(
+              `Kiro API error: ${response.status}`,
+              response.status === 429 ? ErrorCode.RATE_LIMIT : ErrorCode.API_ERROR,
+              response.status === 429,
+              { status: response.status, body: errText.substring(0, 300) }
+            )
+          }
+
+          return response
+        })
+
+        const buffer = Buffer.from(await resp.arrayBuffer())
+        const parsed = parseSSEResponse(buffer, debug)
+
+        logger.debug('非流式调用完成', {
+          textLength: parsed.text.length,
+          toolCallCount: parsed.toolUses.length,
           inputTokens: parsed.inputTokens,
-          outputTokens: parsed.outputTokens,
-        },
+          outputTokens: parsed.outputTokens
+        })
+
+        return {
+          text: parsed.text,
+          toolCalls: parsed.toolUses.map((tu) => ({
+            id: tu.toolUseId,
+            name: tu.name,
+            args: tu.input,
+          })),
+          usage: {
+            inputTokens: parsed.inputTokens,
+            outputTokens: parsed.outputTokens,
+          },
+        }
+      } catch (err) {
+        const agentError = convertKiroError(err, { provider: "kiro", model: params.model.model })
+        logger.error('非流式调用失败', {
+          error: agentError.message,
+          code: agentError.code,
+          recoverable: agentError.recoverable
+        })
+        throw agentError
       }
     },
   }

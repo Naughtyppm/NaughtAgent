@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { AgentError, ErrorCode } from "../error"
 
 /**
  * Tool 工具系统核心定义
@@ -53,10 +54,46 @@ export namespace Tool {
     return {
       ...definition,
       execute: async (params, ctx) => {
-        // 参数验证
-        const parsed = definition.parameters.parse(params)
-        // 执行工具
-        return definition.execute(parsed, ctx)
+        try {
+          // 参数验证
+          const parsed = definition.parameters.parse(params)
+          // 执行工具
+          return await definition.execute(parsed, ctx)
+        } catch (error) {
+          // 将工具执行错误转换为 AgentError
+          if (error instanceof AgentError) {
+            throw error
+          }
+
+          // Zod 验证错误
+          if (error instanceof z.ZodError) {
+            throw new AgentError(
+              `Invalid tool parameters: ${error.message}`,
+              ErrorCode.INVALID_REQUEST,
+              false,
+              { tool: definition.id, zodError: error.errors }
+            )
+          }
+
+          // 权限错误
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          if (errorMessage.includes("permission") || errorMessage.includes("EACCES")) {
+            throw new AgentError(
+              errorMessage,
+              ErrorCode.PERMISSION_DENIED,
+              false,
+              { tool: definition.id, originalError: error }
+            )
+          }
+
+          // 其他工具执行错误
+          throw new AgentError(
+            errorMessage,
+            ErrorCode.TOOL_EXECUTION_ERROR,
+            true,
+            { tool: definition.id, originalError: error }
+          )
+        }
       },
     }
   }
