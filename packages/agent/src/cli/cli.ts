@@ -31,8 +31,8 @@ import * as readline from "readline"
  * CLI 参数
  */
 interface CLIArgs {
-  command: "chat" | "daemon" | "sessions"
-  subCommand?: "start" | "stop" | "restart" | "status" | "list" | "delete"
+  command: "chat" | "daemon" | "sessions" | "test"
+  subCommand?: "start" | "stop" | "restart" | "status" | "list" | "delete" | "phase1"
   message: string
   agent: "build" | "plan" | "explore"
   cwd: string
@@ -103,6 +103,14 @@ function parseArgs(args: string[]): CLIArgs {
       } else if (sub) {
         i--
       }
+    } else if (arg === "test") {
+      result.command = "test"
+      const sub = args[++i]
+      if (sub === "phase1") {
+        result.subCommand = sub
+      } else if (sub) {
+        i--
+      }
     } else if (!arg.startsWith("-")) {
       messageArgs.push(arg)
     }
@@ -142,6 +150,7 @@ function printHelp(): void {
   naughtyagent [选项] <消息>        单次对话模式
   naughtyagent daemon <命令>       后台服务管理
   naughtyagent sessions <命令>     会话管理
+  naughtyagent test <命令>         测试功能
 
 对话选项:
   -h, --help       显示帮助信息
@@ -160,6 +169,9 @@ Daemon 命令:
 Sessions 命令:
   sessions list           列出所有会话
   sessions delete <id>    删除指定会话
+
+Test 命令:
+  test phase1             测试 Phase 1 基础设施层功能
 
 Daemon 选项:
   -p, --port      服务端口，默认 31415
@@ -260,6 +272,35 @@ async function handleDaemon(args: CLIArgs): Promise<void> {
     case "status":
     default:
       await printStatus()
+      break
+  }
+}
+
+/**
+ * 处理 test 命令
+ */
+async function handleTest(args: CLIArgs): Promise<void> {
+  switch (args.subCommand) {
+    case "phase1": {
+      console.log('='.repeat(80))
+      console.log('Phase 1 功能测试')
+      console.log('='.repeat(80))
+      console.log('')
+      console.log('💡 请直接运行测试文件:')
+      console.log('')
+      console.log('  方式 1 (推荐): bun run packages/agent/examples/test-phase1-features.ts')
+      console.log('  方式 2: npx tsx packages/agent/examples/test-phase1-features.ts')
+      console.log('  方式 3: node --loader tsx packages/agent/examples/test-phase1-features.ts')
+      console.log('')
+      console.log('或者使用项目根目录的快捷脚本:')
+      console.log('  Windows: test-phase1.bat')
+      console.log('  Linux/Mac: ./test-phase1.sh')
+      break
+    }
+
+    default:
+      console.log('可用的测试命令:')
+      console.log('  test phase1    查看 Phase 1 基础设施层功能测试说明')
       break
   }
 }
@@ -460,6 +501,8 @@ async function main(): Promise<void> {
     await handleDaemon(args)
   } else if (args.command === "sessions") {
     await handleSessions(args)
+  } else if (args.command === "test") {
+    await handleTest(args)
   } else {
     await handleChat(args)
   }
@@ -468,7 +511,7 @@ async function main(): Promise<void> {
 // 导出供测试使用
 export { parseArgs, createOutputHandlers }
 
-// ESM 模块直接运行主函数
+// 直接执行主函数（简化入口逻辑）
 main().catch((error) => {
   console.error("未捕获的错误:", error)
   process.exit(1)

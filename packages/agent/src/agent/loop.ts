@@ -21,6 +21,8 @@ import type {
   ChatResult,
   MessageContent,
   TextContent,
+  ImageContent,
+  AudioContent,
   ToolUseContent,
   ToolResultContent,
 } from "../provider"
@@ -30,6 +32,9 @@ import {
   addMessage,
   updateUsage,
   type ContentBlock,
+  type TextBlock,
+  type ImageBlock,
+  type AudioBlock,
   type ToolUseBlock,
   type ToolResultBlock,
 } from "../session"
@@ -110,31 +115,62 @@ export function createAgentLoop(config: AgentLoopConfig) {
   function convertMessages(): Message[] {
     return session.messages.map((msg) => {
       if (msg.role === "user") {
-        // 用户消息：提取文本或工具结果
-        const textParts: string[] = []
+        // 用户消息：提取文本、图片、音频或工具结果
+        const contentParts: Array<TextContent | ImageContent | AudioContent> = []
         const toolResults: ToolResultContent[] = []
 
         for (const block of msg.content) {
           if (block.type === "text") {
-            textParts.push(block.text)
+            contentParts.push({ type: "text", text: block.text })
+          } else if (block.type === "image") {
+            contentParts.push({ type: "image", source: block.source })
+          } else if (block.type === "audio") {
+            contentParts.push({ type: "audio", source: block.source })
           } else if (block.type === "tool_result") {
+            // 转换 content：如果是 ContentBlock[]，需要过滤并转换为 provider 支持的类型
+            let content: string | Array<TextContent | ImageContent | AudioContent>
+            if (typeof block.content === "string") {
+              content = block.content
+            } else {
+              // 过滤出 provider 支持的内容类型
+              content = block.content
+                .filter((c): c is TextBlock | ImageBlock | AudioBlock => 
+                  c.type === "text" || c.type === "image" || c.type === "audio"
+                )
+                .map((c) => {
+                  if (c.type === "text") {
+                    return { type: "text" as const, text: c.text }
+                  } else if (c.type === "image") {
+                    return { type: "image" as const, source: c.source }
+                  } else {
+                    return { type: "audio" as const, source: c.source }
+                  }
+                })
+            }
+            
             toolResults.push({
               type: "tool_result",
               tool_use_id: block.tool_use_id,
-              content: block.content,
+              content,
               is_error: block.is_error,
             })
           }
         }
 
-        // 如果有工具结果，返回数组格式
+        // 如果有工具结果，返回数组格式（包含工具结果和其他内容）
         if (toolResults.length > 0) {
-          const content: MessageContent = toolResults
+          const content: MessageContent = [...contentParts, ...toolResults]
           return { role: "user" as const, content }
         }
 
+        // 如果有多模态内容（图片/音频），返回数组格式
+        if (contentParts.length > 0 && contentParts.some(c => c.type !== "text")) {
+          return { role: "user" as const, content: contentParts }
+        }
+
         // 否则返回纯文本
-        return { role: "user" as const, content: textParts.join("") }
+        const textOnly = contentParts.filter((c): c is TextContent => c.type === "text")
+        return { role: "user" as const, content: textOnly.map(c => c.text).join("") }
       } else {
         // 助手消息：转换内容块
         const content: Array<TextContent | ToolUseContent> = []
