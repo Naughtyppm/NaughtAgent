@@ -135,6 +135,9 @@ export {
 // Server HTTP API
 export * from "./server"
 
+// Command 统一命令系统
+export * from "./command"
+
 // MCP 协议支持
 export * from "./mcp"
 

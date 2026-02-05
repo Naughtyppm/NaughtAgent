@@ -47,7 +47,11 @@
       "Bash(node:*)",
       "Bash(pnpm run build)",
       "Bash(git reset:*)",
-      "Bash(naughtyagent --version:*)"
+      "Bash(naughtyagent --version:*)",
+      "Bash(done)",
+      "WebFetch(domain:prompts.chat)",
+      "Bash(npm:*)",
+      "Bash(wc -l \"D:\\\\WorkSpace\\\\AI\\\\NaughtAgent\\\\packages\\\\agent\\\\src\"/**/*.ts)"
     ]
   }
 }

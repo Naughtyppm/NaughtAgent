@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "snapmind": {
+      "command": "python",
+      "args": ["-m", "snapmind_mcp"],
+      "cwd": "${workspaceFolder}/mcp-server",
+      "env": {
+        "KIRO_WORKSPACE": "${workspaceFolder}"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "save_snapshot",
+        "load_memory",
+        "get_status",
+        "search_history",
+        "check_health",
+        "merge_snapshots",
+        "export_memory",
+        "import_memory"
+      ]
+    }
+  }
+}

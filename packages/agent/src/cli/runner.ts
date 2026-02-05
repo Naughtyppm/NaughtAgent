@@ -58,6 +58,8 @@ export interface RunnerConfig {
   autoConfirm?: boolean
   /** 自动确认状态（动态引用，优先级高于 autoConfirm） */
   autoConfirmRef?: { value: boolean }
+  /** 已有的会话（用于保持对话历史） */
+  existingSession?: Session | null
 }
 
 /**
@@ -94,6 +96,7 @@ export function createRunner(config: RunnerConfig) {
     onConfirm,
     autoConfirm = false,
     autoConfirmRef,
+    existingSession,
   } = config
 
   // 注册内置工具
@@ -164,8 +167,8 @@ export function createRunner(config: RunnerConfig) {
     return false
   }
 
-  // 当前会话
-  let session: Session | null = null
+  // 当前会话（优先使用已有会话）
+  let session: Session | null = existingSession || null
 
   return {
     /**

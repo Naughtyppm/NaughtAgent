@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Agent 和 LLM一定要执行的是：始终跟我用中文交流。
+
 ## 项目概述
 
 NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，基于 VS Code 插件实现。

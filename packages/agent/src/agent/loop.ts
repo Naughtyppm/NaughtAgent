@@ -14,6 +14,7 @@ import type { AgentDefinition, AgentEvent, AgentRunConfig, TokenUsage } from "./
 import { buildSystemPrompt } from "./prompt"
 import { Tool } from "../tool/tool"
 import { ToolRegistry } from "../tool/registry"
+import { createOutputTruncator } from "../tool/output-truncator"
 import { AgentError, ErrorCode } from "../error"
 import { Logger, PerformanceMonitor, generateTraceId } from "../logging"
 import type {
@@ -89,6 +90,12 @@ export function createAgentLoop(config: AgentLoopConfig) {
   }
 
   /**
+   * 输出截断器实例
+   * 需求 5.4: 在工具执行后应用截断
+   */
+  const outputTruncator = createOutputTruncator()
+
+  /**
    * 执行单个工具调用
    */
   async function executeTool(
@@ -110,12 +117,28 @@ export function createAgentLoop(config: AgentLoopConfig) {
         return await ToolRegistry.execute(toolCall.name, toolCall.args, ctx)
       })
       
+      // 应用输出截断 (需求 5.4)
+      const truncationResult = outputTruncator.truncate(result.output)
+      if (truncationResult.truncated) {
+        logger.debug(`工具输出已截断: ${toolCall.name}`, {
+          toolId: toolCall.id,
+          originalLength: truncationResult.originalLength,
+          truncatedLength: truncationResult.truncatedLength,
+        })
+      }
+      
       logger.debug(`工具执行成功: ${toolCall.name}`, { 
         toolId: toolCall.id,
-        outputLength: result.output.length 
+        outputLength: truncationResult.truncatedLength 
       })
       
-      return { result, isError: false }
+      return { 
+        result: {
+          ...result,
+          output: truncationResult.output,
+        }, 
+        isError: false 
+      }
     } catch (error) {
       // 记录错误
       logger.error(`工具执行失败: ${toolCall.name}`, { 

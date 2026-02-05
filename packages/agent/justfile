@@ -1,0 +1,106 @@
+# NaughtyAgent 命令管理
+# 使用 `just` 或 `just --list` 查看所有可用命令
+
+# 默认命令：显示帮助
+default:
+    @just --list
+
+# ============================================
+# 开发指令
+# ============================================
+
+# 启动开发模式（使用 bun 运行）
+dev:
+    bun run src/cli.ts
+
+# 启动 CLI（使用编译后的版本）
+start:
+    node dist/cli/cli.js
+
+# 启动 REPL 交互模式
+repl:
+    node dist/cli/cli.js repl
+
+# ============================================
+# 构建指令
+# ============================================
+
+# 编译 TypeScript 代码
+build:
+    tsup
+
+# 类型检查（不生成文件）
+typecheck:
+    tsc --noEmit
+
+# 清理构建产物
+clean:
+    rm -rf dist
+
+# 重新构建（清理 + 编译）
+rebuild: clean build
+
+# ============================================
+# 测试指令
+# ============================================
+
+# 运行所有测试
+test:
+    vitest run
+
+# 监听模式运行测试
+test-watch:
+    vitest
+
+# 运行测试并生成覆盖率报告
+test-coverage:
+    vitest run --coverage
+
+# 运行特定测试文件
+test-file FILE:
+    vitest run {{FILE}}
+
+# ============================================
+# Agent 模式
+# ============================================
+
+# Build 模式：可读写代码、执行命令
+agent-build:
+    node dist/cli/cli.js --mode build
+
+# Plan 模式：只分析不执行，生成计划
+agent-plan:
+    node dist/cli/cli.js --mode plan
+
+# Explore 模式：只读模式，快速搜索
+agent-explore:
+    node dist/cli/cli.js --mode explore
+
+# ============================================
+# 工具指令
+# ============================================
+
+# 初始化项目规范文档
+init:
+    @echo "🔍 分析项目结构..."
+    @node scripts/generate-naughty.cjs
+
+# 检查依赖更新
+deps-check:
+    npm outdated
+
+# 更新依赖
+deps-update:
+    npm update
+
+# 安装依赖
+install:
+    npm install
+
+# 格式化代码（如果有 prettier）
+format:
+    npx prettier --write "src/**/*.ts"
+
+# Lint 检查（如果有 eslint）
+lint:
+    npx eslint "src/**/*.ts"

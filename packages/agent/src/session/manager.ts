@@ -14,12 +14,25 @@ import type {
   TokenUsage,
 } from "./session"
 import { createSession } from "./session"
+import { createCompressor, type CompressionConfig, type TokenCompressor } from "../token/compressor"
+
+/**
+ * 会话压缩配置
+ */
+export interface SessionCompressionConfig {
+  /** 是否启用自动压缩 */
+  enabled: boolean
+  /** 压缩配置 */
+  config?: Partial<CompressionConfig>
+}
 
 /**
  * 会话管理器
  */
 export class SessionManager {
   private sessions = new Map<SessionID, Session>()
+  private compressionConfig: SessionCompressionConfig = { enabled: false }
+  private compressor: TokenCompressor | null = null
 
   /**
    * 创建新会话
@@ -90,6 +103,8 @@ export class SessionManager {
 
   /**
    * 添加消息
+   * 
+   * 如果启用了自动压缩，会在添加消息后检查是否需要压缩
    */
   addMessage(
     id: SessionID,
@@ -108,7 +123,94 @@ export class SessionManager {
     session.messages.push(message)
     session.updatedAt = message.timestamp
 
+    // 检查是否需要自动压缩
+    if (this.compressionConfig.enabled && this.compressor) {
+      this.tryCompress(id)
+    }
+
     return message
+  }
+
+  /**
+   * 配置压缩
+   * 
+   * @param config 压缩配置
+   */
+  configureCompression(config: SessionCompressionConfig): void {
+    this.compressionConfig = config
+    if (config.enabled) {
+      this.compressor = createCompressor(config.config)
+    } else {
+      this.compressor = null
+    }
+  }
+
+  /**
+   * 获取压缩配置
+   */
+  getCompressionConfig(): SessionCompressionConfig {
+    return { ...this.compressionConfig }
+  }
+
+  /**
+   * 尝试压缩会话消息
+   * 
+   * @param id 会话 ID
+   * @returns 是否执行了压缩
+   */
+  tryCompress(id: SessionID): boolean {
+    if (!this.compressor) {
+      return false
+    }
+
+    const session = this.getOrThrow(id)
+    
+    if (!this.compressor.needsCompression(session.messages)) {
+      return false
+    }
+
+    const result = this.compressor.compress(session.messages)
+    
+    if (result.compressedCount > 0) {
+      session.messages = result.messages
+      session.updatedAt = Date.now()
+      return true
+    }
+
+    return false
+  }
+
+  /**
+   * 手动压缩会话
+   * 
+   * @param id 会话 ID
+   * @param config 可选的压缩配置覆盖
+   * @returns 压缩结果
+   */
+  compressSession(id: SessionID, config?: Partial<CompressionConfig>): {
+    compressed: boolean
+    compressedCount: number
+    beforeTokens: number
+    afterTokens: number
+  } {
+    const session = this.getOrThrow(id)
+    const compressor = config 
+      ? createCompressor(config)
+      : (this.compressor || createCompressor())
+
+    const result = compressor.compress(session.messages)
+    
+    if (result.compressedCount > 0) {
+      session.messages = result.messages
+      session.updatedAt = Date.now()
+    }
+
+    return {
+      compressed: result.compressedCount > 0,
+      compressedCount: result.compressedCount,
+      beforeTokens: result.beforeTokens,
+      afterTokens: result.afterTokens,
+    }
   }
 
   /**

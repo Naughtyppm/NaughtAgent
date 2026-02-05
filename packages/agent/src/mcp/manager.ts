@@ -121,7 +121,7 @@ export class McpManager {
 
     for (const [name, client] of this.clients) {
       try {
-        const tools = await client.listTools()
+        const { tools } = await client.listTools()
         for (const tool of tools) {
           allTools.push({ ...tool, serverName: name })
         }

@@ -11,6 +11,10 @@ import type { LLMProvider, ProviderConfig, AnthropicConfig, KiroConfig, OpenAICo
 import { createAnthropicProvider } from "./anthropic"
 import { createKiroProvider } from "./kiro"
 import { createOpenAIProvider } from "./openai"
+import { Logger } from "../logging"
+
+// 创建日志器
+const logger = new Logger('provider:factory')
 
 /**
  * 检查 Kiro Token 是否可用
@@ -103,7 +107,7 @@ function createAutoProvider(
   const anthropicApiKey = anthropicConfig?.apiKey || process.env.ANTHROPIC_API_KEY
 
   if (anthropicApiKey) {
-    console.log("[Provider] Using Anthropic API")
+    logger.debug('Using Anthropic API')
     return createAnthropicProvider({
       apiKey: anthropicApiKey,
       baseURL: anthropicConfig?.baseURL || process.env.ANTHROPIC_BASE_URL,
@@ -114,7 +118,7 @@ function createAutoProvider(
   const openaiApiKey = openaiConfig?.apiKey || process.env.OPENAI_API_KEY
 
   if (openaiApiKey) {
-    console.log("[Provider] Using OpenAI compatible API (OpenRouter)")
+    logger.debug('Using OpenAI compatible API')
     return createOpenAIProvider({
       apiKey: openaiApiKey,
       baseURL: openaiConfig?.baseURL || process.env.OPENAI_BASE_URL,
@@ -124,7 +128,7 @@ function createAutoProvider(
 
   // 检查 Kiro Token
   if (isKiroTokenAvailable(kiroConfig?.tokenCacheDir)) {
-    console.log("[Provider] Using Kiro (no API key found)")
+    logger.debug('Using Kiro (no API key found)')
     return createKiroProvider(kiroConfig)
   }
 

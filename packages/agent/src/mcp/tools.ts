@@ -108,7 +108,7 @@ function formatMcpContent(content: McpContent): string {
  * 从 MCP Client 加载工具并注册到 ToolRegistry
  */
 export async function loadMcpTools(client: McpClient): Promise<McpToolWrapper[]> {
-  const mcpTools = await client.listTools()
+  const { tools: mcpTools } = await client.listTools()
   const tools: McpToolWrapper[] = []
 
   for (const mcpTool of mcpTools) {

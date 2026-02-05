@@ -296,3 +296,51 @@ export function mapToKiroModel(model: string): string {
 
   return "claude-sonnet-4"
 }
+
+/**
+ * Anthropic API 模型映射（简写 -> 完整模型名）
+ */
+export const ANTHROPIC_MODEL_MAP: Record<string, string> = {
+  // 简写
+  sonnet: "claude-sonnet-4-20250514",
+  "sonnet-4": "claude-sonnet-4-20250514",
+  "sonnet-4.5": "claude-sonnet-4-5-20250514",
+  opus: "claude-opus-4-20250514",
+  "opus-4": "claude-opus-4-20250514",
+  "opus-4.5": "claude-opus-4-5-20251101",
+  haiku: "claude-haiku-4-20250514",
+  "haiku-4": "claude-haiku-4-20250514",
+  "haiku-4.5": "claude-haiku-4-5-20250514",
+  // Kiro 格式 -> Anthropic 格式
+  "claude-sonnet-4": "claude-sonnet-4-20250514",
+  "claude-sonnet-4.5": "claude-sonnet-4-5-20250514",
+  "claude-opus-4.5": "claude-opus-4-5-20251101",
+  "claude-haiku-4.5": "claude-haiku-4-5-20250514",
+}
+
+/**
+ * 映射模型名到 Anthropic API 模型名
+ */
+export function mapToAnthropicModel(model: string): string {
+  if (!model) return "claude-sonnet-4-20250514"
+  if (ANTHROPIC_MODEL_MAP[model]) return ANTHROPIC_MODEL_MAP[model]
+
+  // 如果已经是完整的 Anthropic 模型名，直接返回
+  if (model.startsWith("claude-") && model.includes("-202")) {
+    return model
+  }
+
+  // 模糊匹配
+  const m = model.toLowerCase()
+  if (m.includes("opus")) {
+    return m.includes("4.5") ? "claude-opus-4-5-20251101" : "claude-opus-4-20250514"
+  }
+  if (m.includes("haiku")) {
+    return m.includes("4.5") ? "claude-haiku-4-5-20250514" : "claude-haiku-4-20250514"
+  }
+  if (m.includes("sonnet")) {
+    return m.includes("4.5") ? "claude-sonnet-4-5-20250514" : "claude-sonnet-4-20250514"
+  }
+
+  return "claude-sonnet-4-20250514"
+}

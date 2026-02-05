@@ -5,8 +5,44 @@
  */
 
 // 核心定义
-export { Tool } from "./tool"
-export { ToolRegistry } from "./registry"
+export { Tool, TOOL_TIMEOUTS, DEFAULT_TIMEOUT, getToolTimeout } from "./tool"
+export { ToolRegistry, type RegistryTruncationConfig } from "./registry"
+
+// 工具执行包装器
+export {
+  withToolWrapper,
+  defineWithWrapper,
+  TimeoutError,
+  type ToolExecutionStats,
+  type WrapperOptions,
+} from "./wrapper"
+
+// Schema 转换
+export {
+  jsonSchemaToZod,
+  safeJsonSchemaToZod,
+  validateJsonSchemaSupport,
+} from "./schema-converter"
+export { parseJsonSchema, validateSchemaSupport } from "./json-schema-parser"
+
+// 工具发现服务
+export {
+  ToolDiscoveryService,
+  createToolDiscoveryService,
+  type DiscoveryStats,
+  type DiscoveryOptions,
+  type PaginationOptions,
+  type HotReloadCleanup,
+} from "./discovery"
+
+// 输出截断器
+export {
+  createOutputTruncator,
+  DEFAULT_TRUNCATOR_CONFIG,
+  type OutputTruncator,
+  type OutputTruncatorConfig,
+  type TruncationResult,
+} from "./output-truncator"
 
 // 内置工具
 export { ReadTool } from "./read"

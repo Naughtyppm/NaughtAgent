@@ -31,7 +31,7 @@ import {
 } from "../../src/cli/daemon"
 
 describe("Daemon", () => {
-  const NAUGHT_DIR = path.join(os.homedir(), ".naughtagent")
+  const NAUGHT_DIR = path.join(os.homedir(), ".naughtyagent")
   const PID_FILE = path.join(NAUGHT_DIR, "daemon.pid")
   const PORT_FILE = path.join(NAUGHT_DIR, "daemon.port")
   const CONFIG_FILE = path.join(NAUGHT_DIR, "config.json")

@@ -59,7 +59,7 @@ export class Logger {
     config: LoggerConfig = {}
   ) {
     this.minLevel = config.minLevel || LogLevel.INFO
-    this.format = config.format || 'json'
+    this.format = config.format || 'text'
     this.output = config.output || this.defaultOutput.bind(this)
   }
 
@@ -137,18 +137,48 @@ export class Logger {
 
   /**
    * 默认输出函数
+   * 输出到 stderr，避免与用户输出混淆
    */
   private defaultOutput(entry: LogEntry): void {
+    // 默认只输出 WARN 和 ERROR 级别到 stderr
+    // DEBUG 和 INFO 级别在生产环境下静默
+    if (entry.level === LogLevel.DEBUG || entry.level === LogLevel.INFO) {
+      // 只有设置了 DEBUG 环境变量才输出
+      if (!process.env.DEBUG) return
+    }
+
     if (this.format === 'json') {
-      console.log(JSON.stringify(entry))
+      console.error(JSON.stringify(entry))
     } else {
-      const timestamp = entry.timestamp.toISOString()
-      const level = entry.level.toUpperCase().padEnd(5)
-      const category = entry.category.padEnd(15)
-      const traceId = entry.trace_id ? ` [${entry.trace_id}]` : ''
-      const metadata = entry.metadata ? ` ${JSON.stringify(entry.metadata)}` : ''
-      
-      console.log(`${timestamp} ${level} ${category}${traceId} ${entry.message}${metadata}`)
+      // 简洁的时间格式 HH:MM:SS
+      const time = entry.timestamp.toTimeString().slice(0, 8)
+
+      // 级别标记
+      const levelMarks: Record<string, string> = {
+        debug: 'DBG',
+        info: 'INF',
+        warn: 'WRN',
+        error: 'ERR'
+      }
+      const level = levelMarks[entry.level] || entry.level.toUpperCase()
+
+      // 简化 metadata 输出
+      let metaStr = ''
+      if (entry.metadata) {
+        const parts: string[] = []
+        for (const [key, value] of Object.entries(entry.metadata)) {
+          // 跳过 traceId（太长）
+          if (key === 'traceId') continue
+          // 简化值的显示
+          const v = typeof value === 'string' ? value : JSON.stringify(value)
+          parts.push(`${key}=${v}`)
+        }
+        if (parts.length > 0) {
+          metaStr = ` (${parts.join(', ')})`
+        }
+      }
+
+      console.error(`[${time}] ${level} [${entry.category}] ${entry.message}${metaStr}`)
     }
   }
 }

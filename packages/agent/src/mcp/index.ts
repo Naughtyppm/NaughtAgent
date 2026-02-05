@@ -39,7 +39,7 @@ export type {
 
 export {
   MCP_PROTOCOL_VERSION,
-  DEFAULT_TIMEOUT,
+  DEFAULT_TIMEOUT as MCP_DEFAULT_TIMEOUT,
   JSON_RPC_ERRORS,
 } from "./types"
 
@@ -56,6 +56,32 @@ export {
   createMcpClient,
 } from "./client"
 
+// Pool
+export {
+  McpClientPool,
+  type ClientInfo,
+  type HealthCheckConfig,
+} from "./pool"
+
+// Retry
+export {
+  connectWithRetry,
+  retryOperation,
+  calculateBackoffDelay,
+  createRetryConfig,
+  DEFAULT_RETRY_CONFIG as MCP_DEFAULT_RETRY_CONFIG,
+  type RetryConfig as McpRetryConfig,
+  type RetryResult,
+} from "./retry"
+
+// Adapter
+export {
+  wrapMcpTool,
+  convertMcpResult,
+  type WrapMcpToolOptions,
+  type McpResultMetadata,
+} from "./adapter"
+
 // Tools
 export {
   createMcpToolWrapper,
@@ -70,8 +96,35 @@ export {
 // Manager
 export {
   McpManager,
-  loadMcpConfig,
+  loadMcpConfig as loadMcpConfigLegacy,
   initMcpManager,
   getMcpManager,
   setMcpManager,
 } from "./manager"
+
+// Config
+export {
+  // Schemas
+  McpServerConfigSchema,
+  McpSettingsSchema,
+  McpConfigSchema,
+  // Types
+  type McpSettings,
+  type McpConfigWithSettings,
+  type ConfigLoadResult,
+  type ConfigChangeEvent,
+  type ConfigChangeHandler,
+  // Constants
+  DEFAULT_SETTINGS,
+  DEFAULT_CONFIG,
+  // Functions
+  replaceEnvVars,
+  validateConfig,
+  loadConfigFromJson,
+  loadMcpConfigFromFile,
+  loadMcpConfig,
+  compareConfigs,
+  // Hot Reload
+  ConfigHotReloader,
+  createConfigHotReloader,
+} from "./config"

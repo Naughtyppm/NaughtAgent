@@ -10,7 +10,7 @@ import * as crypto from "crypto"
 import * as net from "net"
 import type { Duplex } from "stream"
 import { getDaemonStatus, ensureDaemon, getDefaultPort } from "./daemon"
-import type { PermissionRequest } from "../permission"
+import type { PermissionRequest, PermissionType } from "../permission"
 
 // ============================================================================
 // Types
@@ -54,7 +54,6 @@ export function createDaemonClient(config: DaemonClientConfig) {
   let wsSocket: Duplex | null = null
   let sessionId: string | null = null
   let isConnected = false
-  let pendingPermissions = new Map<string, (allowed: boolean) => void>()
 
   /**
    * 确保 Daemon 运行并获取 URL
@@ -392,7 +391,7 @@ export function createDaemonClient(config: DaemonClientConfig) {
     events: DaemonClientEvents
   ): Promise<void> {
     const request: PermissionRequest = {
-      type: msg.permissionType as string,
+      type: msg.permissionType as PermissionType,
       resource: msg.resource as string,
       description: msg.description as string,
     }

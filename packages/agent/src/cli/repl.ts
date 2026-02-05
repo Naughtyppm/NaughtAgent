@@ -6,7 +6,7 @@
  */
 
 import * as readline from "readline"
-import type { RunnerConfig, RunnerEventHandlers } from "./runner"
+import type { RunnerEventHandlers } from "./runner"
 import { createRunner } from "./runner"
 import type { PermissionRequest } from "../permission"
 import { StreamMarkdownRenderer } from "./markdown"
@@ -72,47 +72,46 @@ function getProviderInfo(): string {
 /**
  * 获取模型显示名称
  */
-function getModelName(): string {
+function getModelName(model?: string): string {
+  // 简化模型名称显示
+  const displayModel = model || "claude-sonnet-4"
+  const shortModel = displayModel
+    .replace("claude-", "")
+    .replace("-20250514", "")
+    .replace("-20251101", "")
+
   if (process.env.ANTHROPIC_API_KEY) {
-    return "Anthropic (claude-sonnet-4)"
+    return `Anthropic (${shortModel})`
   }
   if (process.env.OPENAI_API_KEY) {
-    return "OpenRouter (claude-sonnet-4)"
+    return `OpenRouter (${shortModel})`
   }
-  return "Kiro (claude-sonnet-4)"
+  return `Kiro (${shortModel})`
 }
+
+// 统一的分割线宽度
+const HEADER_WIDTH = 56
 
 /**
  * 打印用户输入标题
  */
 function printUserHeader(): void {
-  console.log(`\n\x1b[43m\x1b[30m ${"═".repeat(25)} Me ${"═".repeat(25)} \x1b[0m`)
+  const text = " Me "
+  const sideWidth = Math.floor((HEADER_WIDTH - text.length) / 2)
+  const leftPad = "═".repeat(sideWidth)
+  const rightPad = "═".repeat(HEADER_WIDTH - text.length - sideWidth)
+  console.log(`\x1b[43m\x1b[30m${leftPad}${text}${rightPad}\x1b[0m`)
 }
 
 /**
  * 打印 AI 回复标题
  */
 function printAIHeader(modelName: string): void {
-  const padding = Math.floor((50 - modelName.length) / 2)
-  const leftPad = "═".repeat(padding)
-  const rightPad = "═".repeat(50 - modelName.length - padding)
-  console.log(`\x1b[45m\x1b[37m ${leftPad} ${modelName} ${rightPad} \x1b[0m`)
-}
-
-/**
- * 计算字符串显示宽度（中文算2，英文算1）
- */
-function getDisplayWidth(str: string): number {
-  let width = 0
-  for (const char of str) {
-    // 中文、日文、韩文等宽字符
-    if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(char)) {
-      width += 2
-    } else {
-      width += 1
-    }
-  }
-  return width
+  const text = ` ${modelName} `
+  const sideWidth = Math.floor((HEADER_WIDTH - text.length) / 2)
+  const leftPad = "═".repeat(sideWidth)
+  const rightPad = "═".repeat(HEADER_WIDTH - text.length - sideWidth)
+  console.log(`\n\x1b[45m\x1b[37m${leftPad}${text}${rightPad}\x1b[0m\n`)
 }
 
 /**
@@ -170,6 +169,8 @@ function printHelp(): void {
   console.log("")
   console.log("\x1b[1m命令：\x1b[0m")
   console.log("  /help           显示帮助")
+  console.log("  /init           生成项目规范文档 (Naughty.md)")
+  console.log("  /refresh        刷新项目索引和缓存")
   console.log("  /cancel         取消当前任务")
   console.log("  /manual         切换为手动确认模式")
   console.log("  /auto           切换为自动确认模式")
@@ -293,8 +294,8 @@ class ThinkingSpinner {
     if (this.interval) {
       clearInterval(this.interval)
       this.interval = null
+      this.clear()
     }
-    this.clear()
   }
 
   private clear() {
@@ -347,6 +348,8 @@ function createOutputHandlers(spinner: ThinkingSpinner, modelName: string = "Cla
       const remaining = mdRenderer.flush()
       if (remaining) {
         process.stdout.write(remaining)
+        // 文本输出后添加换行，与工具执行分隔
+        console.log()
       }
 
       if (!hasOutput) {
@@ -375,48 +378,26 @@ function createOutputHandlers(spinner: ThinkingSpinner, modelName: string = "Cla
       spinner.stop()
 
       if (isError) {
-        console.log(`\x1b[31m✗\x1b[0m ${output.substring(0, 100)}`)
+        // 错误：显示简短错误信息
+        const firstLine = output.split("\n")[0]
+        const shortError = firstLine.length > 60 ? firstLine.substring(0, 60) + "..." : firstLine
+        console.log(`\x1b[31m✗\x1b[0m ${shortError}`)
       } else {
-        // 检查是否包含 diff（有 +/- 开头的行）
-        const hasDiff = output.includes("\n-") || output.includes("\n+")
-        if (hasDiff) {
-          // 显示带颜色和背景的 diff
-          const lines = output.split("\n")
-          console.log(`\x1b[32m✓\x1b[0m \x1b[90m${lines[0]}\x1b[0m`)
-          for (let i = 1; i < lines.length; i++) {
-            const line = lines[i]
-            if (line.startsWith("+++") || line.startsWith("---")) {
-              // 文件头：灰色
-              console.log(`\x1b[90m${line}\x1b[0m`)
-            } else if (line.startsWith("+")) {
-              // 新增行：绿色文字 + 淡绿背景
-              console.log(`\x1b[32;48;5;22m${line}\x1b[0m`)
-            } else if (line.startsWith("-")) {
-              // 删除行：红色文字 + 淡红背景
-              console.log(`\x1b[31;48;5;52m${line}\x1b[0m`)
-            } else if (line.startsWith("@@")) {
-              // 位置信息：青色
-              console.log(`\x1b[36m${line}\x1b[0m`)
-            } else {
-              // 上下文：灰色
-              console.log(`\x1b[90m${line}\x1b[0m`)
-            }
-          }
+        // 成功：只显示简短摘要
+        const lines = output.split("\n").filter(l => l.trim())
+        
+        if (lines.length === 0) {
+          console.log(`\x1b[32m✓\x1b[0m`)
+        } else if (lines.length === 1) {
+          // 单行输出：直接显示（截断）
+          const line = lines[0]
+          const shortLine = line.length > 60 ? line.substring(0, 60) + "..." : line
+          console.log(`\x1b[32m✓\x1b[0m \x1b[90m${shortLine}\x1b[0m`)
         } else {
-          // 检查是否是文件列表（多行输出）
-          const lines = output.split("\n").filter(l => l.trim())
-          if (lines.length > 3) {
-            // 紧凑显示文件列表
-            console.log(`\x1b[32m✓\x1b[0m \x1b[90m找到 ${lines.length} 个文件:\x1b[0m`)
-            // 每行显示一个文件，去掉多余空行
-            lines.forEach(line => {
-              console.log(`  \x1b[90m${line.trim()}\x1b[0m`)
-            })
-          } else {
-            // 简短显示结果
-            const firstLine = output.split("\n")[0]
-            console.log(`\x1b[32m✓\x1b[0m \x1b[90m${firstLine}\x1b[0m`)
-          }
+          // 多行输出：显示行数摘要
+          const firstLine = lines[0]
+          const shortFirst = firstLine.length > 40 ? firstLine.substring(0, 40) + "..." : firstLine
+          console.log(`\x1b[32m✓\x1b[0m \x1b[90m${shortFirst} (+${lines.length - 1} 行)\x1b[0m`)
         }
       }
 
@@ -431,9 +412,10 @@ function createOutputHandlers(spinner: ThinkingSpinner, modelName: string = "Cla
       }
 
       spinner.stop()
+      console.log()
       console.error(`\x1b[31m✗ 错误:\x1b[0m ${error.message}`)
     },
-    onDone: (usage) => {
+    onDone: (_usage) => {
       // 刷新 Markdown 缓冲区
       const remaining = mdRenderer.flush()
       if (remaining) {
@@ -441,11 +423,8 @@ function createOutputHandlers(spinner: ThinkingSpinner, modelName: string = "Cla
       }
 
       spinner.stop()
-      const input = usage.inputTokens || 0
-      const output = usage.outputTokens || 0
-      if (input > 0 || output > 0) {
-        console.log(`\x1b[90m[${input}+${output} tokens]\x1b[0m`)
-      }
+      // AI 回复结束后添加空行，与下一个用户输入分隔
+      console.log()
     },
     onPermissionRequest: () => {
       // 刷新 Markdown 缓冲区
@@ -606,11 +585,69 @@ export async function startRepl(config: ReplConfig): Promise<void> {
           if (!taskState.isRunning) showPrompt()
           return true
 
+        case "init":
+          if (taskState.isRunning) {
+            console.log("\n\x1b[33m⚠️  任务执行中，请先 /cancel\x1b[0m\n")
+            return true
+          }
+
+          // 生成项目规范文档
+          (async () => {
+            try {
+              const { execSync } = await import("child_process")
+              const { fileURLToPath } = await import("url")
+              const { dirname, join } = await import("path")
+              
+              // 获取当前模块的目录（编译后的 dist/cli 目录）
+              const currentModuleUrl = import.meta.url
+              const currentModulePath = fileURLToPath(currentModuleUrl)
+              const cliDir = dirname(currentModulePath) // dist/cli
+              const distDir = dirname(cliDir) // dist
+              const packageRoot = dirname(distDir) // packages/agent
+              const scriptPath = join(packageRoot, "scripts", "generate-naughty.cjs")
+              
+              console.log("\n\x1b[36m📝 生成项目规范文档...\x1b[0m\n")
+              execSync(`node "${scriptPath}"`, { 
+                cwd: config.cwd,
+                stdio: "inherit" 
+              })
+              console.log()
+            } catch (error) {
+              console.error(`\n\x1b[31m✗\x1b[0m 生成失败:`, error instanceof Error ? error.message : error)
+            }
+            if (!taskState.isRunning) showPrompt()
+          })()
+          return true
         case "clear":
         case "cls":
           console.clear()
           printWelcome({ ...config, agent: currentAgent }, autoConfirmRef.value)
           if (!taskState.isRunning) showPrompt()
+          return true
+
+        case "refresh":
+          // 刷新项目索引和内容缓存
+          // 需求 1.6, 8.1, 8.2, 8.3, 8.4
+          (async () => {
+            try {
+              const { createDefaultIndexCache } = await import("../context/index-cache")
+              
+              console.log("\n\x1b[36m🔄 刷新项目索引...\x1b[0m")
+              
+              // 强制重新生成索引
+              const indexCache = createDefaultIndexCache(config.cwd)
+              await indexCache.invalidate()
+              const newIndex = await indexCache.getOrCreate(config.cwd)
+              
+              console.log(`\x1b[32m✓\x1b[0m 项目索引已刷新`)
+              console.log(`  \x1b[90m哈希: ${newIndex.hash.slice(0, 8)}...\x1b[0m`)
+              console.log(`  \x1b[90m时间: ${new Date(newIndex.updatedAt).toLocaleString()}\x1b[0m`)
+              console.log()
+            } catch (error) {
+              console.error(`\n\x1b[31m✗\x1b[0m 刷新失败:`, error instanceof Error ? error.message : error)
+            }
+            if (!taskState.isRunning) showPrompt()
+          })()
           return true
 
         case "manual":
@@ -701,7 +738,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
 
             // 发送执行指令（非阻塞）
             spinner.start("执行计划")
-            const handlers = createOutputHandlers(spinner, getModelName())
+            const handlers = createOutputHandlers(spinner, getModelName(config.model))
             const executePrompt = `请按照以下计划执行，逐步完成每个步骤：\n\n${planContent}\n\n开始执行，每完成一步请报告进度。`
             runTask(executePrompt, handlers)
           } catch (error) {
@@ -723,10 +760,8 @@ export async function startRepl(config: ReplConfig): Promise<void> {
       return true
     }
 
-    // 显示分隔线
-    console.log(`\x1b[90m${"─".repeat(60)}\x1b[0m`)
     spinner.start("思考中")
-    const handlers = createOutputHandlers(spinner, getModelName())
+    const handlers = createOutputHandlers(spinner, getModelName(config.model))
     runTask(input, handlers)
 
     return true // 继续
@@ -735,7 +770,8 @@ export async function startRepl(config: ReplConfig): Promise<void> {
   // 自定义提示符处理
   const showPrompt = () => {
     if (!taskState.isRunning) {
-      // 在提示符之前显示用户标题
+      // 在提示符之前显示用户标题，添加空行分隔
+      console.log()
       printUserHeader()
     }
     rl.prompt()

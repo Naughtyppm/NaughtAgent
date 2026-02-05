@@ -206,16 +206,51 @@ export class McpClient {
   // ==========================================================================
 
   /**
-   * 列出可用工具
+   * 列出可用工具（支持分页）
+   *
+   * @param options 分页选项
+   * @returns 工具列表和下一页游标
    */
-  async listTools(): Promise<McpTool[]> {
+  async listTools(options?: {
+    cursor?: string
+  }): Promise<{ tools: McpTool[]; nextCursor?: string }> {
     this.ensureConnected()
 
-    const result = (await this.transport!.request("tools/list")) as {
-      tools: McpTool[]
+    const params: Record<string, unknown> = {}
+    if (options?.cursor) {
+      params.cursor = options.cursor
     }
 
-    return result.tools || []
+    const result = (await this.transport!.request(
+      "tools/list",
+      Object.keys(params).length > 0 ? params : undefined
+    )) as {
+      tools: McpTool[]
+      nextCursor?: string
+    }
+
+    return {
+      tools: result.tools || [],
+      nextCursor: result.nextCursor,
+    }
+  }
+
+  /**
+   * 列出所有可用工具（自动处理分页）
+   *
+   * @returns 所有工具列表
+   */
+  async listAllTools(): Promise<McpTool[]> {
+    const allTools: McpTool[] = []
+    let cursor: string | undefined
+
+    do {
+      const result = await this.listTools({ cursor })
+      allTools.push(...result.tools)
+      cursor = result.nextCursor
+    } while (cursor)
+
+    return allTools
   }
 
   /**

@@ -37,7 +37,7 @@ describe('Agent', () => {
       expect(BUILTIN_AGENTS.build.tools).toContain('bash')
 
       expect(BUILTIN_AGENTS.plan.tools).toContain('read')
-      expect(BUILTIN_AGENTS.plan.tools).not.toContain('write')
+      expect(BUILTIN_AGENTS.plan.tools).toContain('write')  // plan agent can write plan files
       expect(BUILTIN_AGENTS.plan.tools).not.toContain('bash')
 
       expect(BUILTIN_AGENTS.explore.tools).toContain('read')

@@ -13,8 +13,50 @@
  *   - 如果 daemon 未运行，自动启动 daemon 或直接运行（--standalone）
  */
 
+// Windows 终端 UTF-8 编码支持
+// 在 Windows cmd/PowerShell 中，默认使用 GBK 编码（代码页 936）
+// 需要设置为 UTF-8（代码页 65001）才能正确显示中文
+import { execSync } from "child_process"
+if (process.platform === "win32") {
+  try {
+    // 设置控制台输出代码页为 UTF-8
+    execSync("chcp 65001", { stdio: "ignore" })
+    // 设置 stdout/stderr 编码
+    if (process.stdout.setDefaultEncoding) {
+      process.stdout.setDefaultEncoding("utf8")
+    }
+    if (process.stderr.setDefaultEncoding) {
+      process.stderr.setDefaultEncoding("utf8")
+    }
+  } catch {
+    // 忽略错误，可能在非 Windows 终端环境中
+  }
+}
+
+// 加载环境变量（在所有其他导入之前）
+// 禁用 dotenv 的日志输出
+process.env.DOTENV_CONFIG_QUIET = "true"
+
+import { config } from "dotenv"
+import { existsSync } from "fs"
+import { join } from "path"
+import { homedir } from "os"
+
+// 按优先级加载 .env 文件：
+// 1. 用户主目录 ~/.naughtyagent/.env（推荐，全局配置）
+// 2. 当前工作目录 .env（项目级配置）
+const userEnvPath = join(homedir(), ".naughtyagent", ".env")
+const cwdEnvPath = join(process.cwd(), ".env")
+
+// 静默加载，不输出 dotenv 的日志信息
+if (existsSync(userEnvPath)) {
+  config({ path: userEnvPath, debug: false })
+} else if (existsSync(cwdEnvPath)) {
+  config({ path: cwdEnvPath, debug: false })
+}
+
 import { createRunner, type RunnerConfig, type RunnerEventHandlers } from "./runner"
-import { startRepl } from "./repl"
+import { startInkRepl } from "./repl-ink"
 import {
   startDaemon,
   stopDaemon,
@@ -43,6 +85,7 @@ interface CLIArgs {
   version: boolean
   sessionId?: string
   standalone: boolean  // 独立模式，不使用 daemon
+  debug: boolean       // 调试模式，显示详细日志
 }
 
 /**
@@ -53,13 +96,14 @@ function parseArgs(args: string[]): CLIArgs {
     command: "chat",
     message: "",
     agent: "build",
-    model: "claude-sonnet-4-20250514",  // 默认模型
+    model: "claude-opus-4-20250514",  // 默认模型
     cwd: process.cwd(),
     port: getDefaultPort(),
     autoConfirm: false,
     help: false,
     version: false,
     standalone: false,
+    debug: false,
   }
 
   const messageArgs: string[] = []
@@ -86,6 +130,8 @@ function parseArgs(args: string[]): CLIArgs {
       result.autoConfirm = true
     } else if (arg === "--standalone" || arg === "-s") {
       result.standalone = true
+    } else if (arg === "--debug") {
+      result.debug = true
     } else if (arg === "daemon") {
       result.command = "daemon"
       const sub = args[++i]
@@ -164,15 +210,16 @@ function printHelp(): void {
   -d, --cwd        工作目录，默认当前目录
   -y, --yes        自动确认所有操作
   -s, --standalone 独立模式，不使用 daemon（直接运行）
+  --debug          调试模式，显示详细日志
 
 可用模型:
-  claude-sonnet-4-20250514  (默认) Claude Sonnet 4
-  claude-opus-4-20250514    Claude Opus 4 (最强)
+  claude-opus-4-20250514    (默认) Claude Opus 4 (最强)
+  claude-sonnet-4-20250514  Claude Sonnet 4
   claude-haiku-4-20250514   Claude Haiku 4 (最快)
-  sonnet                    简写，等同于 claude-sonnet-4
-  sonnet-4.5                Claude Sonnet 4.5 (更强)
   opus                      简写，等同于 claude-opus-4
   opus-4.5                  Claude Opus 4.5 (最强)
+  sonnet                    简写，等同于 claude-sonnet-4
+  sonnet-4.5                Claude Sonnet 4.5 (更强)
   haiku                     简写，等同于 claude-haiku-4
   haiku-4.5                 Claude Haiku 4.5 (更快)
 
@@ -380,8 +427,8 @@ async function handleSessions(args: CLIArgs): Promise<void> {
  */
 async function handleChat(args: CLIArgs): Promise<void> {
   if (!args.message) {
-    // 没有消息，进入交互式 REPL 模式
-    await startRepl({
+    // 没有消息，进入交互式 REPL 模式（使用 Ink UI）
+    await startInkRepl({
       cwd: args.cwd,
       agent: args.agent,
       model: args.model,
@@ -504,6 +551,11 @@ async function handleChatStandalone(args: CLIArgs): Promise<void> {
  */
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
+
+  // 调试模式：设置环境变量以启用详细日志
+  if (args.debug) {
+    process.env.DEBUG = "1"
+  }
 
   if (args.help) {
     printHelp()

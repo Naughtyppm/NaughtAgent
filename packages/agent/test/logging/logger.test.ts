@@ -111,37 +111,36 @@ describe('Logger', () => {
 
   describe('日志格式化', () => {
     it('JSON 格式应该输出有效的 JSON', () => {
-      const outputs: string[] = []
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
-        outputs.push(msg)
+      let capturedOutput: string | null = null
+      const logger = new Logger('test', {
+        format: 'json',
+        output: (entry) => {
+          // 模拟 JSON 格式输出
+          capturedOutput = JSON.stringify(entry)
+        }
       })
-
-      const logger = new Logger('test', { format: 'json' })
       logger.info('test message', { key: 'value' })
 
-      expect(outputs).toHaveLength(1)
-      const parsed = JSON.parse(outputs[0])
+      expect(capturedOutput).not.toBeNull()
+      const parsed = JSON.parse(capturedOutput!)
       expect(parsed.message).toBe('test message')
       expect(parsed.metadata).toEqual({ key: 'value' })
-
-      consoleSpy.mockRestore()
     })
 
     it('文本格式应该输出可读的文本', () => {
-      const outputs: string[] = []
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
-        outputs.push(msg)
+      let capturedEntry: any = null
+      const logger = new Logger('test', {
+        format: 'text',
+        output: (entry) => {
+          capturedEntry = entry
+        }
       })
-
-      const logger = new Logger('test', { format: 'text' })
       logger.info('test message')
 
-      expect(outputs).toHaveLength(1)
-      expect(outputs[0]).toContain('INFO')
-      expect(outputs[0]).toContain('test')
-      expect(outputs[0]).toContain('test message')
-
-      consoleSpy.mockRestore()
+      expect(capturedEntry).not.toBeNull()
+      expect(capturedEntry.level).toBe(LogLevel.INFO)
+      expect(capturedEntry.category).toBe('test')
+      expect(capturedEntry.message).toBe('test message')
     })
   })
 

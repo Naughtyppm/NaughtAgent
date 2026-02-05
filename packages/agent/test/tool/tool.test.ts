@@ -25,6 +25,90 @@ describe('Tool', () => {
       expect(tool.description).toBe('A test tool')
     })
 
+    it('should auto-generate inputSchema from Zod schema', () => {
+      const tool = Tool.define({
+        id: 'schema-tool',
+        description: 'Tool with schema',
+        parameters: z.object({
+          name: z.string(),
+          age: z.number(),
+          active: z.boolean().optional(),
+        }),
+        async execute() {
+          return { title: 'OK', output: 'done' }
+        },
+      })
+
+      expect(tool.inputSchema).toBeDefined()
+      expect(tool.inputSchema?.type).toBe('object')
+      expect(tool.inputSchema?.properties).toBeDefined()
+      expect(tool.inputSchema?.properties?.name).toBeDefined()
+      expect(tool.inputSchema?.properties?.age).toBeDefined()
+      expect(tool.inputSchema?.properties?.active).toBeDefined()
+    })
+
+    it('should set default values for source and title', () => {
+      const tool = Tool.define({
+        id: 'default-tool',
+        description: 'Tool with defaults',
+        parameters: z.object({}),
+        async execute() {
+          return { title: 'OK', output: 'done' }
+        },
+      })
+
+      expect(tool.source).toBe('builtin')
+      expect(tool.title).toBe('default-tool')
+    })
+
+    it('should allow overriding default values', () => {
+      const tool = Tool.define({
+        id: 'custom-tool',
+        description: 'Tool with custom values',
+        parameters: z.object({}),
+        source: 'custom',
+        title: 'Custom Title',
+        icons: {
+          light: 'light.svg',
+          dark: 'dark.svg',
+        },
+        async execute() {
+          return { title: 'OK', output: 'done' }
+        },
+      })
+
+      expect(tool.source).toBe('custom')
+      expect(tool.title).toBe('Custom Title')
+      expect(tool.icons).toEqual({
+        light: 'light.svg',
+        dark: 'dark.svg',
+      })
+    })
+
+    it('should support MCP-specific fields', () => {
+      const tool = Tool.define({
+        id: 'mcp-tool',
+        description: 'MCP tool',
+        parameters: z.object({}),
+        source: 'mcp',
+        mcpServer: 'test-server',
+        outputSchema: {
+          type: 'object',
+          properties: {
+            result: { type: 'string' },
+          },
+        },
+        async execute() {
+          return { title: 'OK', output: 'done' }
+        },
+      })
+
+      expect(tool.source).toBe('mcp')
+      expect(tool.mcpServer).toBe('test-server')
+      expect(tool.outputSchema).toBeDefined()
+      expect(tool.outputSchema?.type).toBe('object')
+    })
+
     it('should validate parameters on execute', async () => {
       const tool = Tool.define({
         id: 'validate-tool',

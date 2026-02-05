@@ -217,14 +217,14 @@ async function refreshToken(_proxy?: string): Promise<boolean> {
           }
         }
 
-        console.log(`[Kiro] Token refreshed, expires at ${tokenCache.expiresAt}`)
+        // Token 刷新成功，静默处理（除非开启 DEBUG）
         return true
       }
     } else {
-      console.warn(`[Kiro] Token refresh failed: ${resp.status}`)
+      // Token 刷新失败，静默处理（错误会在后续 API 调用时体现）
     }
-  } catch (err) {
-    console.warn(`[Kiro] Token refresh error: ${err}`)
+  } catch {
+    // Token 刷新错误，静默处理
   } finally {
     refreshLock = false
   }

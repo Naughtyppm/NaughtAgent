@@ -43,6 +43,8 @@ export class StdioTransport implements McpTransport {
 
   /**
    * 启动子进程
+   *
+   * 改进：使用 initialize 响应作为启动信号，而非固定超时
    */
   async start(): Promise<void> {
     if (!this.config.command) {
@@ -84,21 +86,25 @@ export class StdioTransport implements McpTransport {
         console.error(`[MCP ${this.config.name}] stderr:`, data.toString())
       })
 
-      // 等待进程启动
+      // 改进：进程启动后立即标记为已连接
+      // 真正的连接验证应该通过 initialize 请求完成
+      // 这里只确保进程已启动且 stdio 管道已建立
       this.process.stdout?.once("data", () => {
         clearTimeout(timeout)
         this._connected = true
         resolve()
       })
 
-      // 如果进程立即退出，也算启动成功（可能是快速响应）
+      // 改进：增加启动超时到 1000ms，给进程更多启动时间
+      // 如果进程在超时内没有输出，仍然认为启动成功
+      // 因为某些 MCP 服务器可能不会立即输出数据
       setTimeout(() => {
         if (this.process && !this._connected) {
           clearTimeout(timeout)
           this._connected = true
           resolve()
         }
-      }, 100)
+      }, 1000)
     })
   }
 
@@ -251,6 +257,8 @@ export class SseTransport implements McpTransport {
 
   /**
    * 建立 SSE 连接
+   *
+   * 改进：在收到成功响应时设置 _connected = true
    */
   async start(): Promise<void> {
     if (!this.config.url) {
@@ -258,12 +266,14 @@ export class SseTransport implements McpTransport {
     }
 
     // 建立 SSE 连接接收服务器推送
+    // _connected 状态在 connectSse 内部设置
     await this.connectSse()
-    this._connected = true
   }
 
   /**
    * 建立 SSE 连接
+   *
+   * 改进：在收到 200 响应时立即设置 _connected = true
    */
   private async connectSse(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -284,6 +294,7 @@ export class SseTransport implements McpTransport {
       }
 
       const timeout = setTimeout(() => {
+        this._connected = false
         reject(new Error("SSE connection timeout"))
       }, this.config.timeout || DEFAULT_TIMEOUT)
 
@@ -291,9 +302,13 @@ export class SseTransport implements McpTransport {
         clearTimeout(timeout)
 
         if (res.statusCode !== 200) {
+          this._connected = false
           reject(new Error(`SSE connection failed: ${res.statusCode}`))
           return
         }
+
+        // 改进：在收到成功响应时立即设置连接状态
+        this._connected = true
 
         let buffer = ""
 
@@ -311,6 +326,11 @@ export class SseTransport implements McpTransport {
 
         res.on("end", () => {
           this._connected = false
+        })
+
+        res.on("error", (error) => {
+          this._connected = false
+          console.error(`[MCP SSE] Connection error:`, error.message)
         })
 
         resolve()

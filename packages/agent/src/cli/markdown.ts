@@ -52,13 +52,13 @@ export function renderMarkdown(text: string): string {
     const level = hashes.length
     if (level === 1) {
       // H1: 紫色背景
-      return `\n\x1b[45m\x1b[37m ${title} \x1b[0m\n`
+      return `\x1b[45m\x1b[37m ${title} \x1b[0m`
     } else if (level === 2) {
       // H2: 蓝色背景
-      return `\n\x1b[44m\x1b[37m ${title} \x1b[0m\n`
+      return `\x1b[44m\x1b[37m ${title} \x1b[0m`
     } else if (level === 3) {
       // H3: 深灰背景
-      return `\n\x1b[100m\x1b[37m ${title} \x1b[0m\n`
+      return `\x1b[100m\x1b[37m ${title} \x1b[0m`
     } else {
       // H4+: 粗体青色
       return `\x1b[1m\x1b[36m${title}\x1b[0m`
@@ -186,13 +186,18 @@ export class StreamMarkdownRenderer {
 
     // 找最后一个换行符，按行处理更安全
     const lastNewline = buf.lastIndexOf("\n")
-    if (lastNewline > 0) {
+    if (lastNewline >= 0) {
       return lastNewline + 1
     }
 
     // 如果缓冲区太长，强制输出一部分
-    if (buf.length > 200) {
-      return buf.length - 20
+    if (buf.length > 100) {
+      return buf.length - 10
+    }
+
+    // 对于短文本，如果超过 50 字符且没有 Markdown 语法，直接输出
+    if (buf.length > 50) {
+      return buf.length
     }
 
     return 0
@@ -220,13 +225,13 @@ export class StreamMarkdownRenderer {
       const level = hashes.length
       if (level === 1) {
         // H1: 紫色背景
-        return `\n\x1b[45m\x1b[37m ${title} \x1b[0m\n`
+        return `\x1b[45m\x1b[37m ${title} \x1b[0m`
       } else if (level === 2) {
         // H2: 蓝色背景
-        return `\n\x1b[44m\x1b[37m ${title} \x1b[0m\n`
+        return `\x1b[44m\x1b[37m ${title} \x1b[0m`
       } else if (level === 3) {
         // H3: 深灰背景
-        return `\n\x1b[100m\x1b[37m ${title} \x1b[0m\n`
+        return `\x1b[100m\x1b[37m ${title} \x1b[0m`
       }
       // H4+: 粗体青色
       return `\x1b[1m\x1b[36m${title}\x1b[0m`
