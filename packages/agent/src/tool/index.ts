@@ -47,15 +47,32 @@ export {
 // 内置工具
 export { ReadTool } from "./read"
 export { WriteTool } from "./write"
+export { AppendTool } from "./append"
 export { EditTool } from "./edit"
 export { BashTool } from "./bash"
 export { GlobTool } from "./glob"
 export { GrepTool } from "./grep"
 
+// 子代理工具
+export {
+  AskLlmTool,
+  RunAgentTool,
+  ForkAgentTool,
+  RunWorkflowTool,
+  ParallelAgentsTool,
+  MultiAgentTool,
+  TaskTool,
+  registerSubagentTools,
+  updateParentContext,
+  SUBAGENT_TOOL_IDS,
+  type SubagentToolId,
+} from "./subagent"
+
 // 注册所有内置工具
 import { ToolRegistry } from "./registry"
 import { ReadTool } from "./read"
 import { WriteTool } from "./write"
+import { AppendTool } from "./append"
 import { EditTool } from "./edit"
 import { BashTool } from "./bash"
 import { GlobTool } from "./glob"
@@ -64,6 +81,7 @@ import { GrepTool } from "./grep"
 export function registerBuiltinTools(): void {
   ToolRegistry.register(ReadTool)
   ToolRegistry.register(WriteTool)
+  ToolRegistry.register(AppendTool)
   ToolRegistry.register(EditTool)
   ToolRegistry.register(BashTool)
   ToolRegistry.register(GlobTool)

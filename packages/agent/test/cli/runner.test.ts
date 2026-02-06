@@ -44,9 +44,52 @@ vi.mock('../../src/provider', () => ({
   },
 }))
 
+// Mock 子 Agent 系统的配置管理器和注册表
+const mockLoadCustomAgents = vi.fn().mockResolvedValue(undefined)
+const mockConfigLoad = vi.fn().mockResolvedValue({
+  defaultTimeout: 180000,
+  maxConcurrency: 3,
+  retry: { maxAttempts: 3, initialDelay: 1000, maxDelay: 10000, backoffMultiplier: 2 },
+  customAgentsDir: '.naughty/agents',
+})
+
+vi.mock('../../src/subtask', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/subtask')>()
+  return {
+    ...actual,
+    getConfigManager: vi.fn(() => ({
+      load: mockConfigLoad,
+      get: vi.fn(() => ({
+        defaultTimeout: 180000,
+        maxConcurrency: 3,
+        retry: { maxAttempts: 3, initialDelay: 1000, maxDelay: 10000, backoffMultiplier: 2 },
+        customAgentsDir: '.naughty/agents',
+      })),
+      merge: vi.fn(),
+    })),
+    getAgentRegistry: vi.fn(() => ({
+      loadCustomAgents: mockLoadCustomAgents,
+      getAgent: vi.fn(),
+      listAgents: vi.fn(() => []),
+      hasAgent: vi.fn(() => false),
+      refresh: vi.fn(),
+    })),
+  }
+})
+
 describe('Runner', () => {
   beforeEach(() => {
     ToolRegistry.clear()
+    mockLoadCustomAgents.mockClear()
+    mockConfigLoad.mockClear()
+    // 重置为默认成功行为
+    mockConfigLoad.mockResolvedValue({
+      defaultTimeout: 180000,
+      maxConcurrency: 3,
+      retry: { maxAttempts: 3, initialDelay: 1000, maxDelay: 10000, backoffMultiplier: 2 },
+      customAgentsDir: '.naughty/agents',
+    })
+    mockLoadCustomAgents.mockResolvedValue(undefined)
   })
 
   describe('createRunner', () => {
@@ -525,6 +568,80 @@ describe('Runner', () => {
 
       const permissions = runner.getPermissions()
       expect(permissions.default).toBe('deny')
+    })
+  })
+
+  describe('子 Agent 系统初始化', () => {
+    beforeEach(() => {
+      mockEvents = [
+        { type: 'text', content: 'Hello' },
+        { type: 'done', usage: { inputTokens: 10, outputTokens: 20 } },
+      ]
+    })
+
+    it('应该在首次 run() 时初始化配置管理器和 Agent 注册表', async () => {
+      const runner = createRunner({
+        apiKey: 'test-key',
+        autoConfirm: true,
+      })
+
+      await runner.run('Hello', {})
+
+      // 验证配置管理器被调用
+      expect(mockConfigLoad).toHaveBeenCalled()
+      // 验证 Agent 注册表被调用
+      expect(mockLoadCustomAgents).toHaveBeenCalledWith('.naughty/agents')
+    })
+
+    it('应该使用配置中的 customAgentsDir', async () => {
+      mockConfigLoad.mockResolvedValue({
+        defaultTimeout: 180000,
+        maxConcurrency: 3,
+        retry: { maxAttempts: 3, initialDelay: 1000, maxDelay: 10000, backoffMultiplier: 2 },
+        customAgentsDir: '.custom/my-agents',
+      })
+
+      const runner = createRunner({
+        apiKey: 'test-key',
+        autoConfirm: true,
+      })
+
+      await runner.run('Hello', {})
+
+      expect(mockLoadCustomAgents).toHaveBeenCalledWith('.custom/my-agents')
+    })
+
+    it('配置加载失败时应该使用默认目录并继续运行', async () => {
+      mockConfigLoad.mockRejectedValue(new Error('配置文件格式错误'))
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const runner = createRunner({
+        apiKey: 'test-key',
+        autoConfirm: true,
+      })
+
+      // 不应该抛出错误
+      await expect(runner.run('Hello', {})).resolves.not.toThrow()
+
+      // 应该使用默认目录
+      expect(mockLoadCustomAgents).toHaveBeenCalledWith('.naughty/agents')
+
+      warnSpy.mockRestore()
+    })
+
+    it('Agent 注册表加载失败时应该继续运行', async () => {
+      mockLoadCustomAgents.mockRejectedValue(new Error('目录读取失败'))
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const runner = createRunner({
+        apiKey: 'test-key',
+        autoConfirm: true,
+      })
+
+      // 不应该抛出错误
+      await expect(runner.run('Hello', {})).resolves.not.toThrow()
+
+      warnSpy.mockRestore()
     })
   })
 })

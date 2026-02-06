@@ -269,9 +269,9 @@ export const KIRO_MODEL_MAP: Record<string, string> = {
 
 /**
  * Kiro 支持的模型
+ * 注意：不包含 "auto"，避免 Kiro 后端自动切换模型
  */
 export const KIRO_MODELS = new Set([
-  "auto",
   "claude-sonnet-4",
   "claude-sonnet-4.5",
   "claude-haiku-4.5",
@@ -280,9 +280,10 @@ export const KIRO_MODELS = new Set([
 
 /**
  * 映射模型名到 Kiro 模型
+ * 注意：永远不返回 "auto"，确保模型固定
  */
 export function mapToKiroModel(model: string): string {
-  if (!model) return "claude-sonnet-4"
+  if (!model || model === "auto") return "claude-sonnet-4"
   if (KIRO_MODEL_MAP[model]) return KIRO_MODEL_MAP[model]
   if (KIRO_MODELS.has(model)) return model
 
@@ -308,6 +309,7 @@ export const ANTHROPIC_MODEL_MAP: Record<string, string> = {
   opus: "claude-opus-4-20250514",
   "opus-4": "claude-opus-4-20250514",
   "opus-4.5": "claude-opus-4-5-20251101",
+  "opus-4.6": "claude-opus-4-6-20260206",
   haiku: "claude-haiku-4-20250514",
   "haiku-4": "claude-haiku-4-20250514",
   "haiku-4.5": "claude-haiku-4-5-20250514",
@@ -315,6 +317,7 @@ export const ANTHROPIC_MODEL_MAP: Record<string, string> = {
   "claude-sonnet-4": "claude-sonnet-4-20250514",
   "claude-sonnet-4.5": "claude-sonnet-4-5-20250514",
   "claude-opus-4.5": "claude-opus-4-5-20251101",
+  "claude-opus-4.6": "claude-opus-4-6-20260206",
   "claude-haiku-4.5": "claude-haiku-4-5-20250514",
 }
 
@@ -333,6 +336,7 @@ export function mapToAnthropicModel(model: string): string {
   // 模糊匹配
   const m = model.toLowerCase()
   if (m.includes("opus")) {
+    if (m.includes("4.6")) return "claude-opus-4-6-20260206"
     return m.includes("4.5") ? "claude-opus-4-5-20251101" : "claude-opus-4-20250514"
   }
   if (m.includes("haiku")) {

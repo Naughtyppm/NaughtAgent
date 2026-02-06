@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>赛博朋克番茄时钟 | Cyberpunk Pomodoro</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Courier New', monospace; background: #0a0e27; color: #00ff41; overflow: hidden; display: flex; justify-content: center; align-items: center; min-height: 100vh; position: relative; }
+        .cyber-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, rgba(0, 255, 65, 0.03) 1px, transparent 1px), linear-gradient(rgba(0, 255, 65, 0.03) 1px, transparent 1px); background-size: 50px 50px; animation: gridMove 20s linear infinite; z-index: 0; }
+        @keyframes gridMove { 0% { transform: translate(0, 0); } 100% { transform: translate(50px, 50px); } }
+        .scanline { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: linear-gradient(to bottom, rgba(0, 255, 65, 0.8), transparent); animation: scan 4s linear infinite; z-index: 1000; }
+        @keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+        .container { position: relative; z-index: 10; text-align: center; padding: 40px; background: rgba(10, 14, 39, 0.9); border: 2px solid #00ff41; border-radius: 20px; box-shadow: 0 0 20px rgba(0, 255, 65, 0.5), inset 0 0 20px rgba(0, 255, 65, 0.1); backdrop-filter: blur(10px); max-width: 600px; width: 90%; }
+        h1 { font-size: 2.5em; margin-bottom: 10px; text-shadow: 0 0 10px #00ff41, 0 0 20px #00ff41; animation: glitch 3s infinite; }
+        @keyframes glitch { 0%, 90%, 100% { transform: translate(0); } 92% { transform: translate(-2px, 2px); } 94% { transform: translate(2px, -2px); } }
+        .subtitle { color: #ff00ff; font-size: 1.2em; margin-bottom: 30px; text-shadow: 0 0 10px #ff00ff; }
+        .timer-display { font-size: 5em; font-weight: bold; margin: 30px 0; text-shadow: 0 0 20px #00ff41, 0 0 40px #00ff41; letter-spacing: 10px; }
+        .mode-indicator { display: inline-block; padding: 10px 20px; margin: 20px 0; border: 1px solid #ff00ff; border-radius: 10px; background: rgba(255, 0, 255, 0.1); color: #ff00ff; font-size: 1.2em; text-shadow: 0 0 10px #ff00ff; }
+        .controls { margin: 30px 0; display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+        .btn { padding: 15px 30px; font-size: 1.2em; font-family: 'Courier New', monospace; background: transparent; color: #00ff41; border: 2px solid #00ff41; border-radius: 10px; cursor: pointer; transition: all 0.3s; text-shadow: 0 0 5px #00ff41; box-shadow: 0 0 10px rgba(0, 255, 65, 0.3); }
+        .btn:hover { background: rgba(0, 255, 65, 0.2); box-shadow: 0 0 20px rgba(0, 255, 65, 0.6); transform: scale(1.05); }
+        .btn:active { transform: scale(0.95); }
+        .btn.reset { color: #ff0066; border-color: #ff0066; text-shadow: 0 0 5px #ff0066; }
+        .btn.reset:hover { background: rgba(255, 0, 102, 0.2); box-shadow: 0 0 20px rgba(255, 0, 102, 0.6); }
+        .stats { margin-top: 30px; padding: 20px; border-top: 1px solid rgba(0, 255, 65, 0.3); display: flex; justify-content: space-around; flex-wrap: wrap; gap: 20px; }
+        .stat-item { text-align: center; }
+        .stat-value { font-size: 2em; color: #00ff41; text-shadow: 0 0 10px #00ff41; }
+        .stat-label { font-size: 0.9em; color: #ff00ff; margin-top: 5px; }
+        .progress-bar { width: 100%; height: 10px; background: rgba(0, 255, 65, 0.1); border-radius: 5px; overflow: hidden; margin: 20px 0; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #00ff41, #ff00ff); transition: width 1s linear; box-shadow: 0 0 10px #00ff41; }
+    </style>
+</head>
+<body>
+    <div class="cyber-bg"></div>
+    <div class="scanline"></div>
+    <div class="container">
+        <h1>🍅 CYBER POMODORO 🍅</h1>
+        <div class="subtitle">赛博朋克番茄时钟</div>
+        <div class="mode-indicator" id="mode">工作模式 | WORK MODE</div>
+        <div class="timer-display" id="timer">25:00</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress" style="width: 100%;"></div>
+        </div>
+        <div class="controls">
+            <button class="btn" id="startBtn" onclick="toggleTimer()">启动 | START</button>
+            <button class="btn reset" id="resetBtn" onclick="resetTimer()">重置 | RESET</button>
+        </div>
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-value" id="completedCount">0</div>
+                <div class="stat-label">完成番茄 | COMPLETED</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="totalTime">0</div>
+                <div class="stat-label">总时长(分) | TOTAL MIN</div>
+            </div>
+        </div>
+    </div>
+    <script>
+        let timeLeft = 25 * 60;
+        let totalTime = 25 * 60;
+        let isRunning = false;
+        let timer = null;
+        let mode = 'work';
+        let completedPomodoros = 0;
+        let totalMinutes = 0;
+        const WORK_TIME = 25 * 60;
+        const SHORT_BREAK = 5 * 60;
+        const LONG_BREAK = 15 * 60;
+        function updateDisplay() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            document.getElementById('timer').textContent = 
+                `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            const progress = (timeLeft / totalTime) * 100;
+            document.getElementById('progress').style.width = progress + '%';
+        }
+        function toggleTimer() {
+            if (isRunning) {
+                pauseTimer();
+            } else {
+                startTimer();
+            }
+        }
+        function startTimer() {
+            isRunning = true;
+            document.getElementById('startBtn').textContent = '暂停 | PAUSE';
+            timer = setInterval(() => {
+                if (timeLeft > 0) {
+                    timeLeft--;
+                    updateDisplay();
+                } else {
+                    completeSession();
+                }
+            }, 1000);
+        }
+        function pauseTimer() {
+            isRunning = false;
+            document.getElementById('startBtn').textContent = '继续 | RESUME';
+            clearInterval(timer);
+        }
+        function resetTimer() {
+            isRunning = false;
+            clearInterval(timer);
+            document.getElementById('startBtn').textContent = '启动 | START';
+            if (mode === 'work') {
+                timeLeft = WORK_TIME;
+                totalTime = WORK_TIME;
+            } else if (mode === 'shortBreak') {
+                timeLeft = SHORT_BREAK;
+                totalTime = SHORT_BREAK;
+            } else {
+                timeLeft = LONG_BREAK;
+                totalTime = LONG_BREAK;
+            }
+            updateDisplay();
+        }
+        function completeSession() {
+            clearInterval(timer);
+            isRunning = false;
+            playSound();
+            if (mode === 'work') {
+                completedPomodoros++;
+                totalMinutes += 25;
+                document.getElementById('completedCount').textContent = completedPomodoros;
+                document.getElementById('totalTime').textContent = totalMinutes;
+                if (completedPomodoros % 4 === 0) {
+                    switchMode('longBreak');
+                } else {
+                    switchMode('shortBreak');
+                }
+            } else {
+                switchMode('work');
+            }
+        }
+        function switchMode(newMode) {
+            mode = newMode;
+            if (mode === 'work') {
+                timeLeft = WORK_TIME;
+                totalTime = WORK_TIME;
+                document.getElementById('mode').textContent = '工作模式 | WORK MODE';
+            } else if (mode === 'shortBreak') {
+                timeLeft = SHORT_BREAK;
+                totalTime = SHORT_BREAK;
+                totalMinutes += 5;
+                document.getElementById('mode').textContent = '短休息 | SHORT BREAK';
+            } else {
+                timeLeft = LONG_BREAK;
+                totalTime = LONG_BREAK;
+                totalMinutes += 15;
+                document.getElementById('mode').textContent = '长休息 | LONG BREAK';
+            }
+            document.getElementById('totalTime').textContent = totalMinutes;
+            document.getElementById('startBtn').textContent = '启动 | START';
+            updateDisplay();
+        }
+        function playSound() {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+        }
+        updateDisplay();
+    </script>
+</body>
+</html>

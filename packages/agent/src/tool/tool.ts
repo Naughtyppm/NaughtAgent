@@ -14,10 +14,18 @@ const toolLogger = createLogger("tool", { minLevel: LogLevel.DEBUG })
 export const TOOL_TIMEOUTS: Record<string, number> = {
   read: 5_000,      // 5 秒
   write: 10_000,    // 10 秒
+  append: 10_000,   // 10 秒
   edit: 10_000,     // 10 秒
   grep: 15_000,     // 15 秒
   bash: 60_000,     // 60 秒
   glob: 10_000,     // 10 秒
+  // 子代理工具 - 需要更长超时
+  ask_llm: 60_000,        // 60 秒
+  run_agent: 180_000,     // 3 分钟
+  fork_agent: 180_000,    // 3 分钟
+  parallel_agents: 300_000, // 5 分钟
+  multi_agent: 300_000,   // 5 分钟
+  run_workflow: 300_000,  // 5 分钟
 }
 
 /**

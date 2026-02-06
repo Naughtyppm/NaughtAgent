@@ -78,7 +78,12 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
     name: "Build",
     description: "默认全功能 Agent，可编辑文件、执行命令",
     systemPrompt: "", // 将在 prompt.ts 中定义
-    tools: ["read", "write", "edit", "bash", "glob", "grep"],
+    tools: [
+      // 基础工具
+      "read", "write", "append", "edit", "bash", "glob", "grep",
+      // 子代理工具（智能委托）
+      "ask_llm", "run_agent", "fork_agent", "parallel_agents", "multi_agent",
+    ],
     maxSteps: 100,
   },
   plan: {
@@ -87,7 +92,11 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
     name: "Plan",
     description: "规划分析 Agent，可读取代码并保存计划，不执行命令",
     systemPrompt: "",
-    tools: ["read", "write", "glob", "grep"],  // 允许写入计划文件
+    tools: [
+      "read", "write", "append", "glob", "grep",
+      // 规划模式可用的子代理
+      "ask_llm", "parallel_agents", "multi_agent",
+    ],
     maxSteps: 50,
   },
   explore: {
@@ -96,7 +105,7 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
     name: "Explore",
     description: "快速代码探索 Agent，用于搜索和分析代码",
     systemPrompt: "",
-    tools: ["read", "glob", "grep"],
+    tools: ["read", "glob", "grep", "ask_llm"],  // 探索模式只能用 ask_llm
     maxSteps: 20,
   },
 }

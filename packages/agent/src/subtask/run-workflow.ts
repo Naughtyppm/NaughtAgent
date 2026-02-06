@@ -18,6 +18,7 @@ import type {
   WorkflowStep,
   WorkflowContext,
 } from "./types"
+import type { SubAgentEmitter } from "./events"
 
 // ============================================================================
 // Workflow Registry
@@ -65,6 +66,8 @@ export interface RunWorkflowRuntime {
   provider: SubTaskProvider
   /** 工具执行器 */
   toolExecutor: SubTaskToolExecutor
+  /** 事件发射器（可选，由工具层传入） */
+  emitter?: SubAgentEmitter
 }
 
 /**
@@ -172,9 +175,25 @@ export async function runRunWorkflow(
       // 记录执行
       executedSteps.add(currentStepName)
 
+      // 发射工具开始事件（将工作流步骤视为工具调用）
+      const stepToolId = `wf-step-${executedSteps.size}`
+      runtime.emitter?.toolStart(stepToolId, `workflow:${step.name}`, { type: step.type })
+
+      // 发射步骤进度事件
+      runtime.emitter?.step(executedSteps.size, workflow.steps.length)
+
       // 执行步骤
       const stepStartTime = Date.now()
       const stepResult = await executeStep(step, context, runtime)
+      const stepDuration = Date.now() - stepStartTime
+
+      // 发射工具结束事件（包含 timing 信息）
+      runtime.emitter?.toolEnd(
+        stepToolId,
+        typeof stepResult.output === "string" ? stepResult.output : JSON.stringify(stepResult.output),
+        !stepResult.success,
+        stepDuration
+      )
 
       // 记录步骤结果
       steps.push({

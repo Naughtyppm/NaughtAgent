@@ -9,9 +9,9 @@
  * 需求: 5.2, 6.2, 7.1, 8.1
  */
 
-import type { UnifiedCommand, ExecutionResult } from "./types.js"
+import type { ExecutionResult } from "./types.js"
 import type { UnifiedRegistry } from "./registry.js"
-import type { CommandRouter, ParsedCommand } from "./router.js"
+import type { CommandRouter } from "./router.js"
 import type { CommandDispatcher, DispatchContext } from "./dispatcher.js"
 import type { AliasManager } from "./alias.js"
 import type { HistoryManager } from "./history-manager.js"
@@ -267,12 +267,5 @@ export function createEnhancedDispatcher(
 }
 
 // ============================================================================
-// Exports
+// Exports (interfaces already exported at declaration)
 // ============================================================================
-
-export type {
-  EnhancedRouterConfig,
-  EnhancedDispatcherConfig,
-  EnhancedRouter,
-  EnhancedDispatcher,
-}

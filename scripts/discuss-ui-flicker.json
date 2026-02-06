@@ -1,0 +1,28 @@
+{
+  "topic": "NaughtyAgent Ink 终端 UI 闪烁问题诊断与解决方案 — 多个内容源并发刷新导致界面来回抖动",
+  "mode": "handoff",
+  "maxRounds": 5,
+  "outputFile": "docs/discuss/ui-flicker-discussion.md",
+  "agents": [
+    {
+      "name": "Ink渲染专家",
+      "role": "精通 Ink/React 终端渲染机制。了解 Ink 底层使用 Yoga 布局引擎 + ANSI 转义序列重绘整个终端输出。每次 React 状态变化都会触发 Ink 的全量重绘（不像浏览器 DOM 有增量更新）。当前系统的核心问题：App.tsx 中有 15+ 个独立 useState，useMessages 的流式节流虽然设了 800ms 但 useSubAgent 的 throttle 只有 50ms，StatusIndicator 的节流是 1500ms，三者节奏不同步导致终端在不同时间点反复重绘。Ink 的 Box/Text 组件树越深、节点越多，每次重绘的计算量越大。MessageList 的 Turn 模式虽然压缩了历史消息，但当前活跃 turn 仍然完整渲染所有工具面板和子 Agent 面板。SubAgentPanel 在 ToolPanel 内部渲染一次，又在 App.tsx 底部独立渲染一次（双重渲染）。"
+    },
+    {
+      "name": "状态管理架构师",
+      "role": "专注 React 状态架构和性能优化。分析当前问题：App.tsx 是一个巨型组件，包含消息状态、UI 状态、配置状态、权限状态、子 Agent 状态等 15+ 个 useState。每个 setState 都触发整个组件树重渲染。useMessages hook 内部的 updateAIMessage 用 setMessages(prev => prev.map(...)) 每次创建新数组，即使只改了一条消息也会导致 MessageList 重新 diff 所有消息。useSubAgent 的 applyEvent 每次都 new Map(state)，Map 引用变化导致依赖它的所有组件重渲染。events useEffect 的依赖数组包含 events 本身，每个新事件都触发完整的 effect 重执行。建议方向：状态分层（用 useReducer 或 zustand 替代散落的 useState）、不可变数据结构优化、事件批处理。"
+    },
+    {
+      "name": "终端UX设计师",
+      "role": "关注终端用户体验和信息密度。当前 UI 的视觉问题：1) 流式输出时 AIMessage 只显示最后 5 行但每次更新都重绘整个组件树；2) ToolPanel 折叠状态下仍然渲染输出预览和子 Agent 面板；3) StatusIndicator 在 thinking/executing/waiting 之间频繁切换，状态栏文字不断变化；4) SubAgentPanel 的 DiscussionView 在运行中显示 Spinner + 进度条 + 最新发言，三个动态元素同时更新；5) 多个子 Agent 同时运行时，App.tsx 底部的独立 SubAgentPanel 列表和 ToolPanel 内嵌的 SubAgentPanel 同时刷新。建议方向：减少同时可见的动态元素、用静态摘要替代实时动画、合并信息层级。"
+    },
+    {
+      "name": "并发事件专家",
+      "role": "专注事件流和异步更新的协调。当前系统的事件流问题：1) Runner 事件（text/tool_start/tool_end/done）通过 useEffect 处理，每个事件都可能触发多个 setState（throttledSetStatus + addToolCall + updateAIMessage 等）；2) SubAgent 事件通过 global-listener 直接调用 handleSubAgentEvent，与 Runner 事件完全独立，没有统一的更新调度；3) useSubAgent 的 50ms throttle 和 useMessages 的 800ms throttle 节奏冲突——子 Agent 面板每 50ms 更新一次，消息列表每 800ms 更新一次，用户看到的是两个区域交替闪烁；4) ToolPanel 内的 isPending 状态用 Date.now() 计算耗时，但没有 interval 驱动，只在其他状态变化时顺带更新，导致耗时显示不连续。建议方向：统一事件总线、requestAnimationFrame 式的批量更新、单一更新时钟。"
+    },
+    {
+      "name": "性能优化工程师",
+      "role": "关注具体的代码级优化和可落地的修复方案。基于对代码的分析，提出具体修复优先级：P0（立即修复）：1) 统一 throttle 间隔——将 useSubAgent 的 50ms 提升到与 useMessages 一致的 500-800ms；2) 消除 SubAgentPanel 双重渲染——App.tsx 底部的独立渲染和 ToolPanel 内嵌的渲染只保留一个；3) 将 App.tsx 的 15+ useState 合并为 useReducer，单次 dispatch 批量更新。P1（短期优化）：4) MessageList 对当前 turn 的工具面板做虚拟化，只渲染可视区域；5) useSubAgent 的 Map 改用 immer 或手动 patch 避免全量克隆；6) events useEffect 改为增量处理（记录 lastProcessedIndex）。P2（架构改进）：7) 引入统一的 RenderScheduler，所有状态变更排队，每帧只提交一次；8) 考虑用 zustand 替代 React 内置状态管理，利用 selector 精确订阅。"
+    }
+  ]
+}

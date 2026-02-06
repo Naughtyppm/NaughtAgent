@@ -22,10 +22,14 @@ import {
 import { ToolRegistry } from "../tool/registry"
 import { ReadTool } from "../tool/read"
 import { WriteTool } from "../tool/write"
+import { AppendTool } from "../tool/append"
 import { EditTool } from "../tool/edit"
 import { BashTool } from "../tool/bash"
 import { GlobTool } from "../tool/glob"
 import { GrepTool } from "../tool/grep"
+import { registerSubagentTools } from "../tool/subagent"
+import type { SubTaskProvider, RunAgentRuntime } from "../subtask"
+import { getSubAgentConfigManager, getAgentRegistry } from "../subtask"
 import {
   createDefaultPermissions,
   enforcePermission,
@@ -102,6 +106,10 @@ export function createRunner(config: RunnerConfig) {
   // 注册内置工具
   registerBuiltinTools()
 
+  // 初始化子 Agent 系统（配置管理 + Agent 注册表）
+  // 异步初始化，在首次 run() 时确保完成
+  const subAgentSystemReady = initializeSubAgentSystem(cwd)
+
   // 创建 Provider（自动选择 Anthropic 或 Kiro）
   let provider: LLMProvider
   if (apiKey) {
@@ -113,6 +121,87 @@ export function createRunner(config: RunnerConfig) {
     // 自动选择：优先 API Key，否则 Kiro
     provider = createProviderFromEnv()
   }
+
+  // 确定子代理使用的模型（不能是 "auto"）
+  // CLI 默认模型是 opus，所以 fallback 也用 opus
+  const subAgentModel = (model && model !== "auto") ? model : "claude-opus-4-20250514"
+
+  // 创建子代理 Provider 适配器（用于 ask_llm 和 multi_agent）
+  const subTaskProvider: SubTaskProvider = {
+    async chat(options) {
+      // 检查取消信号
+      if (options.abort?.aborted) {
+        throw new Error("Task was aborted")
+      }
+      
+      const messages = options.messages
+        .filter(m => m.role !== "system")
+        .map(m => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }))
+      
+      const systemMessage = options.messages.find(m => m.role === "system")
+      
+      // 使用固定模型，不允许 "auto"
+      const effectiveModel = (options.model && options.model !== "auto") 
+        ? options.model 
+        : subAgentModel
+      
+      // 使用 provider.chat 进行单次调用，传递 abort 信号
+      const response = await provider.chat({
+        model: { provider: "auto", model: effectiveModel },
+        messages,
+        system: systemMessage?.content,
+        abortSignal: options.abort,
+      })
+      
+      // 提取文本内容
+      const content = response.text
+      
+      return {
+        content,
+        usage: response.usage,
+      }
+    },
+    
+    async chatWithSchema(options) {
+      // 简化实现：先调用 chat，然后解析 JSON
+      const result = await this.chat({
+        messages: [
+          ...options.messages,
+          { role: "user", content: "Please respond with valid JSON only." }
+        ],
+        model: options.model,
+        temperature: options.temperature,
+        maxTokens: options.maxTokens,
+        abort: options.abort,
+      })
+      
+      try {
+        const data = JSON.parse(result.content)
+        return {
+          data: options.schema.parse(data),
+          usage: result.usage,
+        }
+      } catch {
+        throw new Error(`Failed to parse JSON response: ${result.content}`)
+      }
+    },
+  }
+
+  // 创建子代理运行时（用于 run_agent, fork_agent, parallel_agents）
+  const agentRuntime: RunAgentRuntime = {
+    apiKey,
+    baseURL,
+    model: subAgentModel,  // 使用固定模型，不允许 "auto"
+  }
+
+  // 注册子代理工具
+  registerSubagentTools({
+    provider: subTaskProvider,
+    agentRuntime,
+  })
 
   // 获取 Agent 定义
   const definition = getAgentDefinition(agentType)
@@ -179,6 +268,9 @@ export function createRunner(config: RunnerConfig) {
       handlers: RunnerEventHandlers = {},
       options: RunOptions = {}
     ): Promise<void> {
+      // 确保子 Agent 系统初始化完成（配置 + 注册表）
+      await subAgentSystemReady
+
       // 创建或复用会话
       if (!session) {
         session = createSession({ cwd, agentType })
@@ -332,10 +424,50 @@ function registerBuiltinTools(): void {
   ToolRegistry.clear()
   ToolRegistry.register(ReadTool)
   ToolRegistry.register(WriteTool)
+  ToolRegistry.register(AppendTool)
   ToolRegistry.register(EditTool)
   ToolRegistry.register(BashTool)
   ToolRegistry.register(GlobTool)
   ToolRegistry.register(GrepTool)
+}
+
+/**
+ * 初始化子 Agent 系统
+ *
+ * 在 Agent 启动时加载配置和自定义 Agent 定义。
+ * 错误会被捕获并记录警告，不会导致 Agent 崩溃。
+ *
+ * 初始化顺序：
+ * 1. 加载配置（.naughty/config.json + 环境变量）
+ * 2. 初始化 Agent 注册表（扫描 .naughty/agents/ 目录）
+ *
+ * **Validates: Requirements 2.1, 8.1**
+ *
+ * @param cwd - 工作目录
+ */
+async function initializeSubAgentSystem(cwd: string): Promise<void> {
+  // 1. 加载子 Agent 配置
+  let customAgentsDir: string | undefined
+  try {
+    const configManager = getSubAgentConfigManager()
+    const config = await configManager.load(cwd)
+    customAgentsDir = config.customAgentsDir
+  } catch (error) {
+    // 配置加载失败，记录警告但不崩溃，使用默认配置
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[SubAgentSystem] 配置加载失败，使用默认配置: ${message}`)
+  }
+
+  // 2. 初始化 Agent 注册表，扫描自定义 Agent 目录
+  try {
+    const registry = getAgentRegistry({ cwd })
+    const agentsDir = customAgentsDir ?? ".naughty/agents"
+    await registry.loadCustomAgents(agentsDir)
+  } catch (error) {
+    // 注册表加载失败，记录警告但不崩溃
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[SubAgentSystem] Agent 注册表加载失败: ${message}`)
+  }
 }
 
 export type Runner = ReturnType<typeof createRunner>

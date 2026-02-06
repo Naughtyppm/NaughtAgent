@@ -21,7 +21,6 @@ import type {
   LLMProvider,
   ToolDefinition,
   Message,
-  ChatResult,
   MessageContent,
   TextContent,
   ImageContent,
@@ -57,6 +56,144 @@ export interface AgentLoopConfig {
 }
 
 /**
+ * 错误恢复追踪器
+ */
+interface ErrorTracker {
+  /** 连续错误计数 */
+  consecutiveErrors: number
+  /** 最近的错误消息 */
+  lastErrors: string[]
+  /** 最大连续错误数 */
+  maxConsecutiveErrors: number
+  /** 错误类型统计 */
+  errorTypes: Map<string, number>
+}
+
+/**
+ * 错误类型枚举
+ */
+type ErrorType = 
+  | 'truncation'      // 内容被截断
+  | 'invalid_params'  // 参数无效
+  | 'file_not_found'  // 文件不存在
+  | 'permission'      // 权限问题
+  | 'timeout'         // 超时
+  | 'unknown'         // 未知错误
+
+/**
+ * 分析错误类型
+ */
+function analyzeErrorType(error: string): ErrorType {
+  const lower = error.toLowerCase()
+  if (lower.includes('truncat') || lower.includes('too long') || lower.includes('token limit')) {
+    return 'truncation'
+  }
+  if (lower.includes('invalid param') || lower.includes('invalid_param') || lower.includes('validation')) {
+    return 'invalid_params'
+  }
+  if (lower.includes('not found') || lower.includes('enoent') || lower.includes('no such file')) {
+    return 'file_not_found'
+  }
+  if (lower.includes('permission') || lower.includes('access denied') || lower.includes('eperm')) {
+    return 'permission'
+  }
+  if (lower.includes('timeout') || lower.includes('timed out')) {
+    return 'timeout'
+  }
+  return 'unknown'
+}
+
+/**
+ * 根据错误类型生成恢复策略
+ */
+function getRecoveryStrategy(errorType: ErrorType, _toolName: string): string {
+  switch (errorType) {
+    case 'truncation':
+      return `内容被截断。策略：
+- 如果是 write 操作，改用 write + append 分段写入（每段不超过 50 行）
+- 如果是 read 操作，使用 start_line/end_line 参数分段读取
+- 减少单次操作的内容量`
+
+    case 'invalid_params':
+      return `参数无效。策略：
+- 检查参数格式是否正确
+- 确保路径使用正确的分隔符
+- 如果内容过长导致参数被截断，使用分段策略`
+
+    case 'file_not_found':
+      return `文件不存在。策略：
+- 使用 glob 工具确认文件路径
+- 检查路径拼写和大小写
+- 确认工作目录是否正确`
+
+    case 'permission':
+      return `权限不足。策略：
+- 检查文件/目录权限
+- 尝试其他位置
+- 询问用户是否需要提升权限`
+
+    case 'timeout':
+      return `操作超时。策略：
+- 减少操作范围
+- 分批执行
+- 检查是否有死循环或阻塞操作`
+
+    default:
+      return `遇到未知错误。策略：
+- 分析错误信息
+- 尝试不同的方法
+- 如果问题持续，询问用户`
+  }
+}
+
+/**
+ * 创建错误追踪器
+ */
+function createErrorTracker(maxErrors = 3): ErrorTracker {
+  return {
+    consecutiveErrors: 0,
+    lastErrors: [],
+    maxConsecutiveErrors: maxErrors,
+    errorTypes: new Map(),
+  }
+}
+
+/**
+ * 记录错误
+ */
+function trackError(tracker: ErrorTracker, error: string): boolean {
+  tracker.consecutiveErrors++
+  tracker.lastErrors.push(error)
+  if (tracker.lastErrors.length > 5) {
+    tracker.lastErrors.shift()
+  }
+  
+  // 统计错误类型
+  const errorType = analyzeErrorType(error)
+  tracker.errorTypes.set(errorType, (tracker.errorTypes.get(errorType) || 0) + 1)
+  
+  return tracker.consecutiveErrors >= tracker.maxConsecutiveErrors
+}
+
+/**
+ * 重置错误计数（成功执行后）
+ */
+function resetErrorCount(tracker: ErrorTracker): void {
+  tracker.consecutiveErrors = 0
+}
+
+/**
+ * 检测是否是相似的重复错误
+ */
+function isSimilarError(tracker: ErrorTracker, error: string): boolean {
+  if (tracker.lastErrors.length < 2) return false
+  const currentType = analyzeErrorType(error)
+  const lastError = tracker.lastErrors[tracker.lastErrors.length - 2]
+  const lastType = lastError ? analyzeErrorType(lastError) : 'unknown'
+  return currentType === lastType && currentType !== 'unknown'
+}
+
+/**
  * 创建 Agent Loop
  */
 export function createAgentLoop(config: AgentLoopConfig) {
@@ -66,6 +203,9 @@ export function createAgentLoop(config: AgentLoopConfig) {
   // 创建日志器和性能监控器
   const logger = new Logger('agent-loop')
   const monitor = new PerformanceMonitor()
+  
+  // 创建错误追踪器
+  const errorTracker = createErrorTracker(3)
 
   // 合并 abort 信号
   if (runConfig.abort) {
@@ -309,35 +449,67 @@ export function createAgentLoop(config: AgentLoopConfig) {
         break
       }
 
-      // 调用 LLM
+      // 调用 LLM（流式）
       const messages = convertMessages()
-      let response: ChatResult
+      
+      // 流式响应收集
+      let responseText = ""
+      const toolCalls: { id: string; name: string; args: unknown }[] = []
+      let usage = { inputTokens: 0, outputTokens: 0 }
 
       try {
-        // 使用性能监控测量 LLM 调用
-        response = await monitor.measure('llm:chat', async () => {
-          logger.debug('调用 LLM', { 
-            model: modelConfig.model,
-            messageCount: messages.length,
-            toolCount: tools.length 
-          })
-          
-          return await provider.chat({
-            model: modelConfig,
-            messages,
-            system: systemPrompt,
-            tools: tools.length > 0 ? tools : undefined,
-            abortSignal: abortController.signal,
-          })
+        logger.debug('调用 LLM（流式）', { 
+          model: modelConfig.model,
+          messageCount: messages.length,
+          toolCount: tools.length 
         })
         
-        logger.debug('LLM 响应成功', { 
-          textLength: response.text.length,
-          toolCallCount: response.toolCalls.length,
-          inputTokens: response.usage.inputTokens,
-          outputTokens: response.usage.outputTokens
+        // 使用流式 API
+        for await (const event of provider.stream({
+          model: modelConfig,
+          messages,
+          system: systemPrompt,
+          tools: tools.length > 0 ? tools : undefined,
+          abortSignal: abortController.signal,
+        })) {
+          // 检查是否被中止
+          if (abortController.signal.aborted) {
+            break
+          }
+          
+          switch (event.type) {
+            case 'text':
+              responseText += event.text
+              // 实时输出文本
+              yield { type: "text", content: responseText }
+              break
+            case 'tool_call':
+              toolCalls.push({
+                id: event.id,
+                name: event.name,
+                args: event.args,
+              })
+              break
+            case 'message_end':
+              usage = event.usage
+              break
+            case 'error':
+              throw event.error
+          }
+        }
+        
+        logger.debug('LLM 流式响应完成', { 
+          textLength: responseText.length,
+          toolCallCount: toolCalls.length,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens
         })
       } catch (error) {
+        // 如果是中止，不记录错误
+        if (abortController.signal.aborted) {
+          break
+        }
+        
         logger.error('LLM 调用失败', { 
           error: error instanceof Error ? error.message : String(error)
         })
@@ -359,21 +531,20 @@ export function createAgentLoop(config: AgentLoopConfig) {
       }
 
       // 更新 token 使用
-      totalUsage.inputTokens += response.usage.inputTokens
-      totalUsage.outputTokens += response.usage.outputTokens
-      updateUsage(session, response.usage)
+      totalUsage.inputTokens += usage.inputTokens
+      totalUsage.outputTokens += usage.outputTokens
+      updateUsage(session, usage)
 
       // 构建助手消息内容
       const assistantContent: ContentBlock[] = []
 
-      // 添加文本响应
-      if (response.text) {
-        assistantContent.push({ type: "text", text: response.text })
-        yield { type: "text", content: response.text }
+      // 添加文本响应（流式已经输出过了，这里只保存到会话）
+      if (responseText) {
+        assistantContent.push({ type: "text", text: responseText })
       }
 
       // 添加工具调用
-      for (const toolCall of response.toolCalls) {
+      for (const toolCall of toolCalls) {
         const toolUseBlock: ToolUseBlock = {
           type: "tool_use",
           id: toolCall.id,
@@ -389,7 +560,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
       }
 
       // 如果没有工具调用，结束循环
-      if (response.toolCalls.length === 0) {
+      if (toolCalls.length === 0) {
         logger.info('Agent Loop 完成（无工具调用）', { 
           stepCount,
           totalInputTokens: totalUsage.inputTokens,
@@ -401,7 +572,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
       // 执行工具调用
       const toolResults: ContentBlock[] = []
 
-      for (const toolCall of response.toolCalls) {
+      for (const toolCall of toolCalls) {
         yield {
           type: "tool_start",
           id: toolCall.id,
@@ -416,6 +587,41 @@ export function createAgentLoop(config: AgentLoopConfig) {
           id: toolCall.id,
           result,
           isError,
+        }
+
+        // 追踪错误
+        if (isError) {
+          const shouldStop = trackError(errorTracker, result.output)
+          
+          // 检测重复错误模式
+          if (shouldStop || isSimilarError(errorTracker, result.output)) {
+            logger.warn('检测到重复错误，添加恢复提示', {
+              consecutiveErrors: errorTracker.consecutiveErrors,
+              lastError: result.output.substring(0, 100)
+            })
+            
+            // 分析错误类型并生成针对性恢复策略
+            const errorType = analyzeErrorType(result.output)
+            const strategy = getRecoveryStrategy(errorType, toolCall.name)
+            
+            // 添加智能恢复提示到工具结果
+            const recoveryHint = `
+
+⚠️ **自驱力系统检测到问题** (连续 ${errorTracker.consecutiveErrors} 次类似错误)
+
+**错误类型**: ${errorType}
+**工具**: ${toolCall.name}
+
+**恢复策略**:
+${strategy}
+
+**重要**: 请不要重复相同的操作，必须调整策略后再试。`
+            
+            result.output += recoveryHint
+          }
+        } else {
+          // 成功执行，重置错误计数
+          resetErrorCount(errorTracker)
         }
 
         const toolResultBlock: ToolResultBlock = {

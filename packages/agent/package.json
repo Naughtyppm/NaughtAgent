@@ -27,6 +27,7 @@
     "ai": "^6.0.34",
     "dotenv": "^17.2.3",
     "fast-glob": "^3.3.3",
+    "gray-matter": "^4.0.3",
     "ink": "5",
     "json-schema-to-zod": "^2.7.0",
     "minimatch": "^10.1.1",

@@ -187,14 +187,19 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
 
       try {
         const stream = await withRetry(async () => {
-          return client.messages.stream({
-            model: mapToAnthropicModel(params.model.model),
-            max_tokens: params.model.maxTokens || 8192,
-            system: params.system,
-            messages: convertMessages(params.messages),
-            tools: convertTools(params.tools),
-            temperature: params.model.temperature,
-          })
+          return client.messages.stream(
+            {
+              model: mapToAnthropicModel(params.model.model),
+              max_tokens: params.model.maxTokens || 8192,
+              system: params.system,
+              messages: convertMessages(params.messages),
+              tools: convertTools(params.tools),
+              temperature: params.model.temperature,
+            },
+            {
+              signal: params.abortSignal,
+            }
+          )
         })
 
         let textChunks = 0
@@ -272,14 +277,19 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
         const convertedMessages = convertMessages(params.messages)
         const convertedTools = convertTools(params.tools)
 
-        const response = await client.messages.create({
-          model: mapToAnthropicModel(params.model.model),
-          max_tokens: params.model.maxTokens || 8192,
-          system: params.system,
-          messages: convertedMessages,
-          tools: convertedTools,
-          temperature: params.model.temperature,
-        })
+        const response = await client.messages.create(
+          {
+            model: mapToAnthropicModel(params.model.model),
+            max_tokens: params.model.maxTokens || 8192,
+            system: params.system,
+            messages: convertedMessages,
+            tools: convertedTools,
+            temperature: params.model.temperature,
+          },
+          {
+            signal: params.abortSignal,
+          }
+        )
 
         // 提取文本和工具调用
         let text = ""

@@ -325,6 +325,8 @@ export interface SubTaskResult {
   duration: number
   /** 子会话 ID（fork_agent 模式） */
   childSessionId?: string
+  /** 是否包含部分结果（abort/timeout 时可能有） */
+  partial?: boolean
 }
 
 // ============================================================================
@@ -410,6 +412,8 @@ export interface SubTaskProvider {
     model?: string
     temperature?: number
     maxTokens?: number
+    /** 取消信号 */
+    abort?: AbortSignal
   }): Promise<{
     content: string
     usage: { inputTokens: number; outputTokens: number }
@@ -422,6 +426,8 @@ export interface SubTaskProvider {
     model?: string
     temperature?: number
     maxTokens?: number
+    /** 取消信号 */
+    abort?: AbortSignal
   }): Promise<{
     data: T
     usage: { inputTokens: number; outputTokens: number }

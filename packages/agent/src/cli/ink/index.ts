@@ -69,7 +69,10 @@ export function startInkRepl(config: ReplConfig): { waitUntilExit: () => Promise
   }
 
   // 渲染 App 组件
-  const instance = render(React.createElement(App, { config }))
+  // exitOnCtrlC: false 让我们自己处理 Ctrl+C
+  const instance = render(React.createElement(App, { config }), {
+    exitOnCtrlC: false,
+  })
 
   return instance
 }

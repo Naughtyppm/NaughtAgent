@@ -1,16 +1,24 @@
 /**
- * Task 工具 - 子任务执行入口
+ * Task 工具 - 统一子任务执行入口
  *
  * 让 Agent 能够启动子任务：
  * - API 模式：简单生成
  * - Workflow 模式：执行预定义流程
  * - Agent 模式：启动子 Agent
+ * - 类型快捷方式：explore/plan/build/custom
+ *
+ * @see Requirements 1.1, 1.2, 1.3, 1.4, 1.5
  */
 
 import { z } from "zod"
 import { Tool } from "../tool/tool"
 import { runSubTask, type SubTaskRuntime } from "./runner"
 import type { SubTaskConfig } from "./types"
+import { getAgentRegistry } from "./agent-registry"
+import {
+  createAgentNotFoundError,
+  formatErrorMessage,
+} from "./errors"
 
 const DESCRIPTION = `Execute a subtask using one of three modes:
 
@@ -18,10 +26,17 @@ const DESCRIPTION = `Execute a subtask using one of three modes:
 - **workflow**: Execute a predefined workflow. Best for fixed processes like /commit, /pr.
 - **agent**: Start a sub-agent with full tool access. Best for complex exploration tasks.
 
+Type shortcuts (maps to agent mode with preset tools):
+- **explore**: Read-only analysis (tools: read, glob, grep)
+- **plan**: Planning and research (tools: read, glob, grep, write)
+- **build**: Full implementation (tools: all)
+- **custom**: Use a custom agent defined in .naughty/agents/
+
 Examples:
 - Summarize code: mode="api", prompt="Summarize this function: ..."
 - Run commit workflow: mode="workflow", workflow="commit"
-- Explore codebase: mode="agent", prompt="Find all authentication code", agentType="explore"`
+- Explore codebase: type="explore", prompt="Find all authentication code"
+- Use custom agent: type="custom", customAgent="security-reviewer", prompt="Review auth code"`
 
 /**
  * Task 工具参数 Schema
@@ -32,6 +47,18 @@ const TaskParamsSchema = z.object({
     .enum(["api", "workflow", "agent"])
     .default("agent")
     .describe("Execution mode: api (simple), workflow (predefined), agent (autonomous)"),
+
+  /** 类型快捷方式（覆盖 mode 为 agent） */
+  type: z
+    .enum(["explore", "plan", "build", "custom"])
+    .optional()
+    .describe("Type shortcut: explore (read-only), plan (read+write), build (all), custom (from registry)"),
+
+  /** 自定义 Agent 名称（type 为 custom 时必填） */
+  customAgent: z
+    .string()
+    .optional()
+    .describe("Custom agent name from .naughty/agents/ (required when type=custom)"),
 
   /** 任务描述/提示词 */
   prompt: z.string().describe("Task description or prompt"),
@@ -69,11 +96,23 @@ const TaskParamsSchema = z.object({
     .optional()
     .describe("Agent type for agent mode"),
 
+  /** 工具白名单 */
+  tools: z
+    .array(z.string())
+    .optional()
+    .describe("Specific tools to allow (overrides defaults)"),
+
   /** 最大步数（Agent 模式） */
   maxSteps: z
     .number()
     .optional()
     .describe("Maximum steps for agent mode"),
+
+  /** 超时时间（毫秒） */
+  timeout: z
+    .number()
+    .optional()
+    .describe("Timeout in milliseconds"),
 })
 
 export type TaskParams = z.infer<typeof TaskParamsSchema>
@@ -137,12 +176,42 @@ export const TaskTool = Tool.define({
 })
 
 /**
+ * 类型快捷方式到 Agent 配置的映射
+ */
+const TYPE_TOOL_MAP: Record<string, string[]> = {
+  explore: ["read", "glob", "grep"],
+  plan: ["read", "glob", "grep", "write"],
+  build: [], // 空数组表示使用所有工具
+}
+
+/**
  * 构建子任务配置
  */
 function buildSubTaskConfig(params: TaskParams, cwd: string): SubTaskConfig {
   const base = {
     prompt: params.prompt,
     cwd,
+  }
+
+  // 如果指定了 type，优先使用 type 快捷方式
+  if (params.type) {
+    if (params.type === "custom") {
+      return buildCustomAgentConfig(params, cwd)
+    }
+
+    const agentTypeMap: Record<string, "explore" | "plan" | "build"> = {
+      explore: "explore",
+      plan: "plan",
+      build: "build",
+    }
+
+    return {
+      ...base,
+      mode: "agent",
+      agentType: agentTypeMap[params.type],
+      tools: params.tools || TYPE_TOOL_MAP[params.type],
+      maxSteps: params.maxSteps,
+    }
   }
 
   switch (params.mode) {
@@ -171,8 +240,36 @@ function buildSubTaskConfig(params: TaskParams, cwd: string): SubTaskConfig {
         ...base,
         mode: "agent",
         agentType: params.agentType,
+        tools: params.tools,
         maxSteps: params.maxSteps,
       }
+  }
+}
+
+/**
+ * 构建自定义 Agent 配置
+ */
+function buildCustomAgentConfig(params: TaskParams, cwd: string): SubTaskConfig {
+  if (!params.customAgent) {
+    throw new Error("customAgent is required when type=custom")
+  }
+
+  const registry = getAgentRegistry()
+  const agentDef = registry.getAgent(params.customAgent)
+
+  if (!agentDef) {
+    const available = registry.listAgents().map((a) => a.name)
+    const error = createAgentNotFoundError(params.customAgent, available)
+    throw new Error(formatErrorMessage(error))
+  }
+
+  return {
+    prompt: `${agentDef.systemPrompt}\n\n---\n\nTask: ${params.prompt}`,
+    cwd,
+    mode: "agent",
+    agentType: (agentDef.permissionMode === "allow" ? "build" : "explore") as "build" | "explore",
+    tools: params.tools || agentDef.tools,
+    maxSteps: params.maxSteps,
   }
 }
 

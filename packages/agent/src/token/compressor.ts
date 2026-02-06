@@ -13,7 +13,6 @@ import type {
   Message,
   ContentBlock,
   TextBlock,
-  ToolUseBlock,
   ToolResultBlock,
 } from "../session/message"
 import {

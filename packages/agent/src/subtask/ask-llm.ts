@@ -53,6 +53,7 @@ export async function runAskLlm(
         model: config.model?.model,
         temperature: config.model?.temperature,
         maxTokens: config.model?.maxTokens,
+        abort: config.abort,
       })
 
       return {
@@ -69,6 +70,7 @@ export async function runAskLlm(
         model: config.model?.model,
         temperature: config.model?.temperature,
         maxTokens: config.model?.maxTokens,
+        abort: config.abort,
       })
 
       return {

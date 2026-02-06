@@ -7,7 +7,7 @@
  * - 颜色主题
  */
 
-import type { ColorTheme, ToolColors, ToolName } from '../types'
+import type { ColorTheme, ToolName } from '../types'
 
 // ============================================================================
 // ANSI 颜色代码
@@ -101,13 +101,20 @@ export const Colors = {
  * 工具类型对应的颜色
  * 用于在 UI 中区分不同类型的工具调用
  */
-export const toolColors: ToolColors = {
+export const toolColors: Record<ToolName, string> = {
   read: 'cyan',
   write: 'green',
   edit: 'yellow',
   bash: 'magenta',
   glob: 'blue',
   grep: 'blueBright',
+  // 子 Agent 工具
+  run_agent: 'cyanBright',
+  ask_llm: 'blueBright',
+  fork_agent: 'magentaBright',
+  parallel_agents: 'yellowBright',
+  multi_agent: 'greenBright',
+  run_workflow: 'cyan',
 }
 
 /**
@@ -170,6 +177,13 @@ export const toolIcons: Record<ToolName, string> = {
   bash: '💻',
   glob: '🔍',
   grep: '🔎',
+  // 子 Agent 工具
+  run_agent: '🤖',
+  ask_llm: '💬',
+  fork_agent: '🔀',
+  parallel_agents: '⚡',
+  multi_agent: '👥',
+  run_workflow: '📋',
 }
 
 /**

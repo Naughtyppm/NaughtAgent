@@ -4,9 +4,10 @@
  * 处理键盘快捷键，包括：
  * - Escape: 切换到手动确认模式
  * - Ctrl+C: 取消当前任务
- * - Ctrl+O: 切换工具面板展开状态
+ * - Ctrl+O: 切换所有工具面板展开状态
+ * - Tab: 切换当前选中工具面板的展开状态
  * - Alt+P: 切换到手动确认模式
- * - 上/下方向键: 历史导航
+ * - 上/下方向键: 历史导航或工具面板导航
  *
  * 需求: 6.2, 6.3, 6.5
  */
@@ -30,6 +31,7 @@ export function useKeyboard(options: UseKeyboardOptions, isActive: boolean = tru
     onArrowUp,
     onArrowDown,
     onAltP,
+    onTab,
   } = options
 
   useInput(
@@ -49,6 +51,12 @@ export function useKeyboard(options: UseKeyboardOptions, isActive: boolean = tru
       // Ctrl+O
       if (input === 'o' && key.ctrl && onCtrlO) {
         onCtrlO()
+        return
+      }
+
+      // Tab 键
+      if (key.tab && onTab) {
+        onTab()
         return
       }
 

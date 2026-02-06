@@ -7,7 +7,7 @@
  * 需求: 5.1, 5.2, 5.5
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import type {
   Message,
   UserMessage,
@@ -27,6 +27,13 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
 }
 
+/** 流式更新节流间隔（毫秒）- 统一到 400ms，与 useSubAgent/StatusIndicator 对齐
+ * 三套节流统一到同一节奏，消除多区域交替闪烁 */
+const STREAM_THROTTLE_MS = 400
+
+/** 最大更新频率（每秒最多更新次数）- 对应 400ms 间隔 */
+const MAX_UPDATES_PER_SECOND = 2.5
+
 /**
  * useMessages Hook
  *
@@ -40,6 +47,12 @@ function generateId(): string {
  */
 export function useMessages(): UseMessagesReturn {
   const [messages, setMessages] = useState<Message[]>([])
+  
+  // 用于节流的 refs
+  const pendingContentRef = useRef<Map<string, string>>(new Map())
+  const lastUpdateContentRef = useRef<Map<string, string>>(new Map())
+  const lastUpdateTimeRef = useRef<Map<string, number>>(new Map())
+  const throttleTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
 
   /**
    * 添加用户消息
@@ -72,39 +85,105 @@ export function useMessages(): UseMessagesReturn {
       timestamp: Date.now(),
     }
     setMessages((prev) => [...prev, message])
+    lastUpdateContentRef.current.set(id, content)
+    lastUpdateTimeRef.current.set(id, Date.now())
     return id
   }, [])
 
 
   /**
-   * 更新 AI 消息内容（流式）
+   * 更新 AI 消息内容（流式，带激进节流）
+   * 使用严格的时间窗口控制，防止突发大量内容导致界面抽搐
    * @param id 消息 ID
    * @param content 新内容（累积的完整内容）
    */
   const updateAIMessage = useCallback((id: string, content: string): void => {
-    setMessages((prev) =>
-      prev.map((msg) => {
-        if (msg.id === id && msg.type === 'ai') {
-          return { ...msg, content }
-        }
-        return msg
-      })
-    )
+    // 保存最新内容
+    pendingContentRef.current.set(id, content)
+    
+    const now = Date.now()
+    const lastUpdateTime = lastUpdateTimeRef.current.get(id) || 0
+    const timeSinceLastUpdate = now - lastUpdateTime
+    
+    // 严格的时间窗口控制：必须等待足够时间才能更新
+    // 这样即使突然来了大量内容，也不会频繁刷新
+    const minInterval = 1000 / MAX_UPDATES_PER_SECOND // 500ms
+    const shouldUpdate = timeSinceLastUpdate >= Math.max(STREAM_THROTTLE_MS, minInterval)
+    
+    // 如果已有定时器，只更新 pending 内容，不做其他事
+    if (throttleTimerRef.current.has(id)) {
+      return
+    }
+    
+    if (shouldUpdate) {
+      // 执行更新
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id === id && msg.type === 'ai') {
+            return { ...msg, content }
+          }
+          return msg
+        })
+      )
+      lastUpdateContentRef.current.set(id, content)
+      lastUpdateTimeRef.current.set(id, now)
+    }
+    
+    // 设置节流定时器，确保最终内容会被更新
+    // 使用较长的间隔，让界面有时间稳定
+    const timer = setTimeout(() => {
+      throttleTimerRef.current.delete(id)
+      const latestContent = pendingContentRef.current.get(id)
+      const currentLastContent = lastUpdateContentRef.current.get(id)
+      
+      if (latestContent !== undefined && latestContent !== currentLastContent) {
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.id === id && msg.type === 'ai') {
+              return { ...msg, content: latestContent }
+            }
+            return msg
+          })
+        )
+        lastUpdateContentRef.current.set(id, latestContent)
+        lastUpdateTimeRef.current.set(id, Date.now())
+      }
+    }, STREAM_THROTTLE_MS)
+    
+    throttleTimerRef.current.set(id, timer)
   }, [])
 
   /**
    * 完成 AI 消息流式输出
+   * 优化：使用 findIndex + 直接替换，避免全量 map 遍历
    * @param id 消息 ID
    */
   const finishAIMessage = useCallback((id: string): void => {
-    setMessages((prev) =>
-      prev.map((msg) => {
-        if (msg.id === id && msg.type === 'ai') {
-          return { ...msg, isStreaming: false }
-        }
-        return msg
-      })
-    )
+    // 清理节流定时器
+    const timer = throttleTimerRef.current.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      throttleTimerRef.current.delete(id)
+    }
+    
+    // 确保最终内容被更新
+    const finalContent = pendingContentRef.current.get(id)
+    pendingContentRef.current.delete(id)
+    lastUpdateContentRef.current.delete(id)
+    lastUpdateTimeRef.current.delete(id)
+    
+    setMessages((prev) => {
+      const idx = prev.findIndex(msg => msg.id === id && msg.type === 'ai')
+      if (idx === -1) return prev
+      const msg = prev[idx] as AIMessage
+      const next = [...prev]
+      next[idx] = {
+        ...msg,
+        content: finalContent ?? msg.content,
+        isStreaming: false,
+      }
+      return next
+    })
   }, [])
 
   /**
@@ -136,21 +215,19 @@ export function useMessages(): UseMessagesReturn {
 
   /**
    * 更新工具调用状态
+   * 优化：使用 findIndex + 直接替换，避免全量 map 遍历
    * @param id 工具调用 ID
    * @param update 更新内容
    */
   const updateToolCall = useCallback((id: string, update: Partial<ToolCall>): void => {
-    setMessages((prev) =>
-      prev.map((msg) => {
-        if (msg.type === 'tool' && msg.tool.id === id) {
-          return {
-            ...msg,
-            tool: { ...msg.tool, ...update },
-          }
-        }
-        return msg
-      })
-    )
+    setMessages((prev) => {
+      const idx = prev.findIndex(msg => msg.type === 'tool' && msg.tool.id === id)
+      if (idx === -1) return prev
+      const msg = prev[idx] as ToolMessage
+      const next = [...prev]
+      next[idx] = { ...msg, tool: { ...msg.tool, ...update } }
+      return next
+    })
   }, [])
 
   /**

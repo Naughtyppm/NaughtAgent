@@ -94,9 +94,6 @@ export const DEFAULT_TRUNCATION_CONFIG: TruncationConfig = {
   truncationIndicator: "\n... [已截断: 移除了 {removed} 个 token] ...\n",
 }
 
-/** 截断指示器的估算 Token 数 */
-const INDICATOR_OVERHEAD = 20
-
 /** 安全缓冲比例 */
 const SAFETY_BUFFER = 0.95
 

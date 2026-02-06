@@ -67,8 +67,41 @@ export * from "./permission"
 // Context 上下文系统
 export * from "./context"
 
-// Token 管理系统
-export * from "./token"
+// Token 管理系统 (排除与 ./context 和 ./tool 冲突的类型)
+export {
+  // Types
+  type TokenCount,
+  type TokenLimits,
+  type TruncateStrategy,
+  type TruncateResult,
+  type ToolDefinition as TokenToolDefinition,
+  type TokenManager,
+  // Constants
+  DEFAULT_TOKEN_LIMITS,
+  // Functions
+  estimateTokens,
+  countMessageTokens,
+  countMessagesTokens,
+  countToolsTokens,
+  countContextTokens,
+  needsTruncation,
+  getAvailableTokens,
+  truncateDropOld,
+  truncateSlidingWindow,
+  truncateMessages,
+  createTokenManager,
+  // 截断器 (排除 TruncationResult，已由 ./tool 导出)
+  type TruncationStrategy,
+  type TruncationConfig,
+  type GrepMatch,
+  type ToolOutputTruncator,
+  DEFAULT_TRUNCATION_CONFIG,
+  createTruncator,
+  // 压缩器 (排除 CompressionResult/TokenCompressor，已由 ./context 导出)
+  type CompressionConfig,
+  DEFAULT_COMPRESSION_CONFIG,
+  createCompressor,
+} from "./token"
 
 // Security 安全系统
 export * from "./security"
@@ -135,8 +168,95 @@ export {
 // Server HTTP API
 export * from "./server"
 
-// Command 统一命令系统
-export * from "./command"
+// Command 统一命令系统 (排除与 ./ux 冲突的 HistoryConfig)
+export {
+  // 核心类型
+  type CommandLayer,
+  type ExecutionMode,
+  type CommandSource as CmdCommandSource,
+  type CommandParameter,
+  type UnifiedCommand,
+  type RoutingType,
+  type RoutingResult,
+  type ExecutionResult,
+  LAYER_PRIORITY,
+  LAYER_ICONS,
+  // 注册表
+  type RegistryErrors,
+  type UnifiedRegistryConfig,
+  type UnifiedRegistry,
+  createUnifiedRegistry,
+  createSyncRegistry,
+  // 路由器
+  type CommandRouter,
+  type ParsedCommand,
+  createCommandRouter,
+  parseArguments,
+  // 调度器
+  type DispatchContext,
+  type CommandDispatcher,
+  createCommandDispatcher,
+  // 补全
+  type CompletionSuggestion,
+  type CompletionProvider,
+  createCompletionProvider,
+  getSuggestions,
+  formatSuggestion,
+  // 错误诊断
+  type ErrorType,
+  type FixAction,
+  type DiagnosticResult,
+  type DiagnosticContext,
+  type CommandLookup,
+  ErrorDiagnostics,
+  createErrorDiagnostics,
+  levenshteinDistance,
+  // 内置命令
+  type AppState,
+  type BuiltinContext,
+  type BuiltinHandler,
+  type BuiltinCommandDefinition,
+  getBuiltinCommandDefinitions,
+  convertToUnifiedCommands,
+  getBuiltinCommand,
+  registerBuiltinCommand,
+  // 别名
+  type AliasDefinition,
+  type AliasConfig,
+  type AliasManager,
+  createAliasManager,
+  DEFAULT_ALIAS_FILE,
+  DEFAULT_BUILTIN_COMMANDS,
+  // 历史 (排除 HistoryConfig，已由 ./ux 导出)
+  type HistoryEntry,
+  type HistoryConfig as CommandHistoryConfig,
+  type HistoryManager,
+  createHistoryManager,
+  DEFAULT_HISTORY_FILE,
+  DEFAULT_MAX_ENTRIES,
+  DEFAULT_HISTORY_CONFIG,
+  // 管道
+  type PipelineStage,
+  type PipelineResult,
+  type CommandExecutor,
+  hasPipe,
+  parsePipeline,
+  executePipeline,
+  // 链式
+  type ChainOperator,
+  type ChainSegment,
+  type ChainResult,
+  hasChain,
+  parseChain,
+  executeChain,
+  // 集成
+  type EnhancedRouterConfig,
+  type EnhancedDispatcherConfig,
+  type EnhancedRouter,
+  type EnhancedDispatcher,
+  createEnhancedRouter,
+  createEnhancedDispatcher,
+} from "./command"
 
 // MCP 协议支持
 export * from "./mcp"

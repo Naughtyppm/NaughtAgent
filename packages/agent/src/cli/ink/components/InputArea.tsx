@@ -119,7 +119,7 @@ export function InputArea({
     setInputKey((k) => k + 1)
   }, [onSubmit])
 
-  // 处理历史导航
+  // 处理历史导航（Tab 键移到 App 层处理，因为需要在 disabled 时也能工作）
   useInput(
     (_input, key) => {
       if (disabled) return

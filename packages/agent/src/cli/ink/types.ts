@@ -84,7 +84,20 @@ export type Message = UserMessage | AIMessage | ToolMessage | SystemMessage
 /**
  * 工具名称
  */
-export type ToolName = 'read' | 'write' | 'edit' | 'bash' | 'glob' | 'grep'
+export type ToolName = 
+  | 'read' 
+  | 'write' 
+  | 'edit' 
+  | 'bash' 
+  | 'glob' 
+  | 'grep'
+  // 子 Agent 工具
+  | 'run_agent'
+  | 'ask_llm'
+  | 'fork_agent'
+  | 'parallel_agents'
+  | 'multi_agent'
+  | 'run_workflow'
 
 /**
  * 工具执行状态
@@ -178,6 +191,99 @@ export interface ToolCall {
   startTime: number
   /** 结束时间 */
   endTime?: number
+  /** 如果是 run_agent 工具，包含子 Agent 状态 */
+  subAgent?: SubAgentState
+}
+
+// ============================================================================
+// 子 Agent 状态
+// ============================================================================
+
+/**
+ * 子 Agent 模式类型
+ */
+export type SubAgentMode = 
+  | 'run_agent' 
+  | 'fork_agent' 
+  | 'parallel_agents' 
+  | 'multi_agent' 
+  | 'run_workflow' 
+  | 'ask_llm'
+
+/**
+ * 子 Agent 执行状态
+ */
+export type SubAgentStatus = 'running' | 'completed' | 'error'
+
+/**
+ * 子 Agent 内部工具调用（简化版）
+ */
+export interface SubAgentToolCall {
+  id: string
+  name: string
+  displayName: string
+  input: unknown
+  output?: string
+  isError: boolean
+  status: ToolStatus
+  startTime: number
+  endTime?: number
+  duration?: number
+}
+
+/**
+ * 子 Agent 子任务（用于 parallel_agents, multi_agent）
+ */
+export interface SubAgentChild {
+  id: string
+  name: string
+  prompt: string
+  status: SubAgentStatus
+  output?: string
+  error?: string
+}
+
+/**
+ * 子 Agent 状态
+ */
+export interface SubAgentState {
+  /** 子 Agent ID */
+  id: string
+  /** 执行模式 */
+  mode: SubAgentMode
+  /** 任务描述 */
+  prompt: string
+  /** Agent 类型 */
+  agentType: string
+  /** 执行状态 */
+  status: SubAgentStatus
+  /** 累积文本输出 */
+  text: string
+  /** 工具调用列表 */
+  tools: SubAgentToolCall[]
+  /** 子任务列表（用于 parallel_agents, multi_agent） */
+  children?: SubAgentChild[]
+  /** 当前步骤 */
+  currentStep: number
+  /** 最大步骤 */
+  maxSteps: number
+  /** 开始时间 */
+  startTime: number
+  /** 结束时间 */
+  endTime?: number
+  /** Token 使用 */
+  usage?: {
+    inputTokens: number
+    outputTokens: number
+  }
+  /** 重试次数 */
+  retryCount?: number
+  /** 配置信息 */
+  config?: {
+    timeout?: number
+    maxTurns?: number
+    tools?: string[]
+  }
 }
 
 // ============================================================================
@@ -193,6 +299,12 @@ export type AgentType = 'build' | 'plan' | 'explore'
  * 状态指示器类型
  */
 export type StatusType = 'idle' | 'thinking' | 'executing' | 'waiting'
+
+/**
+ * 活跃视图类型 — 同一时间只有一个主要动态区域
+ * 用于减少并发渲染，消除多区域交替闪烁
+ */
+export type ActiveView = 'idle' | 'streaming' | 'tool_execution' | 'subagent_active'
 
 /**
  * 权限结果类型
@@ -305,6 +417,10 @@ export interface MessageListProps {
   expandedTools: Set<string>
   /** 切换工具面板展开状态 */
   onToggleTool: (toolId: string) => void
+  /** 当前选中的工具面板 ID（用于键盘导航） */
+  selectedToolId?: string | null
+  /** 获取工具关联的子 Agent 状态 */
+  getSubAgentForTool?: (toolId: string) => SubAgentState | undefined
 }
 
 /**
@@ -317,6 +433,8 @@ export interface ToolPanelProps {
   isExpanded: boolean
   /** 切换展开状态 */
   onToggle: () => void
+  /** 是否被选中（用于键盘导航） */
+  isSelected?: boolean
 }
 
 /**
@@ -330,6 +448,49 @@ export interface PermissionDialogProps {
 }
 
 /**
+ * Token 使用量
+ */
+export interface TokenUsage {
+  /** 输入 token 数 */
+  input: number
+  /** 输出 token 数 */
+  output: number
+  /** 总计 token 数 */
+  total?: number
+}
+
+/**
+ * 活跃子 Agent 摘要信息（用于 StatusIndicator 显示）
+ */
+export interface ActiveSubAgentSummary {
+  /** 子 Agent ID */
+  id: string
+  /** 执行模式 */
+  mode: SubAgentMode
+  /** Agent 类型 */
+  agentType: string
+  /** 执行状态 */
+  status: SubAgentStatus
+  /** 当前步骤 */
+  currentStep: number
+  /** 最大步骤 */
+  maxSteps: number
+  /** 任务描述 */
+  prompt?: string
+  /** 子任务列表（讨论发言 / parallel 子任务） */
+  children?: Array<{
+    id: string
+    name: string
+    status: SubAgentStatus
+    output?: string
+  }>
+  /** 最近的工具调用名称 */
+  lastToolName?: string
+  /** 最近的工具调用状态 */
+  lastToolStatus?: ToolStatus
+}
+
+/**
  * StatusIndicator 组件 Props
  */
 export interface StatusIndicatorProps {
@@ -339,6 +500,14 @@ export interface StatusIndicatorProps {
   message?: string
   /** 状态详情 */
   detail?: string
+  /** 当前步骤 */
+  stepCurrent?: number
+  /** 总步骤数 */
+  stepTotal?: number
+  /** Token 使用量 */
+  tokenUsage?: TokenUsage
+  /** 活跃子 Agent 列表（Requirements 5.4: 多子 Agent 摘要显示） */
+  activeSubAgents?: ActiveSubAgentSummary[]
 }
 
 /**
@@ -371,6 +540,8 @@ export interface InputAreaProps {
     layer: 'builtin' | 'external' | 'skill'
     layerIcon: string
   }>
+  /** Tab 键回调（用于切换工具面板） */
+  onTab?: () => void
 }
 
 /**
@@ -477,8 +648,10 @@ export interface UseKeyboardOptions {
   onEscape?: () => void
   /** Ctrl+C 回调 */
   onCtrlC?: () => void
-  /** Ctrl+O 回调 */
+  /** Ctrl+O 回调（切换所有工具面板） */
   onCtrlO?: () => void
+  /** Tab 键回调（切换当前工具面板） */
+  onTab?: () => void
   /** 上方向键回调 */
   onArrowUp?: () => void
   /** 下方向键回调 */
@@ -558,6 +731,77 @@ export interface CommandDefinition {
   /** 处理器 */
   handler: CommandHandler
 }
+
+// ============================================================================
+// useAppReducer 状态和 Action 类型
+// ============================================================================
+
+/**
+ * App 统一 Reducer 状态 — 将 App.tsx 的 15+ useState 合并为 4 个状态域
+ */
+export interface AppReducerState {
+  // 运行时域
+  /** 活跃视图（互斥，同一时间只有一个主要动态区域） */
+  activeView: ActiveView
+  /** 状态指示器类型 */
+  status: StatusType
+  /** 状态消息 */
+  statusMessage: string
+  /** 状态详情 */
+  statusDetail: string
+  /** 步骤计数 */
+  stepCount: number
+  /** Token 使用量 */
+  tokenUsage: { input: number; output: number } | undefined
+
+  // UI 域
+  /** 是否显示帮助 */
+  showHelp: boolean
+  /** 展开的工具面板 ID 集合 */
+  expandedTools: Set<string>
+  /** 当前选中的工具面板 ID */
+  selectedToolId: string | null
+  /** 输入历史 */
+  inputHistory: string[]
+
+  // 配置域
+  /** 当前模型 */
+  currentModel: string
+  /** 是否自动确认 */
+  autoConfirm: boolean
+
+  // 权限域
+  /** 待处理的权限请求 */
+  pendingPermission: PermissionRequest | null
+}
+
+/**
+ * App Reducer Action 类型
+ * 一个 Runner 事件对应一个 dispatch，内部批量更新所有相关状态
+ */
+export type AppAction =
+  // 运行时 actions
+  | { type: 'SET_STATUS'; status: StatusType; message: string; detail: string }
+  | { type: 'SET_ACTIVE_VIEW'; view: ActiveView }
+  | { type: 'INCREMENT_STEP' }
+  | { type: 'SET_TOKEN_USAGE'; usage: { input: number; output: number } }
+  | { type: 'RESET_RUNTIME' }
+  // UI actions
+  | { type: 'TOGGLE_HELP'; show?: boolean }
+  | { type: 'TOGGLE_TOOL'; toolId: string }
+  | { type: 'TOGGLE_ALL_TOOLS'; toolIds: string[] }
+  | { type: 'SELECT_TOOL'; toolId: string | null }
+  | { type: 'ADD_INPUT_HISTORY'; input: string }
+  // 配置 actions
+  | { type: 'SET_MODEL'; model: string }
+  | { type: 'SET_AUTO_CONFIRM'; value: boolean }
+  // 权限 actions
+  | { type: 'SET_PENDING_PERMISSION'; request: PermissionRequest | null }
+  // 批量 action — 用于 Runner 事件的原子更新
+  | { type: 'TOOL_START'; toolId: string; status: StatusType; message: string; detail: string }
+  | { type: 'TOOL_END'; status: StatusType; message: string; detail: string }
+  | { type: 'STREAM_START'; status: StatusType; message: string; detail: string }
+  | { type: 'TASK_DONE'; usage?: { input: number; output: number } }
 
 // ============================================================================
 // 工具函数类型

@@ -20,7 +20,7 @@ export type {
   TokenBudget,
   ContextSummary,
   CompressionStrategy,
-  CompressionConfig,
+  CompressionConfig as SubTaskCompressionConfig,
   // Base config
   SubTaskBaseConfig,
   // ask_llm (原 API)
@@ -54,6 +54,41 @@ export type {
 } from "./types"
 
 export { DEFAULT_TOKEN_BUDGET } from "./types"
+
+// ============================================================================
+// Events (子 Agent 事件系统)
+// ============================================================================
+
+export type {
+  SubAgentMode,
+  SubAgentEventType,
+  SubAgentStartEvent,
+  SubAgentTextEvent,
+  SubAgentToolStartEvent,
+  SubAgentToolEndEvent,
+  SubAgentStepEvent,
+  SubAgentThinkingEvent,
+  SubAgentEndEvent,
+  SubAgentChildStartEvent,
+  SubAgentChildEndEvent,
+  SubAgentConfigEvent,
+  SubAgentRetryEvent,
+  SubAgentEvent,
+  SubAgentEventListener,
+  SubAgentEmitter,
+  CreateSubAgentEmitterOptions,
+} from "./events"
+
+export {
+  generateSubAgentId,
+  createSubAgentEmitter,
+} from "./events"
+
+// Global listener
+export {
+  setGlobalSubAgentEventListener,
+  getGlobalSubAgentEventListener,
+} from "./global-listener"
 
 // ============================================================================
 // ask_llm Mode (原 API)
@@ -111,7 +146,7 @@ export {
   TokenBudgetManager,
   createTokenBudgetManager,
   // Summary
-  DEFAULT_COMPRESSION_CONFIG,
+  DEFAULT_COMPRESSION_CONFIG as SUBTASK_DEFAULT_COMPRESSION_CONFIG,
   type MessageImportance,
   evaluateMessageImportance,
   compressBySlidingWindow,
@@ -153,6 +188,43 @@ export {
 } from "./chain"
 
 // ============================================================================
+// Error Types (结构化错误定义)
+// ============================================================================
+
+export {
+  // Enum
+  SubAgentErrorType,
+  // Interfaces
+  type SubAgentErrorContext,
+  type SubAgentError,
+  // Class
+  SubAgentErrorClass,
+  // Factory functions
+  createConfigError,
+  createAgentNotFoundError,
+  createTimeoutError,
+  createAbortedError,
+  createLLMError,
+  createToolError,
+  createConcurrencyError,
+  createRetryExhaustedError,
+  // Type guards
+  isSubAgentError,
+  isSubAgentErrorClass,
+  isErrorType,
+  isRetryableErrorType,
+  isUserCancelledError,
+  isConfigRelatedError,
+  // Conversion utilities
+  fromError,
+  inferErrorType,
+  toErrorClass,
+  // Formatting
+  formatErrorMessage,
+  getErrorTypeDescription,
+} from "./errors"
+
+// ============================================================================
 // Error Handling
 // ============================================================================
 
@@ -161,9 +233,17 @@ export {
   type FallbackConfig,
   type TimeoutConfig,
   type ErrorHandlerConfig,
+  type RetryEvent,
+  type RetryAttempt,
+  type ComprehensiveErrorReport,
   DEFAULT_RETRY_CONFIG,
   isRetryableError,
+  isRetryableSubAgentError,
+  shouldRetryError,
+  convertToSubAgentError,
   calculateDelay,
+  createComprehensiveErrorReport,
+  errorReportToResult,
   runWithErrorHandler,
   withRetry,
   withFallback,
@@ -172,6 +252,89 @@ export {
   ErrorHandlerBuilder,
   errorHandler,
 } from "./error-handler"
+
+// ============================================================================
+// Configuration Management
+// ============================================================================
+
+export type {
+  RetrySettings,
+  SubAgentConfig,
+  ConfigValidationError,
+  ConfigValidationResult,
+  ConfigManager,
+} from "./config"
+
+export {
+  DEFAULT_RETRY_SETTINGS,
+  DEFAULT_CONFIG as DEFAULT_SUBAGENT_CONFIG,
+  FROZEN_DEFAULT_CONFIG as FROZEN_DEFAULT_SUBAGENT_CONFIG,
+  ENV_VAR_NAMES as SUBAGENT_ENV_VAR_NAMES,
+  CONFIG_FILE_NAME as SUBAGENT_CONFIG_FILE_NAME,
+  ConfigLoadError,
+  mergeConfig as mergeSubAgentConfig,
+  freezeConfig as freezeSubAgentConfig,
+  validateConfig as validateSubAgentConfig,
+  loadConfigFromEnv as loadSubAgentConfigFromEnv,
+  loadConfigFromFile as loadSubAgentConfigFromFile,
+  loadConfig as loadSubAgentConfig,
+  createConfigManager as createSubAgentConfigManager,
+  getConfigManager as getSubAgentConfigManager,
+  resetConfigManager as resetSubAgentConfigManager,
+} from "./config"
+
+// ============================================================================
+// Concurrency Controller (并发控制器)
+// ============================================================================
+
+export type {
+  ConcurrencyConfig,
+  TaskResult,
+  TaskStatus,
+  ConcurrencyResult,
+  ConcurrencyTaskExecutor,
+  ProgressCallback,
+  ConcurrencyProgress,
+  ConcurrencyController,
+  ConcurrencyControllerFactory,
+  ConcurrencyRunOptions,
+  // Internal types (for advanced usage)
+  QueuedTask as ConcurrencyQueuedTask,
+  QueueState as ConcurrencyQueueState,
+} from "./concurrency"
+
+export {
+  DEFAULT_CONCURRENCY_CONFIG,
+  mergeConcurrencyConfig,
+  validateConcurrencyConfig,
+  createConcurrencyController,
+} from "./concurrency"
+
+// ============================================================================
+// Agent Registry (自定义 Agent 注册表)
+// ============================================================================
+
+export type {
+  PermissionMode,
+  CustomAgentDefinition,
+  AgentFrontmatter,
+  AgentValidationResult,
+  AgentRegistry,
+  AgentRegistryConfig,
+  CreateAgentRegistry,
+} from "./agent-registry"
+
+export {
+  DEFAULT_CUSTOM_AGENTS_DIR,
+  AGENT_FILE_EXTENSION,
+  REQUIRED_FIELDS as AGENT_REQUIRED_FIELDS,
+  VALID_PERMISSION_MODES,
+  validateAgentDefinition,
+  parseAgentFile,
+  createAgentRegistry,
+  getAgentRegistry,
+  resetAgentRegistry,
+} from "./agent-registry"
 
 // ============================================================================
 // Runner (统一入口)

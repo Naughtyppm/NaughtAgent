@@ -46,10 +46,10 @@ describe("Provider", () => {
       expect(mapToKiroModel("haiku")).toBe("claude-haiku-4.5")
     })
 
-    it("should return Kiro models as-is", () => {
+    it("should return Kiro models as-is (except auto)", () => {
       expect(mapToKiroModel("claude-sonnet-4")).toBe("claude-sonnet-4")
       expect(mapToKiroModel("claude-opus-4.5")).toBe("claude-opus-4.5")
-      expect(mapToKiroModel("auto")).toBe("auto")
+      expect(mapToKiroModel("auto")).toBe("claude-sonnet-4") // auto 应该映射到 sonnet
     })
 
     it("should fuzzy match model names", () => {
@@ -73,8 +73,8 @@ describe("Provider", () => {
   })
 
   describe("KIRO_MODELS", () => {
-    it("should contain supported models", () => {
-      expect(KIRO_MODELS.has("auto")).toBe(true)
+    it("should contain supported models but not auto", () => {
+      expect(KIRO_MODELS.has("auto")).toBe(false) // auto 不应该在列表中
       expect(KIRO_MODELS.has("claude-sonnet-4")).toBe(true)
       expect(KIRO_MODELS.has("claude-opus-4.5")).toBe(true)
       expect(KIRO_MODELS.has("claude-haiku-4.5")).toBe(true)
