@@ -2,17 +2,17 @@
 
 ## 总览对比表
 
-| 维度 | NaughtyAgent | Claude Code | Kiro | Cursor | OpenCode |
-|------|-------------|-------------|------|--------|----------|
-| 架构 | 分离式 | 单体+扩展 | IDE fork | IDE fork | 单体 CLI |
-| 语言 | TypeScript | TS/Rust | TypeScript | TS/Rust | TypeScript |
-| LLM | 多模型 | Claude 专属 | 多模型 | 多模型 | 多模型 |
-| CLI | ✅ Ink TUI | ✅ 原生 | ❌ | ❌ | ✅ Ink TUI |
-| IDE | ⚠️ 基础 | ✅ 完整 | ✅ 完整 | ✅ 完整 | ❌ |
-| MCP | ✅ 完整 | ✅ 完整 | ✅ 完整 | ✅ 完整 | ✅ 完整 |
-| 子代理 | ✅ 6 种 | ✅ 基础 | ✅ 基础 | ❌ | ❌ |
-| 沙箱 | ❌ | ✅ Docker | ✅ macOS | ✅ | ❌ |
-| 开源 | ✅ | ❌ | ❌ | ❌ | ✅ |
+| 维度 | NaughtyAgent | Claude Code | Kiro | Cursor |
+|------|-------------|-------------|------|--------|
+| 架构 | Chat Participant | 单体+扩展 | IDE fork | IDE fork |
+| 语言 | TypeScript | TS/Rust | TypeScript | TS/Rust |
+| LLM | 多模型 | Claude 专属 | 多模型 | 多模型 |
+| CLI | ✅ Ink TUI | ✅ 原生 | ❌ | ❌ |
+| IDE | ✅ VS Code Chat | ✅ 完整 | ✅ 完整 | ✅ 完整 |
+| MCP | ✅ 完整 | ✅ 完整 | ✅ 完整 | ✅ 完整 |
+| 子代理 | ✅ 6 种 | ✅ 基础 | ✅ 基础 | ❌ |
+| 沙箱 | ❌ | ✅ Docker | ✅ macOS | ✅ |
+| 开源 | ✅ | ❌ | ❌ | ❌ |
 
 ## 核心能力对比
 
@@ -96,6 +96,5 @@
 | Claude Code | Claude 专属，Extended Thinking，Docker 沙箱 | ❌ |
 | Kiro | VS Code fork，Spec 驱动，Hooks 系统 | ❌ |
 | Cursor | VS Code fork，Tab 补全，多模型 | ❌ |
-| OpenCode | 轻量 CLI，Ink TUI，主题系统 | ✅ |
 | Aider | Python，Git 深度集成，repo map | ✅ |
 | Cline | VS Code 扩展，浏览器自动化 | ✅ |

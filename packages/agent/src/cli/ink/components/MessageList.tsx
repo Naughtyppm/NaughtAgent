@@ -4,7 +4,6 @@
  * 渲染消息列表，采用 "Turn 模式" 防止闪烁：
  * - 历史 turn 压缩为单行摘要（极低渲染开销）
  * - 只有当前活跃 turn 完整渲染
- * - 参考 opencode 的 SessionTurn + backfill 策略
  *
  * 需求: 5.4
  */

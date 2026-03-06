@@ -27,6 +27,5 @@ Thumbs.db
 # 测试覆盖率
 coverage/
 
-# 参考项目（不上传）
-opencode/
+# 临时文件
 nul  

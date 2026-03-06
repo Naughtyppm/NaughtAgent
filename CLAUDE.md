@@ -45,7 +45,7 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，基于 VS Code 插
 
 ### SDD 规格驱动
 
-本项目采用 SDD 方式开发，复刻 OpenCode 来学习 Agent 工作原理。
+本项目采用 SDD 方式开发，仿照 VS Code Copilot Chat 模式构建 AI 编程助手。
 
 **核心文件：**
 - **进度跟踪**: [.spec/sdd/progress.md](.spec/sdd/progress.md) - 做了什么、还差什么
@@ -98,5 +98,4 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，基于 VS Code 插
 ## 参考资料
 
 - [需求.md](需求.md) - GPT 的路线建议（仅参考）
-- [docs/opencode-architecture.md](docs/opencode-architecture.md) - OpenCode 架构调研
 - [docs/zed-ai-philosophy.md](docs/zed-ai-philosophy.md) - Zed AI 设计理念

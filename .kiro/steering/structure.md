@@ -33,8 +33,6 @@ naughtyagent/
 ├── .kiro/
 │   ├── specs/              # 功能规格文档
 │   └── steering/           # AI 引导规则
-│
-└── opencode/               # 参考实现（OpenCode 项目）
 ```
 
 ## 模块约定
