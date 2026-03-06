@@ -19,6 +19,11 @@ export interface ReplConfig {
   agent: "build" | "plan" | "explore"
   model?: string
   autoConfirm: boolean
+  /** Extended Thinking 配置 */
+  thinking?: {
+    enabled: boolean
+    budgetTokens?: number
+  }
 }
 
 /**

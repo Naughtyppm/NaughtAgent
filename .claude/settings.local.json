@@ -51,7 +51,8 @@
       "Bash(done)",
       "WebFetch(domain:prompts.chat)",
       "Bash(npm:*)",
-      "Bash(wc -l \"D:\\\\WorkSpace\\\\AI\\\\NaughtAgent\\\\packages\\\\agent\\\\src\"/**/*.ts)"
+      "Bash(wc -l \"D:\\\\WorkSpace\\\\AI\\\\NaughtAgent\\\\packages\\\\agent\\\\src\"/**/*.ts)",
+      "Bash(echo $CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS)"
     ]
   }
 }

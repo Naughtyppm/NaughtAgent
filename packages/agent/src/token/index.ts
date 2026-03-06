@@ -2,6 +2,55 @@
  * Token 模块导出
  */
 
+// ============================================================================
+// 新增：精确 Token 计数
+// ============================================================================
+
+// 类型定义
+export {
+  type TokenizerType,
+  type ModelType,
+  type FallbackStrategy,
+  type TokenizerConfig,
+  type CacheStats,
+  type Tokenizer,
+  type TokenizerProvider,
+  type TokenizerFactory,
+} from "./types"
+
+// 错误类型
+export {
+  TokenizerLoadError,
+  InvalidTokenError,
+  TextTooLongError,
+} from "./errors"
+
+// Tokenizer 实现
+export { EstimateTokenizer, createEstimateTokenizer } from "./estimate-tokenizer"
+export {
+  ClaudeTokenizer,
+  createClaudeTokenizer,
+  createClaudeTokenizerSync,
+  preloadClaudeTokenizer,
+} from "./claude-tokenizer"
+export {
+  GPTTokenizer,
+  createGPTTokenizer,
+  createGPTTokenizerSync,
+  preloadGPTTokenizer,
+} from "./gpt-tokenizer"
+
+// 工厂和 Provider
+export { getTokenizerFactory, createTokenizer } from "./tokenizer-factory"
+export {
+  getTokenizerProvider,
+  createTokenizerProvider,
+} from "./tokenizer-provider"
+
+// ============================================================================
+// 原有导出（保持向后兼容）
+// ============================================================================
+
 export {
   // Types
   type TokenCount,
@@ -23,6 +72,7 @@ export {
   truncateDropOld,
   truncateSlidingWindow,
   truncateMessages,
+  truncateToTokens,
   createTokenManager,
 } from "./token"
 

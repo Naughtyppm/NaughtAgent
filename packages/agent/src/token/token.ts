@@ -2,13 +2,20 @@
  * Token 管理系统
  *
  * 负责：
- * - 估算 Token 数量
+ * - 精确/估算 Token 数量
  * - 截断过长的上下文
  * - 压缩会话历史
+ *
+ * 支持三种 Tokenizer：
+ * - Claude: 使用 @anthropic-ai/tokenizer（精确）
+ * - GPT: 使用 tiktoken（精确）
+ * - Estimate: 字符估算（回退方案）
  */
 
 import type { Message } from "../session/message"
 import { getMessageText, getToolCalls } from "../session/message"
+import type { ModelType, Tokenizer } from "./types"
+import { getTokenizerProvider } from "./tokenizer-provider"
 
 // ============================================================================
 // Types
@@ -91,69 +98,50 @@ const SAFETY_BUFFER = 0.9
 // ============================================================================
 
 /**
+ * 获取当前使用的 Tokenizer
+ *
+ * @param modelType - 模型类型（可选）
+ * @returns Tokenizer 实例
+ */
+function getTokenizer(modelType?: ModelType): Tokenizer {
+  return getTokenizerProvider().getTokenizer(modelType)
+}
+
+/**
  * 估算文本的 Token 数
  *
- * 规则：
- * - 英文单词：约 1 token
- * - 中文字符：约 0.7 token（1.5 字符 = 1 token）
- * - 数字/符号：约 0.3 token
- * - 空白：约 0.25 token
+ * 优先使用精确 Tokenizer（Claude/GPT），回退到字符估算。
  *
- * 这是估算，实际 Token 数可能有 10-20% 偏差
+ * @param text - 要计算的文本
+ * @param modelType - 模型类型（可选，用于选择合适的 Tokenizer）
+ * @returns Token 数量
  */
-export function estimateTokens(text: string): number {
+export function estimateTokens(text: string, modelType?: ModelType): number {
   if (!text) return 0
-
-  let tokens = 0
-
-  // 统计不同类型字符
-  let englishChars = 0
-  let chineseChars = 0
-  let otherChars = 0
-
-  for (const char of text) {
-    const code = char.charCodeAt(0)
-
-    if (code >= 0x4e00 && code <= 0x9fff) {
-      // 中文字符
-      chineseChars++
-    } else if (
-      (code >= 0x41 && code <= 0x5a) || // A-Z
-      (code >= 0x61 && code <= 0x7a)    // a-z
-    ) {
-      englishChars++
-    } else {
-      otherChars++
-    }
-  }
-
-  // 估算
-  // 英文：约 4 字符 = 1 token
-  tokens += englishChars / 4
-  // 中文：约 1.5 字符 = 1 token
-  tokens += chineseChars / 1.5
-  // 其他：约 3 字符 = 1 token
-  tokens += otherChars / 3
-
-  return Math.ceil(tokens)
+  return getTokenizer(modelType).countTokens(text)
 }
 
 /**
  * 计算单条消息的 Token 数
+ *
+ * @param message - 消息对象
+ * @param modelType - 模型类型（可选）
+ * @returns Token 数量
  */
-export function countMessageTokens(message: Message): number {
+export function countMessageTokens(message: Message, modelType?: ModelType): number {
+  const tokenizer = getTokenizer(modelType)
   let tokens = MESSAGE_OVERHEAD
 
   // 计算文本内容
   const text = getMessageText(message)
-  tokens += estimateTokens(text)
+  tokens += tokenizer.countTokens(text)
 
   // 计算工具调用
   if (message.role === "assistant") {
     const toolCalls = getToolCalls(message)
     for (const toolCall of toolCalls) {
-      tokens += estimateTokens(toolCall.name)
-      tokens += estimateTokens(JSON.stringify(toolCall.input))
+      tokens += tokenizer.countTokens(toolCall.name)
+      tokens += tokenizer.countTokens(JSON.stringify(toolCall.input))
       tokens += 10 // 工具调用结构开销
     }
   }
@@ -163,12 +151,12 @@ export function countMessageTokens(message: Message): number {
     if (block.type === "tool_result") {
       // content 可能是 string 或 ContentBlock[]
       if (typeof block.content === "string") {
-        tokens += estimateTokens(block.content)
+        tokens += tokenizer.countTokens(block.content)
       } else {
         // 处理多模态内容
         for (const contentBlock of block.content) {
           if (contentBlock.type === "text") {
-            tokens += estimateTokens(contentBlock.text)
+            tokens += tokenizer.countTokens(contentBlock.text)
           } else if (contentBlock.type === "image") {
             tokens += 1000 // 图片估算固定 token
           } else if (contentBlock.type === "audio") {
@@ -185,20 +173,29 @@ export function countMessageTokens(message: Message): number {
 
 /**
  * 计算消息列表的 Token 数
+ *
+ * @param messages - 消息数组
+ * @param modelType - 模型类型（可选）
+ * @returns Token 数量
  */
-export function countMessagesTokens(messages: Message[]): number {
-  return messages.reduce((sum, msg) => sum + countMessageTokens(msg), 0)
+export function countMessagesTokens(messages: Message[], modelType?: ModelType): number {
+  return messages.reduce((sum, msg) => sum + countMessageTokens(msg, modelType), 0)
 }
 
 /**
  * 计算工具定义的 Token 数
+ *
+ * @param tools - 工具定义数组
+ * @param modelType - 模型类型（可选）
+ * @returns Token 数量
  */
-export function countToolsTokens(tools: ToolDefinition[]): number {
+export function countToolsTokens(tools: ToolDefinition[], modelType?: ModelType): number {
+  const tokenizer = getTokenizer(modelType)
   let tokens = 0
   for (const tool of tools) {
-    tokens += estimateTokens(tool.name)
-    tokens += estimateTokens(tool.description)
-    tokens += estimateTokens(JSON.stringify(tool.parameters))
+    tokens += tokenizer.countTokens(tool.name)
+    tokens += tokenizer.countTokens(tool.description)
+    tokens += tokenizer.countTokens(JSON.stringify(tool.parameters))
     tokens += 20 // 工具结构开销
   }
   return tokens
@@ -206,15 +203,23 @@ export function countToolsTokens(tools: ToolDefinition[]): number {
 
 /**
  * 计算完整上下文的 Token 数
+ *
+ * @param context - 上下文对象
+ * @param modelType - 模型类型（可选）
+ * @returns Token 计数详情
  */
-export function countContextTokens(context: {
-  system?: string
-  messages: Message[]
-  tools?: ToolDefinition[]
-}): TokenCount {
-  const system = context.system ? estimateTokens(context.system) : 0
-  const messages = countMessagesTokens(context.messages)
-  const tools = context.tools ? countToolsTokens(context.tools) : 0
+export function countContextTokens(
+  context: {
+    system?: string
+    messages: Message[]
+    tools?: ToolDefinition[]
+  },
+  modelType?: ModelType
+): TokenCount {
+  const tokenizer = getTokenizer(modelType)
+  const system = context.system ? tokenizer.countTokens(context.system) : 0
+  const messages = countMessagesTokens(context.messages, modelType)
+  const tools = context.tools ? countToolsTokens(context.tools, modelType) : 0
 
   return {
     total: system + messages + tools,
@@ -255,17 +260,23 @@ export function getAvailableTokens(
  * 截断消息（drop_old 策略）
  *
  * 从最旧的消息开始删除，直到 Token 数在限制内
+ *
+ * @param messages - 消息数组
+ * @param targetTokens - 目标 Token 数
+ * @param modelType - 模型类型（可选）
+ * @returns 截断结果
  */
 export function truncateDropOld(
   messages: Message[],
-  targetTokens: number
+  targetTokens: number,
+  modelType?: ModelType
 ): TruncateResult {
   const result: Message[] = []
   let tokens = 0
 
   // 从最新开始保留
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msgTokens = countMessageTokens(messages[i])
+    const msgTokens = countMessageTokens(messages[i], modelType)
     if (tokens + msgTokens > targetTokens) break
     result.unshift(messages[i])
     tokens += msgTokens
@@ -282,13 +293,19 @@ export function truncateDropOld(
  * 截断消息（sliding_window 策略）
  *
  * 保留最近 N 条消息
+ *
+ * @param messages - 消息数组
+ * @param keepCount - 保留消息数
+ * @param modelType - 模型类型（可选）
+ * @returns 截断结果
  */
 export function truncateSlidingWindow(
   messages: Message[],
-  keepCount: number
+  keepCount: number,
+  modelType?: ModelType
 ): TruncateResult {
   const result = messages.slice(-keepCount)
-  const tokens = countMessagesTokens(result)
+  const tokens = countMessagesTokens(result, modelType)
 
   return {
     messages: result,
@@ -298,7 +315,28 @@ export function truncateSlidingWindow(
 }
 
 /**
+ * 截断文本到指定 Token 数
+ *
+ * @param text - 要截断的文本
+ * @param maxTokens - 最大 Token 数
+ * @param modelType - 模型类型（可选）
+ * @returns 截断后的文本
+ */
+export function truncateToTokens(
+  text: string,
+  maxTokens: number,
+  modelType?: ModelType
+): string {
+  if (!text) return ""
+  return getTokenizer(modelType).truncateToTokens(text, maxTokens)
+}
+
+/**
  * 截断消息
+ *
+ * @param messages - 消息数组
+ * @param options - 截断选项
+ * @returns 截断结果
  */
 export function truncateMessages(
   messages: Message[],
@@ -306,20 +344,22 @@ export function truncateMessages(
     strategy?: TruncateStrategy
     targetTokens?: number
     keepCount?: number
+    modelType?: ModelType
   } = {}
 ): TruncateResult {
   const {
     strategy = "drop_old",
     targetTokens = getAvailableTokens(),
     keepCount = DEFAULT_TOKEN_LIMITS.keepRecentMessages,
+    modelType,
   } = options
 
   switch (strategy) {
     case "sliding_window":
-      return truncateSlidingWindow(messages, keepCount)
+      return truncateSlidingWindow(messages, keepCount, modelType)
     case "drop_old":
     default:
-      return truncateDropOld(messages, targetTokens)
+      return truncateDropOld(messages, targetTokens, modelType)
   }
 }
 
@@ -333,6 +373,9 @@ export function truncateMessages(
 export interface TokenManager {
   /** 配置的限制 */
   limits: TokenLimits
+
+  /** 当前使用的模型类型 */
+  modelType?: ModelType
 
   /** 估算文本 Token 数 */
   estimate(text: string): number
@@ -353,6 +396,9 @@ export interface TokenManager {
   /** 获取可用 Token 数 */
   getAvailable(): number
 
+  /** 截断文本到指定 Token 数 */
+  truncateText(text: string, maxTokens: number): string
+
   /** 截断消息 */
   truncate(
     messages: Message[],
@@ -362,32 +408,43 @@ export interface TokenManager {
       keepCount?: number
     }
   ): TruncateResult
+
+  /** 设置模型类型 */
+  setModelType(modelType: ModelType): void
 }
 
 /**
  * 创建 Token 管理器
+ *
+ * @param limits - Token 限制配置
+ * @param modelType - 模型类型（可选）
+ * @returns TokenManager 实例
  */
 export function createTokenManager(
-  limits: Partial<TokenLimits> = {}
+  limits: Partial<TokenLimits> = {},
+  modelType?: ModelType
 ): TokenManager {
   const config: TokenLimits = {
     ...DEFAULT_TOKEN_LIMITS,
     ...limits,
   }
 
+  let currentModelType = modelType
+
   return {
     limits: config,
+    modelType: currentModelType,
 
     estimate(text: string): number {
-      return estimateTokens(text)
+      return estimateTokens(text, currentModelType)
     },
 
     countMessages(messages: Message[]): number {
-      return countMessagesTokens(messages)
+      return countMessagesTokens(messages, currentModelType)
     },
 
     countContext(context): TokenCount {
-      return countContextTokens(context)
+      return countContextTokens(context, currentModelType)
     },
 
     needsTruncation(tokenCount: TokenCount): boolean {
@@ -398,12 +455,21 @@ export function createTokenManager(
       return getAvailableTokens(config)
     },
 
+    truncateText(text: string, maxTokens: number): string {
+      return truncateToTokens(text, maxTokens, currentModelType)
+    },
+
     truncate(messages, options = {}): TruncateResult {
       return truncateMessages(messages, {
         ...options,
         targetTokens: options.targetTokens ?? this.getAvailable(),
         keepCount: options.keepCount ?? config.keepRecentMessages,
+        modelType: currentModelType,
       })
+    },
+
+    setModelType(modelType: ModelType): void {
+      currentModelType = modelType
     },
   }
 }

@@ -478,6 +478,14 @@ export function createAgentLoop(config: AgentLoopConfig) {
           }
           
           switch (event.type) {
+            case 'thinking':
+              // Extended Thinking 内容流式输出
+              yield { type: "thinking", content: event.text }
+              break
+            case 'thinking_end':
+              // Extended Thinking 结束
+              yield { type: "thinking_end" }
+              break
             case 'text':
               responseText += event.text
               // 实时输出文本

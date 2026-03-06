@@ -38,6 +38,7 @@ import { StatusIndicator } from './components/StatusIndicator.js'
 import { PermissionDialog } from './components/PermissionDialog.js'
 import { InputArea } from './components/InputArea.js'
 import { HelpView } from './components/HelpView.js'
+import { ThinkingPanel } from './components/ThinkingPanel.js'
 // SubAgentPanel 已统一在 ToolPanel 内嵌显示，App.tsx 不再直接使用
 // 统一命令系统
 import {
@@ -93,6 +94,10 @@ export function App({ config }: AppProps): React.ReactElement {
   )
   const [currentAgent] = useState<AgentType>(config.agent)
   const [commandsLoaded, setCommandsLoaded] = useState(0)
+
+  // ========== Extended Thinking 状态 ==========
+  const [thinkingContent, setThinkingContent] = useState('')
+  const [isThinking, setIsThinking] = useState(false)
 
   // ========== 消息管理（保持独立，因为流式更新有自己的节流逻辑） ==========
   const {
@@ -267,11 +272,34 @@ export function App({ config }: AppProps): React.ReactElement {
           break
         }
 
+        case 'thinking': {
+          // Extended Thinking 内容流式输出
+          const { content } = event.data as { content: string }
+          if (!isThinking) {
+            setIsThinking(true)
+            setThinkingContent(content)
+          } else {
+            setThinkingContent(prev => prev + content)
+          }
+          break
+        }
+
+        case 'thinking_end': {
+          // Extended Thinking 结束
+          setIsThinking(false)
+          break
+        }
+
         case 'done': {
           const { usage } = event.data as { usage?: { inputTokens: number; outputTokens: number } }
           if (currentAIMessageIdRef.current) {
             finishAIMessage(currentAIMessageIdRef.current)
             currentAIMessageIdRef.current = null
+          }
+          // 显示 token 消耗信息
+          if (usage) {
+            const formatTokens = (n: number) => n < 1000 ? String(n) : n < 10000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n / 1000)}k`
+            addSystemMessage('info', `📊 Token: ${formatTokens(usage.inputTokens)}↓ ${formatTokens(usage.outputTokens)}↑ (总计 ${formatTokens(usage.inputTokens + usage.outputTokens)})`)
           }
           // 批量更新：activeView + status + stepCount + tokenUsage 一次 dispatch
           dispatch({
@@ -280,6 +308,9 @@ export function App({ config }: AppProps): React.ReactElement {
           })
           toolIdMapRef.current.clear()
           clearSubAgents()
+          // 重置 thinking 状态
+          setThinkingContent('')
+          setIsThinking(false)
           break
         }
 
@@ -520,6 +551,15 @@ export function App({ config }: AppProps): React.ReactElement {
             })),
             [commandsLoaded]
           )}
+        />
+      )}
+
+      {/* Extended Thinking 面板 */}
+      {(isThinking || thinkingContent) && (
+        <ThinkingPanel
+          content={thinkingContent}
+          isThinking={isThinking}
+          defaultExpanded={false}
         />
       )}
 

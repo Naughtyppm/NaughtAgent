@@ -64,6 +64,11 @@ export interface RunnerConfig {
   autoConfirmRef?: { value: boolean }
   /** 已有的会话（用于保持对话历史） */
   existingSession?: Session | null
+  /** Extended Thinking 配置 */
+  thinking?: {
+    enabled: boolean
+    budgetTokens?: number
+  }
 }
 
 /**
@@ -79,6 +84,8 @@ export interface RunOptions {
  */
 export interface RunnerEventHandlers {
   onText?: (content: string) => void
+  onThinking?: (content: string) => void
+  onThinkingEnd?: () => void
   onToolStart?: (id: string, name: string, input: unknown) => void
   onToolEnd?: (id: string, output: string, isError?: boolean) => void
   onError?: (error: Error) => void
@@ -216,6 +223,19 @@ export function createRunner(config: RunnerConfig) {
     }
   }
 
+  // 如果启用了 Extended Thinking，添加到模型配置
+  if (config.thinking?.enabled) {
+    definition.model = {
+      ...definition.model,
+      provider: definition.model?.provider || "auto",
+      model: definition.model?.model || model || "claude-opus-4-20250514",
+      thinking: {
+        enabled: true,
+        budgetTokens: config.thinking.budgetTokens || 16000,
+      },
+    }
+  }
+
   // 创建权限集合
   const basePermissions = createDefaultPermissions(agentType)
   const permissions: PermissionSet = customPermissions
@@ -341,6 +361,14 @@ async function handleEvent(
   switch (event.type) {
     case "text":
       handlers.onText?.(event.content)
+      break
+
+    case "thinking":
+      handlers.onThinking?.(event.content)
+      break
+
+    case "thinking_end":
+      handlers.onThinkingEnd?.()
       break
 
     case "tool_start":

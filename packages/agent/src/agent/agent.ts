@@ -27,6 +27,8 @@ export type AgentMode = "primary" | "subagent"
  */
 export type AgentEvent =
   | { type: "text"; content: string }
+  | { type: "thinking"; content: string }
+  | { type: "thinking_end" }
   | { type: "tool_start"; id: string; name: string; input: unknown }
   | { type: "tool_end"; id: string; result: Tool.Result; isError?: boolean }
   | { type: "error"; error: Error }

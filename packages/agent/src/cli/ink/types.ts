@@ -323,6 +323,13 @@ export interface ReplConfig {
   model?: string
   /** 是否自动确认 */
   autoConfirm: boolean
+  /** Extended Thinking 配置 */
+  thinking?: {
+    /** 是否启用 */
+    enabled: boolean
+    /** 预算 token 数 */
+    budgetTokens?: number
+  }
 }
 
 /**
@@ -616,7 +623,7 @@ export interface UseRunnerOptions {
 /**
  * Runner 事件类型
  */
-export type RunnerEventType = 'text' | 'tool_start' | 'tool_end' | 'error' | 'done' | 'permission_request'
+export type RunnerEventType = 'text' | 'thinking' | 'thinking_end' | 'tool_start' | 'tool_end' | 'error' | 'done' | 'permission_request'
 
 /**
  * Runner 事件

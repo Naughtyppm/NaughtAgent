@@ -61,6 +61,7 @@ export async function startInkRepl(config: ReplConfig): Promise<void> {
       agent: config.agent,
       model: config.model,
       autoConfirm: config.autoConfirm,
+      thinking: config.thinking,
     }
 
     // 启动 Ink REPL

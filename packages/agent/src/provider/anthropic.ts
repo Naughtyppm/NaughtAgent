@@ -178,46 +178,78 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
     type: "anthropic",
 
     async *stream(params: ChatParams): AsyncGenerator<StreamEvent> {
+      const thinkingEnabled = params.model.thinking?.enabled
+      const thinkingBudget = params.model.thinking?.budgetTokens || 16000
+
       logger.debug('开始流式调用', {
         model: params.model.model,
         messageCount: params.messages.length,
         hasTools: !!params.tools,
-        toolCount: params.tools?.length || 0
+        toolCount: params.tools?.length || 0,
+        thinkingEnabled,
+        thinkingBudget: thinkingEnabled ? thinkingBudget : undefined,
       })
 
       try {
+        // 构建请求参数
+        const requestParams: Anthropic.MessageStreamParams = {
+          model: mapToAnthropicModel(params.model.model),
+          max_tokens: params.model.maxTokens || 8192,
+          system: params.system,
+          messages: convertMessages(params.messages),
+          tools: convertTools(params.tools),
+        }
+
+        // Extended Thinking 配置
+        if (thinkingEnabled) {
+          // 启用 thinking 时，temperature 必须为 1，不能设置其他值
+          requestParams.thinking = {
+            type: 'enabled',
+            budget_tokens: thinkingBudget,
+          }
+          // 注意：启用 thinking 时不能设置 temperature
+        } else {
+          // 普通模式可以设置 temperature
+          requestParams.temperature = params.model.temperature
+        }
+
         const stream = await withRetry(async () => {
-          return client.messages.stream(
-            {
-              model: mapToAnthropicModel(params.model.model),
-              max_tokens: params.model.maxTokens || 8192,
-              system: params.system,
-              messages: convertMessages(params.messages),
-              tools: convertTools(params.tools),
-              temperature: params.model.temperature,
-            },
-            {
-              signal: params.abortSignal,
-            }
-          )
+          return client.messages.stream(requestParams, {
+            signal: params.abortSignal,
+          })
         })
 
         let textChunks = 0
         let toolCalls = 0
+        let isInThinking = false
 
         for await (const event of stream) {
-          if (event.type === "content_block_delta") {
+          if (event.type === "content_block_start") {
+            const block = event.content_block
+            if (block.type === "thinking") {
+              // Thinking 块开始
+              isInThinking = true
+              logger.debug('Thinking 开始')
+            } else if (block.type === "tool_use") {
+              // Tool use 开始，但我们等待完整的消息
+            }
+          } else if (event.type === "content_block_delta") {
             const delta = event.delta
-            if (delta.type === "text_delta") {
+            if (delta.type === "thinking_delta") {
+              // Thinking 内容流式输出
+              yield { type: "thinking", text: (delta as Anthropic.ThinkingDelta).thinking }
+            } else if (delta.type === "text_delta") {
               textChunks++
               yield { type: "text", text: delta.text }
             } else if (delta.type === "input_json_delta") {
               // Tool input streaming - 暂时忽略，等待完整的 tool_use
             }
-          } else if (event.type === "content_block_start") {
-            const block = event.content_block
-            if (block.type === "tool_use") {
-              // Tool use 开始，但我们等待完整的消息
+          } else if (event.type === "content_block_stop") {
+            if (isInThinking) {
+              // Thinking 块结束
+              isInThinking = false
+              yield { type: "thinking_end" }
+              logger.debug('Thinking 结束')
             }
           } else if (event.type === "message_stop") {
             // 消息结束
@@ -266,30 +298,45 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
     },
 
     async chat(params: ChatParams): Promise<ChatResult> {
+      const thinkingEnabled = params.model.thinking?.enabled
+      const thinkingBudget = params.model.thinking?.budgetTokens || 16000
+
       logger.debug('开始非流式调用', {
         model: params.model.model,
         messageCount: params.messages.length,
         hasTools: !!params.tools,
-        toolCount: params.tools?.length || 0
+        toolCount: params.tools?.length || 0,
+        thinkingEnabled,
+        thinkingBudget: thinkingEnabled ? thinkingBudget : undefined,
       })
 
       try {
         const convertedMessages = convertMessages(params.messages)
         const convertedTools = convertTools(params.tools)
 
-        const response = await client.messages.create(
-          {
-            model: mapToAnthropicModel(params.model.model),
-            max_tokens: params.model.maxTokens || 8192,
-            system: params.system,
-            messages: convertedMessages,
-            tools: convertedTools,
-            temperature: params.model.temperature,
-          },
-          {
-            signal: params.abortSignal,
+        // 构建请求参数
+        const requestParams: Anthropic.MessageCreateParams = {
+          model: mapToAnthropicModel(params.model.model),
+          max_tokens: params.model.maxTokens || 8192,
+          system: params.system,
+          messages: convertedMessages,
+          tools: convertedTools,
+        }
+
+        // Extended Thinking 配置
+        if (thinkingEnabled) {
+          requestParams.thinking = {
+            type: 'enabled',
+            budget_tokens: thinkingBudget,
           }
-        )
+          // 注意：启用 thinking 时不能设置 temperature
+        } else {
+          requestParams.temperature = params.model.temperature
+        }
+
+        const response = await client.messages.create(requestParams, {
+          signal: params.abortSignal,
+        })
 
         // 提取文本和工具调用
         let text = ""

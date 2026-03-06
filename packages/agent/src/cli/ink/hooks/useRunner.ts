@@ -63,6 +63,8 @@ export function useRunner(options: UseRunnerOptions): UseRunnerReturn & { resetR
         autoConfirmRef: autoConfirmRef.current,
         // 传入已有的 session（如果有）
         existingSession: sessionRef.current,
+        // Extended Thinking 配置
+        thinking: currentConfig.thinking,
         onConfirm: async (request) => {
           // 转换权限请求格式
           const inkRequest: PermissionRequest = {
@@ -126,6 +128,12 @@ export function useRunner(options: UseRunnerOptions): UseRunnerReturn & { resetR
       const handlers: RunnerEventHandlers = {
         onText: (content) => {
           addEvent({ type: 'text', data: { content } })
+        },
+        onThinking: (content) => {
+          addEvent({ type: 'thinking', data: { content } })
+        },
+        onThinkingEnd: () => {
+          addEvent({ type: 'thinking_end', data: {} })
         },
         onToolStart: (id, name, toolInput) => {
           addEvent({

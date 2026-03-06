@@ -12,6 +12,20 @@ import type { z } from "zod"
 export type ProviderType = "anthropic" | "kiro" | "openai" | "auto"
 
 /**
+ * Extended Thinking 配置
+ */
+export interface ThinkingConfig {
+  /**
+   * 是否启用 Extended Thinking
+   */
+  enabled: boolean
+  /**
+   * Thinking 预算 token 数（默认 16000，最大 32000）
+   */
+  budgetTokens?: number
+}
+
+/**
  * 模型配置
  */
 export interface ModelConfig {
@@ -19,6 +33,10 @@ export interface ModelConfig {
   model: string
   temperature?: number
   maxTokens?: number
+  /**
+   * Extended Thinking 配置（仅 Anthropic 支持）
+   */
+  thinking?: ThinkingConfig
 }
 
 /**
@@ -34,6 +52,8 @@ export interface TokenUsage {
  */
 export type StreamEvent =
   | { type: "text"; text: string }
+  | { type: "thinking"; text: string }
+  | { type: "thinking_end" }
   | { type: "tool_call"; id: string; name: string; args: unknown }
   | { type: "message_end"; usage: TokenUsage }
   | { type: "error"; error: Error }

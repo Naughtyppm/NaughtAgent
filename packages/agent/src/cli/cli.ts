@@ -86,6 +86,8 @@ interface CLIArgs {
   sessionId?: string
   standalone: boolean  // 独立模式，不使用 daemon
   debug: boolean       // 调试模式，显示详细日志
+  thinking: boolean    // Extended Thinking 模式
+  thinkingBudget: number  // Thinking 预算 token 数
 }
 
 /**
@@ -104,6 +106,8 @@ function parseArgs(args: string[]): CLIArgs {
     version: false,
     standalone: false,
     debug: false,
+    thinking: false,
+    thinkingBudget: 16000,
   }
 
   const messageArgs: string[] = []
@@ -132,6 +136,13 @@ function parseArgs(args: string[]): CLIArgs {
       result.standalone = true
     } else if (arg === "--debug") {
       result.debug = true
+    } else if (arg === "--thinking" || arg === "-t") {
+      result.thinking = true
+    } else if (arg === "--thinking-budget") {
+      const budget = parseInt(args[++i], 10)
+      if (budget >= 1024) {
+        result.thinkingBudget = budget
+      }
     } else if (arg === "daemon") {
       result.command = "daemon"
       const sub = args[++i]
@@ -210,6 +221,8 @@ function printHelp(): void {
   -d, --cwd        工作目录，默认当前目录
   -y, --yes        自动确认所有操作
   -s, --standalone 独立模式，不使用 daemon（直接运行）
+  -t, --thinking   启用 Extended Thinking（深度思考模式）
+  --thinking-budget  Thinking 预算 token 数（默认 16000，最小 1024）
   --debug          调试模式，显示详细日志
 
 可用模型:
@@ -433,6 +446,10 @@ async function handleChat(args: CLIArgs): Promise<void> {
       agent: args.agent,
       model: args.model,
       autoConfirm: args.autoConfirm,
+      thinking: args.thinking ? {
+        enabled: true,
+        budgetTokens: args.thinkingBudget,
+      } : undefined,
     })
     return
   }
