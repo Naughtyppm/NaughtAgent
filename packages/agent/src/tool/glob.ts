@@ -2,6 +2,8 @@ import fg from "fast-glob"
 import * as path from "path"
 import { z } from "zod"
 import { Tool } from "./tool"
+import { resolvePath } from "./safe-path"
+import { GLOB_MAX_RESULTS } from "../config"
 
 const DESCRIPTION = `Fast file pattern matching tool.
 
@@ -10,7 +12,7 @@ Usage:
 - Returns matching file paths sorted by modification time
 - Use this tool when you need to find files by name patterns`
 
-const MAX_RESULTS = 500
+const MAX_RESULTS = GLOB_MAX_RESULTS
 
 export const GlobTool = Tool.define({
   id: "glob",
@@ -23,9 +25,8 @@ export const GlobTool = Tool.define({
   async execute(params, ctx) {
     let searchPath = params.path
 
-    // 处理相对路径
-    if (searchPath && !path.isAbsolute(searchPath)) {
-      searchPath = path.resolve(ctx.cwd, searchPath)
+    if (searchPath) {
+      searchPath = resolvePath(searchPath, ctx.cwd)
     }
     const cwd = searchPath || ctx.cwd
 

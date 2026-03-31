@@ -23,6 +23,7 @@ export const TOOL_TIMEOUTS: Record<string, number> = {
   ask_llm: 60_000,        // 60 秒
   run_agent: 180_000,     // 3 分钟
   fork_agent: 180_000,    // 3 分钟
+  dispatch_agent: 300_000, // 5 分钟（内部调度多个子 agent）
   parallel_agents: 300_000, // 5 分钟
   multi_agent: 300_000,   // 5 分钟
   run_workflow: 300_000,  // 5 分钟
@@ -97,6 +98,12 @@ export namespace Tool {
     cwd: string
     /** 取消信号 */
     abort: AbortSignal
+    /** 子代理嵌套深度（0 = 顶层，每层 +1） */
+    depth?: number
+    /** 共享上下文 ID（融合代理模式） */
+    sharedContextId?: string
+    /** 扩展元数据（工具可按需使用） */
+    meta?: Record<string, unknown>
   }
 
   /**
@@ -671,6 +678,7 @@ export namespace Tool {
       sessionID: options.sessionID ?? "default",
       cwd: options.cwd ?? process.cwd(),
       abort: options.abort ?? new AbortController().signal,
+      depth: options.depth ?? 0,
     }
   }
 }

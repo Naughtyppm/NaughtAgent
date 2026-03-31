@@ -45,14 +45,16 @@ import { homedir } from "os"
 // 按优先级加载 .env 文件：
 // 1. 用户主目录 ~/.naughtyagent/.env（推荐，全局配置）
 // 2. 当前工作目录 .env（项目级配置）
+// 注意：override: true 确保 .env 的值覆盖已有环境变量
+// （VS Code 终端会注入自己的 ANTHROPIC_API_KEY/BASE_URL，必须覆盖）
 const userEnvPath = join(homedir(), ".naughtyagent", ".env")
 const cwdEnvPath = join(process.cwd(), ".env")
 
 // 静默加载，不输出 dotenv 的日志信息
 if (existsSync(userEnvPath)) {
-  config({ path: userEnvPath, debug: false })
+  config({ path: userEnvPath, debug: false, override: true })
 } else if (existsSync(cwdEnvPath)) {
-  config({ path: cwdEnvPath, debug: false })
+  config({ path: cwdEnvPath, debug: false, override: true })
 }
 
 import { createRunner, type RunnerConfig, type RunnerEventHandlers } from "./runner"
@@ -68,6 +70,7 @@ import { createDaemonClient, type DaemonClientEvents } from "./client"
 import { createDaemonSessionManager } from "../daemon"
 import type { PermissionRequest } from "../permission"
 import * as readline from "readline"
+import { DEFAULT_THINKING_BUDGET, THINKING_BUDGETS, VERSION } from "../config"
 
 /**
  * CLI 参数
@@ -98,7 +101,7 @@ function parseArgs(args: string[]): CLIArgs {
     command: "chat",
     message: "",
     agent: "build",
-    model: "claude-opus-4-20250514",  // 默认模型
+    model: "claude-sonnet-4",  // 默认模型（兼容 Copilot Proxy）
     cwd: process.cwd(),
     port: getDefaultPort(),
     autoConfirm: false,
@@ -107,7 +110,7 @@ function parseArgs(args: string[]): CLIArgs {
     standalone: false,
     debug: false,
     thinking: false,
-    thinkingBudget: 16000,
+    thinkingBudget: DEFAULT_THINKING_BUDGET,
   }
 
   const messageArgs: string[] = []
@@ -140,8 +143,20 @@ function parseArgs(args: string[]): CLIArgs {
       result.thinking = true
     } else if (arg === "--thinking-budget") {
       const budget = parseInt(args[++i], 10)
-      if (budget >= 1024) {
+      if (budget >= THINKING_BUDGETS.low) {
         result.thinkingBudget = budget
+      }
+    } else if (arg === "--reasoning-effort" || arg === "-r") {
+      const effort = args[++i]?.toLowerCase()
+      if (effort === "low") {
+        result.thinking = true
+        result.thinkingBudget = THINKING_BUDGETS.low
+      } else if (effort === "medium") {
+        result.thinking = true
+        result.thinkingBudget = THINKING_BUDGETS.medium
+      } else if (effort === "high") {
+        result.thinking = true
+        result.thinkingBudget = THINKING_BUDGETS.high
       }
     } else if (arg === "daemon") {
       result.command = "daemon"
@@ -195,7 +210,7 @@ function printBanner(): void {
 (__(__)___(__)__)
 `
   console.log(cat)
-  console.log(`  NaughtyAgent v0.1.0`)
+  console.log(`  NaughtyAgent v${VERSION}`)
   console.log(`  AI 编程助手 🐱`)
   console.log(``)
 }
@@ -217,17 +232,18 @@ function printHelp(): void {
   -h, --help       显示帮助信息
   -v, --version    显示版本号
   -a, --agent      Agent 类型 (build|plan|explore)，默认 build
-  -m, --model      模型名称，默认 claude-sonnet-4-20250514
+  -m, --model      模型名称，默认 claude-sonnet-4
   -d, --cwd        工作目录，默认当前目录
   -y, --yes        自动确认所有操作
   -s, --standalone 独立模式，不使用 daemon（直接运行）
   -t, --thinking   启用 Extended Thinking（深度思考模式）
   --thinking-budget  Thinking 预算 token 数（默认 16000，最小 1024）
+  -r, --reasoning-effort  思考强度 (low|medium|high)，自动启用 thinking
   --debug          调试模式，显示详细日志
 
 可用模型:
-  claude-opus-4-20250514    (默认) Claude Opus 4 (最强)
-  claude-sonnet-4-20250514  Claude Sonnet 4
+  claude-sonnet-4           (默认) Claude Sonnet 4
+  claude-opus-4.5           Claude Opus 4.5
   claude-haiku-4-20250514   Claude Haiku 4 (最快)
   opus                      简写，等同于 claude-opus-4
   opus-4.5                  Claude Opus 4.5 (最强)
@@ -302,8 +318,14 @@ async function promptConfirm(request: PermissionRequest): Promise<boolean> {
  */
 function createOutputHandlers(): RunnerEventHandlers {
   return {
-    onText: (content) => {
-      process.stdout.write(content)
+    onTextDelta: (delta) => {
+      process.stdout.write(delta)
+    },
+    onThinking: (content) => {
+      process.stdout.write(`\x1b[2m\x1b[35m${content}\x1b[0m`)
+    },
+    onThinkingEnd: () => {
+      console.log(`\n\x1b[2m\x1b[35m${'─'.repeat(40)}\x1b[0m`)
     },
     onToolStart: (_id, name, input) => {
       const inputStr = typeof input === "object"
@@ -478,11 +500,23 @@ async function handleChatDaemon(args: CLIArgs): Promise<void> {
     agentType: args.agent,
     autoConfirm: args.autoConfirm,
     onConfirm: promptConfirm,
+    model: args.model,
+    thinking: args.thinking ? {
+      enabled: true,
+      budgetTokens: args.thinkingBudget,
+    } : undefined,
   })
 
   const events: DaemonClientEvents = {
-    onText: (content) => {
-      process.stdout.write(content)
+    onTextDelta: (delta) => {
+      process.stdout.write(delta)
+    },
+    onThinking: (content) => {
+      // 用淡紫色显示 thinking 内容
+      process.stdout.write(`\x1b[2m\x1b[35m${content}\x1b[0m`)
+    },
+    onThinkingEnd: () => {
+      console.log(`\n\x1b[2m\x1b[35m${'─'.repeat(40)}\x1b[0m`)
     },
     onToolStart: (_id, name, input) => {
       const inputStr = typeof input === "object"
@@ -543,6 +577,10 @@ async function handleChatStandalone(args: CLIArgs): Promise<void> {
     baseURL: process.env.ANTHROPIC_BASE_URL,
     autoConfirm: args.autoConfirm,
     onConfirm: promptConfirm,
+    thinking: args.thinking ? {
+      enabled: true,
+      budgetTokens: args.thinkingBudget,
+    } : undefined,
   }
 
   let runner

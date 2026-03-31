@@ -14,6 +14,7 @@
 
 import type { Message, TextBlock } from "../session/message"
 import { generateMessageId } from "../session/message"
+import { AUTO_COMPACT_TOKEN_THRESHOLD } from "../config"
 import {
   SimpleTokenCounter,
   evaluateMessageImportance,
@@ -76,7 +77,7 @@ export interface TokenCompressor {
 /** 默认配置 */
 export const DEFAULT_TOKEN_COMPRESSOR_CONFIG: TokenCompressorConfig = {
   threshold: 80000,
-  targetTokens: 50000,
+  targetTokens: AUTO_COMPACT_TOKEN_THRESHOLD,
   strategy: "importance",
   keepRecentCount: 10,
 }

@@ -78,7 +78,7 @@ export const configCommand: BuiltinCommandDefinition = {
       defaultValue: 'false',
     },
   ],
-  handler: (args, namedArgs, context): ExecutionResult => {
+  handler: (_args, namedArgs, context): ExecutionResult => {
     const startTime = Date.now()
     const state = context.getState()
 

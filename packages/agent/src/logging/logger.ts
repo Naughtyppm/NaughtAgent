@@ -140,12 +140,11 @@ export class Logger {
    * 输出到 stderr，避免与用户输出混淆
    */
   private defaultOutput(entry: LogEntry): void {
-    // 默认只输出 WARN 和 ERROR 级别到 stderr
-    // DEBUG 和 INFO 级别在生产环境下静默
-    if (entry.level === LogLevel.DEBUG || entry.level === LogLevel.INFO) {
-      // 只有设置了 DEBUG 环境变量才输出
-      if (!process.env.DEBUG) return
-    }
+    // QUIET=1 关闭所有非报错日志
+    if (process.env.QUIET && entry.level !== LogLevel.ERROR) return
+
+    // DEBUG 级别需要 DEBUG=1 环境变量
+    if (entry.level === LogLevel.DEBUG && !process.env.DEBUG) return
 
     if (this.format === 'json') {
       console.error(JSON.stringify(entry))

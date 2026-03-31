@@ -14,13 +14,14 @@ import * as path from "path"
 import * as os from "os"
 import { createServer } from "../server"
 import type { ServerConfig } from "../server/types"
+import { DEFAULT_DAEMON_PORT, NAUGHTY_DIR_NAME } from "../config"
 
 // ============================================================================
 // 配置
 // ============================================================================
 
-const DEFAULT_PORT = 31415  // 用 π 的前几位，好记又不容易冲突
-const NAUGHT_DIR = path.join(os.homedir(), ".naughtyagent")
+const DEFAULT_PORT = DEFAULT_DAEMON_PORT
+const NAUGHT_DIR = path.join(os.homedir(), NAUGHTY_DIR_NAME)
 const PID_FILE = path.join(NAUGHT_DIR, "daemon.pid")
 const LOG_FILE = path.join(NAUGHT_DIR, "daemon.log")
 const PORT_FILE = path.join(NAUGHT_DIR, "daemon.port")

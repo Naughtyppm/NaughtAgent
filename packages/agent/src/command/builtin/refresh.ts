@@ -89,7 +89,6 @@ export const refreshCommand: BuiltinCommandDefinition = {
 
     const duration = Date.now() - startTime
     const message = results.join('\n') + ` (${duration}ms)`
-    context.addMessage('info', message)
 
     return {
       success: true,

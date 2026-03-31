@@ -337,6 +337,25 @@ export {
 } from "./agent-registry"
 
 // ============================================================================
+// SharedContext (融合代理共享状态)
+// ============================================================================
+
+export type {
+  SharedEntryType,
+  SharedEntry,
+  SharedContextConfig,
+  SharedContextSnapshot,
+} from "./shared-context"
+
+export {
+  SharedContext,
+  createSharedContext,
+  getSharedContext,
+  removeSharedContext,
+  clearAllSharedContexts,
+} from "./shared-context"
+
+// ============================================================================
 // Runner (统一入口)
 // ============================================================================
 

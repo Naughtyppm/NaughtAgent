@@ -20,6 +20,9 @@ import { getGlobalSubAgentEventListener } from "../../subtask/global-listener"
 import { generateSubAgentId, createSubAgentEmitter } from "../../subtask/events"
 
 // 全局运行时引用
+// 注意：globalRuntime 来自 runner.ts，已包含 toolRegistry 字段
+// 子代理通过 globalRuntime.toolRegistry 获取 read/write/edit 等基础工具
+// 如果手动构造 runtime 对象，务必保留 toolRegistry 字段
 let globalRuntime: RunAgentRuntime | null = null
 let globalProvider: SubTaskProvider | null = null
 

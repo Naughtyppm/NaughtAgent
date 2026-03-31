@@ -6,7 +6,7 @@
 
 // 核心定义
 export { Tool, TOOL_TIMEOUTS, DEFAULT_TIMEOUT, getToolTimeout } from "./tool"
-export { ToolRegistry, type RegistryTruncationConfig } from "./registry"
+export { ToolRegistry, ToolRegistryCompat, type TruncationOptions } from "./registry"
 
 // 工具执行包装器
 export {
@@ -45,13 +45,14 @@ export {
 } from "./output-truncator"
 
 // 内置工具
-export { ReadTool } from "./read"
+export { ReadTool, clearReadCache } from "./read"
 export { WriteTool } from "./write"
 export { AppendTool } from "./append"
 export { EditTool } from "./edit"
 export { BashTool } from "./bash"
 export { GlobTool } from "./glob"
 export { GrepTool } from "./grep"
+export { LoadSkillTool } from "./load-skill"
 
 // 子代理工具
 export {
@@ -69,7 +70,7 @@ export {
 } from "./subagent"
 
 // 注册所有内置工具
-import { ToolRegistry } from "./registry"
+import { ToolRegistryCompat as ToolRegistry } from "./registry"
 import { ReadTool } from "./read"
 import { WriteTool } from "./write"
 import { AppendTool } from "./append"
@@ -77,6 +78,7 @@ import { EditTool } from "./edit"
 import { BashTool } from "./bash"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
+import { LoadSkillTool } from "./load-skill"
 
 export function registerBuiltinTools(): void {
   ToolRegistry.register(ReadTool)
@@ -86,4 +88,5 @@ export function registerBuiltinTools(): void {
   ToolRegistry.register(BashTool)
   ToolRegistry.register(GlobTool)
   ToolRegistry.register(GrepTool)
+  ToolRegistry.register(LoadSkillTool)
 }

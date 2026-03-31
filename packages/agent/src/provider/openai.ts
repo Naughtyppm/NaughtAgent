@@ -107,8 +107,8 @@ export function createOpenAIProvider(config: OpenAIConfig): LLMProvider {
                 type: "tool_call",
                 id: part.toolCallId,
                 name: part.toolName,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                args: (part as any).input,
+                // AI SDK typed tools use 'args', dynamic tools use 'input'
+                args: "args" in part ? part.args : (part as { input: unknown }).input,
               }
               break
 
@@ -145,29 +145,33 @@ export function createOpenAIProvider(config: OpenAIConfig): LLMProvider {
       const modelName = mapModel(params.model.model)
       const model = openai(modelName)
 
-      const result = await generateText({
-        model,
-        system: params.system,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        messages: params.messages as any,
-        tools: convertTools(params.tools),
-        temperature: params.model.temperature,
-        maxOutputTokens: params.model.maxTokens,
-        abortSignal: params.abortSignal,
-      })
-
-      return {
-        text: result.text,
-        toolCalls: result.toolCalls.map((call) => ({
-          id: call.toolCallId,
-          name: call.toolName,
+      try {
+        const result = await generateText({
+          model,
+          system: params.system,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          args: (call as any).input,
-        })),
-        usage: {
-          inputTokens: result.usage?.inputTokens ?? 0,
-          outputTokens: result.usage?.outputTokens ?? 0,
-        },
+          messages: params.messages as any,
+          tools: convertTools(params.tools),
+          temperature: params.model.temperature,
+          maxOutputTokens: params.model.maxTokens,
+          abortSignal: params.abortSignal,
+        })
+
+        return {
+          text: result.text,
+          toolCalls: result.toolCalls.map((call) => ({
+            id: call.toolCallId,
+            name: call.toolName,
+            args: "args" in call ? call.args : (call as { input: unknown }).input,
+          })),
+          usage: {
+            inputTokens: result.usage?.inputTokens ?? 0,
+            outputTokens: result.usage?.outputTokens ?? 0,
+          },
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err))
+        throw error
       }
     },
   }

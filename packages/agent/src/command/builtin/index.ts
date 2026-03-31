@@ -27,7 +27,7 @@ import type { UnifiedCommand } from '../types.js'
 // 核心命令
 import { helpCommand } from './help.js'
 import { clearCommand } from './clear.js'
-import { exitCommand } from './exit.js'
+import { exitCommand, quitCommand } from './exit.js'
 import { refreshCommand } from './refresh.js'
 import { initCommand } from './init.js'
 
@@ -50,7 +50,8 @@ import { aliasCommand } from './alias.js'
  * 已实现的命令：
  * - /help - 显示所有命令（按层分组）
  * - /clear - 清空对话历史
- * - /exit - 退出应用
+ * - /exit - 退出应用（提示使用 /quit）
+ * - /quit - 退出应用（唯一退出方式）
  * - /refresh - 重新加载命令源
  * - /model - 切换模型
  * - /mode - 切换权限模式
@@ -63,6 +64,7 @@ const builtinCommands: BuiltinCommandDefinition[] = [
   helpCommand,
   clearCommand,
   exitCommand,
+  quitCommand,
   refreshCommand,
   modelCommand,
   modeCommand,

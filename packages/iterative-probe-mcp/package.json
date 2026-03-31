@@ -14,7 +14,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.52.0",
+    "@anthropic-ai/sdk": "^0.78.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "zod": "^3.24.0"
   },

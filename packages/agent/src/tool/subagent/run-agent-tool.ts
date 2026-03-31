@@ -45,6 +45,9 @@ Use this for:
 The sub-agent has its own session and can use tools (read, write, edit, bash, glob, grep).
 It does NOT inherit the parent conversation context by default.`
 
+/** 最大子代理嵌套深度 */
+const MAX_SUBAGENT_DEPTH = 3
+
 export const RunAgentTool = Tool.define({
   id: "run_agent",
   description: DESCRIPTION,
@@ -59,6 +62,16 @@ export const RunAgentTool = Tool.define({
   }),
 
   async execute(params, ctx) {
+    // 深度检查：防止无限递归
+    const currentDepth = ctx.depth ?? 0
+    if (currentDepth >= MAX_SUBAGENT_DEPTH) {
+      return {
+        title: "run_agent",
+        output: `Error: 子代理嵌套深度已达上限 (${MAX_SUBAGENT_DEPTH})。当前深度: ${currentDepth}。请在当前层级完成任务。`,
+        metadata: { error: true, depth: currentDepth, maxDepth: MAX_SUBAGENT_DEPTH },
+      }
+    }
+
     if (!globalRuntime) {
       return {
         title: "run_agent",
@@ -85,6 +98,8 @@ export const RunAgentTool = Tool.define({
           maxTurns: params.maxTurns || 30,
           cwd: ctx.cwd,
           abort: ctx.abort,
+          depth: currentDepth + 1,
+          sharedContextId: ctx.sharedContextId,
         },
         runtimeWithListener
       )

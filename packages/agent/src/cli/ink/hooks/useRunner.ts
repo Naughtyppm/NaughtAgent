@@ -126,8 +126,8 @@ export function useRunner(options: UseRunnerOptions): UseRunnerReturn & { resetR
 
       // 创建事件处理器
       const handlers: RunnerEventHandlers = {
-        onText: (content) => {
-          addEvent({ type: 'text', data: { content } })
+        onTextDelta: (delta) => {
+          addEvent({ type: 'text', data: { content: delta } })
         },
         onThinking: (content) => {
           addEvent({ type: 'thinking', data: { content } })

@@ -2,6 +2,7 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import { z } from "zod"
 import { Tool } from "./tool"
+import { resolvePath } from "./safe-path"
 
 /** 单次追加最大行数限制 */
 const MAX_LINES_PER_APPEND = 60
@@ -31,10 +32,7 @@ export const AppendTool = Tool.define({
   async execute(params, ctx) {
     let filePath = params.filePath
 
-    // 处理相对路径
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.resolve(ctx.cwd, filePath)
-    }
+    filePath = resolvePath(filePath, ctx.cwd)
 
     const title = `append → ${path.basename(filePath)}`
 

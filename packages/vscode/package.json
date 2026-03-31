@@ -1,5 +1,5 @@
 {
-  "name": "naughtyagent",
+  "name": "@naughtyagent/vscode",
   "displayName": "NaughtyAgent",
   "description": "AI 编程助手 - 类似 Claude Code 的 VS Code 插件",
   "version": "0.1.0",

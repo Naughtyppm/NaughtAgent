@@ -14,6 +14,7 @@ export type {
   ToolCallRecord,
   StreamEvent,
   TextEvent,
+  TextDeltaEvent,
   ToolStartEvent,
   ToolEndEvent,
   ErrorEvent,

@@ -6,10 +6,12 @@
  */
 
 import * as readline from "readline"
+import { VERSION } from "../config"
 import type { RunnerEventHandlers } from "./runner"
 import { createRunner } from "./runner"
 import type { PermissionRequest } from "../permission"
 import { StreamMarkdownRenderer } from "./markdown"
+import { resolveModelName, isProxyBaseURL } from "../provider/types"
 
 /**
  * REPL 配置
@@ -138,7 +140,7 @@ function printWelcome(config: ReplConfig, autoConfirm: boolean): void {
 
   // 右侧信息（全英文）
   const infoRaw = [
-    { text: `NaughtyAgent v0.1.0`, colored: `\x1b[1;95mNaughtyAgent\x1b[0m \x1b[90mv0.1.0\x1b[0m` },
+    { text: `NaughtyAgent v${VERSION}`, colored: `\x1b[1;95mNaughtyAgent\x1b[0m \x1b[90mv${VERSION}\x1b[0m` },
     { text: `${config.agent} · ${getProviderInfo()}`, colored: `\x1b[93m${config.agent}\x1b[0m · \x1b[96m${getProviderInfo()}\x1b[0m` },
     { text: `mode: ${autoConfirm ? "auto" : "manual"}`, colored: `mode: ${modeStr}` },
     { text: config.cwd, colored: `\x1b[92m${config.cwd}\x1b[0m` },
@@ -183,7 +185,8 @@ function printHelp(): void {
   console.log("  /model <name>   切换模型")
   console.log("  /run [file]     执行计划文件 (默认 plan.md)")
   console.log("  /clear          清屏")
-  console.log("  /exit           退出")
+  console.log("  /exit           退出（提示使用 /quit）")
+  console.log("  /quit           退出会话（唯一退出方式）")
   console.log("")
   console.log("\x1b[1m快捷键：\x1b[0m")
   console.log("  Esc / Alt+P     切换为手动模式（任务执行中可用）")
@@ -335,18 +338,30 @@ function createOutputHandlers(spinner: ThinkingSpinner, modelName: string = "Cla
   const mdRenderer = new StreamMarkdownRenderer()
 
   return {
-    onText: (content) => {
+    onTextDelta: (delta) => {
       if (!hasOutput) {
         spinner.stop()
         // 显示 AI 角色标题
         printAIHeader(modelName)
         hasOutput = true
       }
-      // 使用 Markdown 渲染器处理输出
-      const rendered = mdRenderer.process(content)
+      // 使用 Markdown 渲染器处理增量输出
+      const rendered = mdRenderer.process(delta)
       if (rendered) {
         process.stdout.write(rendered)
       }
+    },
+    onThinking: (content) => {
+      if (!hasOutput) {
+        spinner.stop()
+        hasOutput = true
+      }
+      // 用淡色显示 thinking 内容
+      process.stdout.write(`\x1b[2m\x1b[35m${content}\x1b[0m`)
+    },
+    onThinkingEnd: () => {
+      // thinking 结束，加分隔线
+      console.log(`\n\x1b[2m\x1b[35m${'─'.repeat(40)}\x1b[0m`)
     },
     onToolStart: (_id, name, input) => {
       // 先刷新 Markdown 缓冲区
@@ -445,6 +460,76 @@ function createOutputHandlers(spinner: ThinkingSpinner, modelName: string = "Cla
 }
 
 /**
+ * 交互式模型选择器
+ * 用方向键选择模型，回车确认，ESC/q 取消
+ */
+function interactiveModelSelect(
+  models: Array<{ name: string; description: string }>,
+  currentModel: string,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    let selected = models.findIndex(m => m.name === currentModel)
+    if (selected < 0) selected = 0
+
+    const render = () => {
+      // 清除之前的渲染（模型数量 + 标题行 + 底部提示行）
+      process.stdout.write(`\x1b[${models.length + 2}A`)
+      console.log(`\x1b[90m  选择模型 (↑↓选择, Enter确认, Esc取消)\x1b[0m`)
+      for (let i = 0; i < models.length; i++) {
+        const m = models[i]
+        const isCurrent = m.name === currentModel
+        const isSelected = i === selected
+        const prefix = isSelected ? "\x1b[36m❯\x1b[0m" : " "
+        const mark = isCurrent ? " \x1b[32m✓\x1b[0m" : ""
+        const nameStyle = isSelected ? `\x1b[1;36m${m.name}\x1b[0m` : m.name
+        console.log(`  ${prefix} ${nameStyle}  \x1b[90m${m.description}\x1b[0m${mark}`)
+      }
+      console.log(`\x1b[90m  \x1b[0m`)
+    }
+
+    // 初始渲染（先打空行占位）
+    console.log(`\x1b[90m  选择模型\x1b[0m`)
+    for (const m of models) {
+      console.log(`  ${m.name}`)
+    }
+    console.log()
+    render()
+
+    const stdin = process.stdin
+    const wasRaw = stdin.isRaw
+    stdin.setRawMode(true)
+    stdin.resume()
+
+    const onKey = (key: Buffer) => {
+      const s = key.toString()
+      if (s === "\x1b[A") { // 上
+        selected = (selected - 1 + models.length) % models.length
+        render()
+      } else if (s === "\x1b[B") { // 下
+        selected = (selected + 1) % models.length
+        render()
+      } else if (s === "\r" || s === "\n") { // Enter
+        cleanup()
+        resolve(models[selected].name)
+      } else if (s === "\x1b" || s === "q") { // ESC or q
+        cleanup()
+        resolve(null)
+      } else if (s === "\x03") { // Ctrl+C
+        cleanup()
+        resolve(null)
+      }
+    }
+
+    const cleanup = () => {
+      stdin.removeListener("data", onKey)
+      stdin.setRawMode(wasRaw ?? false)
+    }
+
+    stdin.on("data", onKey)
+  })
+}
+
+/**
  * 启动 REPL
  */
 export async function startRepl(config: ReplConfig): Promise<void> {
@@ -511,6 +596,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
     baseURL: process.env.ANTHROPIC_BASE_URL,
     autoConfirmRef,
     onConfirm: handleConfirm,
+    thinking: config.thinking,
   })
 
   printWelcome(config, autoConfirmRef.value)
@@ -553,7 +639,7 @@ export async function startRepl(config: ReplConfig): Promise<void> {
   }
 
   // 处理输入
-  const processInput = (line: string): boolean => {
+  const processInput = async (line: string): Promise<boolean> => {
     const input = line.trim()
 
     if (!input) {
@@ -568,14 +654,18 @@ export async function startRepl(config: ReplConfig): Promise<void> {
       const [cmd, ...args] = input.slice(1).split(" ")
 
       switch (cmd.toLowerCase()) {
-        case "exit":
         case "quit":
-        case "q":
           if (taskState.isRunning) {
             taskState.cancel()
           }
           console.log("\n再见！🐱\n")
           return false // 退出
+
+        case "exit":
+        case "q":
+          console.log("\n\x1b[33m⚠️  使用 /quit 退出会话\x1b[0m\n")
+          if (!taskState.isRunning) showPrompt()
+          return true
 
         case "cancel":
         case "stop":
@@ -701,15 +791,47 @@ export async function startRepl(config: ReplConfig): Promise<void> {
           }
           const newModel = args[0]
           if (newModel) {
-            config.model = newModel
+            const baseURL = process.env.ANTHROPIC_BASE_URL
+            const resolved = resolveModelName(newModel, baseURL)
+            config.model = resolved
             runner = makeRunner()
-            console.log(`\n已切换到模型 \x1b[36m${newModel}\x1b[0m\n`)
+            if (resolved !== newModel) {
+              console.log(`\n已切换: \x1b[36m${newModel}\x1b[0m → \x1b[32m${resolved}\x1b[0m\n`)
+            } else {
+              console.log(`\n已切换: \x1b[32m${resolved}\x1b[0m\n`)
+            }
           } else {
-            console.log("\n用法: /model <model-name>")
-            console.log("可用模型:")
-            console.log("  sonnet, sonnet-4.5")
-            console.log("  opus, opus-4.5")
-            console.log("  haiku, haiku-4.5\n")
+            // 交互式选择
+            const baseURL = process.env.ANTHROPIC_BASE_URL
+            const isProxy = isProxyBaseURL(baseURL)
+            const current = config.model || "claude-sonnet-4"
+            const models = isProxy ? [
+              { name: "claude-sonnet-4", description: "Sonnet 4 - 快速均衡" },
+              { name: "claude-sonnet-4.5", description: "Sonnet 4.5 - 更强推理" },
+              { name: "claude-sonnet-4.6", description: "Sonnet 4.6 - 最新" },
+              { name: "claude-opus-4.5", description: "Opus 4.5 - 深度思考" },
+              { name: "claude-opus-4.6", description: "Opus 4.6 - 最强" },
+              { name: "claude-haiku-4.5", description: "Haiku 4.5 - 最快最省" },
+            ] : [
+              { name: "claude-sonnet-4-20250514", description: "Sonnet 4" },
+              { name: "claude-sonnet-4-5-20250514", description: "Sonnet 4.5" },
+              { name: "claude-opus-4-20250514", description: "Opus 4" },
+              { name: "claude-opus-4-5-20251101", description: "Opus 4.5" },
+              { name: "claude-opus-4-6-20260206", description: "Opus 4.6" },
+              { name: "claude-haiku-4-20250514", description: "Haiku 4" },
+              { name: "claude-haiku-4-5-20250514", description: "Haiku 4.5" },
+            ]
+            console.log()
+            rl.pause()
+            const chosen = await interactiveModelSelect(models, current)
+            rl.resume()
+            if (chosen && chosen !== current) {
+              config.model = chosen
+              runner = makeRunner()
+              console.log(`已切换: \x1b[32m${chosen}\x1b[0m\n`)
+            } else {
+              console.log(`保持当前: \x1b[32m${current}\x1b[0m\n`)
+            }
           }
           showPrompt()
           return true
@@ -785,8 +907,8 @@ export async function startRepl(config: ReplConfig): Promise<void> {
   // 主循环（第一次不显示标题）
   rl.prompt()
 
-  rl.on("line", (line) => {
-    const shouldContinue = processInput(line)
+  rl.on("line", async (line) => {
+    const shouldContinue = await processInput(line)
     if (!shouldContinue) {
       rl.close()
     }
@@ -796,13 +918,13 @@ export async function startRepl(config: ReplConfig): Promise<void> {
     process.exit(0)
   })
 
-  // Ctrl+C 处理：取消当前任务或退出
+  // Ctrl+C 处理：取消当前任务，空闲时仅提示（只有 /quit 才退出）
   rl.on("SIGINT", () => {
     if (taskState.isRunning) {
       cancelTask()
     } else {
-      console.log("\n再见！🐱\n")
-      rl.close()
+      console.log("\n\x1b[33m⚠️  使用 /quit 退出会话\x1b[0m")
+      showPrompt()
     }
   })
 

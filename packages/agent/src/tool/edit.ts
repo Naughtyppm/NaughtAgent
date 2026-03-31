@@ -2,6 +2,7 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import { z } from "zod"
 import { Tool } from "./tool"
+import { resolvePath } from "./safe-path"
 
 const DESCRIPTION = `Performs exact string replacements in files.
 
@@ -61,10 +62,7 @@ export const EditTool = Tool.define({
   async execute(params, ctx) {
     let filePath = params.filePath
 
-    // 处理相对路径
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.resolve(ctx.cwd, filePath)
-    }
+    filePath = resolvePath(filePath, ctx.cwd)
 
     const title = path.basename(filePath)
 

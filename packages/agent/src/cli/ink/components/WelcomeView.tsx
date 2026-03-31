@@ -12,6 +12,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { WelcomeViewProps } from '../types.js'
+import { VERSION } from '../../../config/index.js'
 
 /**
  * 猫咪 ASCII art
@@ -31,7 +32,7 @@ const CAT_ASCII = `
  */
 export function WelcomeView({
   config,
-  version = '0.1.0',
+  version = VERSION,
 }: WelcomeViewProps): React.ReactElement {
   const modeText = config.autoConfirm ? 'auto' : 'manual'
   const modeColor = config.autoConfirm ? 'green' : 'yellow'

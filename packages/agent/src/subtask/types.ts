@@ -121,6 +121,8 @@ export interface SubTaskBaseConfig {
   cwd?: string
   /** Token 预算 */
   tokenBudget?: Partial<TokenBudget>
+  /** 共享上下文 ID（融合代理模式） */
+  sharedContextId?: string
 }
 
 // ============================================================================
@@ -162,6 +164,8 @@ export interface RunAgentConfig extends SubTaskBaseConfig {
   maxTurns?: number
   /** @deprecated 使用 maxTurns */
   maxSteps?: number
+  /** 子代理嵌套深度 */
+  depth?: number
 }
 
 /**
@@ -200,6 +204,8 @@ export interface ForkAgentConfig extends SubTaskBaseConfig {
   agentType?: "build" | "plan" | "explore"
   /** 可用工具（可选，默认继承父会话） */
   tools?: string[]
+  /** 子代理嵌套深度 */
+  depth?: number
 }
 
 /**

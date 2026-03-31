@@ -120,6 +120,14 @@ export interface TextEvent {
 }
 
 /**
+ * 流式事件 - 文本增量
+ */
+export interface TextDeltaEvent {
+  type: "text_delta"
+  delta: string
+}
+
+/**
  * 流式事件 - 工具开始
  */
 export interface ToolStartEvent {
@@ -170,15 +178,33 @@ export interface PermissionRequestEvent {
 }
 
 /**
+ * 流式事件 - Extended Thinking 内容
+ */
+export interface ThinkingEvent {
+  type: "thinking"
+  content: string
+}
+
+/**
+ * 流式事件 - Extended Thinking 结束
+ */
+export interface ThinkingEndEvent {
+  type: "thinking_end"
+}
+
+/**
  * 流式事件联合类型
  */
 export type StreamEvent =
   | TextEvent
+  | TextDeltaEvent
   | ToolStartEvent
   | ToolEndEvent
   | ErrorEvent
   | DoneEvent
   | PermissionRequestEvent
+  | ThinkingEvent
+  | ThinkingEndEvent
 
 // ============================================================================
 // WebSocket Types
@@ -190,6 +216,11 @@ export type StreamEvent =
 export interface WSSendMessage {
   type: "send"
   message: string
+  model?: string
+  thinking?: {
+    enabled: boolean
+    budgetTokens?: number
+  }
 }
 
 /**

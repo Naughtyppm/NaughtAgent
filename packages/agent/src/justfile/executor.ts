@@ -11,7 +11,6 @@
 
 import { spawn } from 'child_process'
 import { dirname } from 'path'
-import { readFile } from 'fs/promises'
 import type {
   CommandExecutor,
   ExecuteOptions,

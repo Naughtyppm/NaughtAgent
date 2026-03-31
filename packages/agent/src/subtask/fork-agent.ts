@@ -19,6 +19,7 @@ import {
   getAgentDefinition,
   type AgentType,
 } from "../agent"
+import type { ToolRegistry } from "../tool/registry"
 import { createSession, type Message } from "../session"
 import { createProviderFromEnv, createProvider } from "../provider"
 import { createContextManager, type PreparedContext } from "./context"
@@ -27,6 +28,7 @@ import {
   createSubAgentEmitter,
   type SubAgentEventListener,
 } from "./events"
+import { isContextOverflowError, emergencyCompact } from "./recovery"
 
 /**
  * fork_agent 模式运行时配置
@@ -42,6 +44,8 @@ export interface ForkAgentRuntime {
   model?: string
   /** 事件监听器 - 用于向 UI 传递子 Agent 执行状态 */
   onEvent?: SubAgentEventListener
+  /** 工具注册表实例（传递给子 Agent，确保子 Agent 能使用 read/write/edit 等基础工具） */
+  toolRegistry?: ToolRegistry
 }
 
 /**
@@ -220,6 +224,9 @@ export async function runForkAgent(
         cwd,
         abort: config.abort,
       },
+      depth: config.depth ?? 0,
+      sharedContextId: config.sharedContextId,
+      toolRegistry: runtime.toolRegistry,
     })
 
     // 8. 收集输出
@@ -227,12 +234,30 @@ export async function runForkAgent(
     let totalInputTokens = 0
     let totalOutputTokens = 0
     let turnCount = 0
+    let compactRetried = false
+
+    // 重试循环：正常只跑一次，token 超限时 compact → 重试一次
+    for (let attempt = 0; attempt < 2; attempt++) {
+    // 每次重试重新创建 loop（session 已被 compact 压缩）
+    const retryLoop = attempt === 0 ? loop : createAgentLoop({
+      definition: filteredDefinition,
+      session: childSession,
+      provider,
+      runConfig: { sessionId: childSession.id, cwd, abort: config.abort },
+      depth: config.depth ?? 0,
+      sharedContextId: config.sharedContextId,
+      toolRegistry: runtime.toolRegistry,
+    })
 
     // 工具执行计时
     const toolStartTimes = new Map<string, number>()
+    let shouldRetry = false
+    const loopInput = attempt === 0
+      ? config.prompt
+      : `[Context compressed due to token overflow. Continue:] ${config.prompt}`
 
     // 9. 运行 Agent Loop
-    for await (const event of loop.run(config.prompt)) {
+    for await (const event of retryLoop.run(loopInput)) {
       // 检查取消信号
       if (config.abort?.aborted) {
         const duration = Date.now() - startTime
@@ -298,6 +323,18 @@ export async function runForkAgent(
           break
 
         case "error":
+          // === Token 超限恢复 ===
+          if (!compactRetried && isContextOverflowError(event.error.message)) {
+            compactRetried = true
+            const compacted = await emergencyCompact(
+              childSession, provider,
+              filteredDefinition.model ? { model: filteredDefinition.model.model } : undefined,
+            )
+            if (compacted) {
+              shouldRetry = true
+              break
+            }
+          }
           emit.end(false, output, Date.now() - startTime, event.error.message, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens })
           return {
             success: false,
@@ -309,6 +346,8 @@ export async function runForkAgent(
             childSessionId: childSession.id,
           }
       }
+
+      if (shouldRetry) break
 
       // 检查轮数限制
       if (turnCount >= maxTurns) {
@@ -323,7 +362,10 @@ export async function runForkAgent(
           childSessionId: childSession.id,
         }
       }
-    }
+    } // end for-await
+
+    if (!shouldRetry) break
+    } // end retry loop
 
     // 发送结束事件
     emit.end(true, output, Date.now() - startTime, undefined, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens })

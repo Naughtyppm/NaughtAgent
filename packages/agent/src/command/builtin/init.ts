@@ -362,6 +362,7 @@ export const initCommand: BuiltinCommandDefinition = {
   handler: async (_args, _namedArgs, ctx) => {
     const state = ctx.getState()
     const projectRoot = state.cwd
+    const startTime = Date.now()
 
     ctx.addMessage('info', '🔍 分析项目结构...')
 
@@ -402,11 +403,16 @@ export const initCommand: BuiltinCommandDefinition = {
       return {
         success: true,
         output,
+        duration: Date.now() - startTime,
+        layer: 'builtin' as const,
       }
     } catch (error) {
       return {
         success: false,
         error: `生成失败：${error instanceof Error ? error.message : String(error)}`,
+        output: '',
+        duration: Date.now() - startTime,
+        layer: 'builtin' as const,
       }
     }
   },

@@ -27,10 +27,20 @@ export interface DaemonClientConfig {
   autoConfirm?: boolean
   /** 权限确认回调 */
   onConfirm?: (request: PermissionRequest) => Promise<boolean>
+  /** 模型 */
+  model?: string
+  /** Extended Thinking 配置 */
+  thinking?: {
+    enabled: boolean
+    budgetTokens?: number
+  }
 }
 
 export interface DaemonClientEvents {
   onText?: (content: string) => void
+  onTextDelta?: (delta: string) => void
+  onThinking?: (content: string) => void
+  onThinkingEnd?: () => void
   onToolStart?: (id: string, name: string, input: unknown) => void
   onToolEnd?: (id: string, output: string, isError?: boolean) => void
   onError?: (error: Error) => void
@@ -324,8 +334,15 @@ export function createDaemonClient(config: DaemonClientConfig) {
         }
       })
 
-      // 发送消息
-      sendFrame(wsSocket!, { type: "send", message })
+      // 发送消息（附带 model 和 thinking 配置）
+      const sendMsg: WSMessage = { type: "send", message }
+      if (config.model) {
+        sendMsg.model = config.model
+      }
+      if (config.thinking?.enabled) {
+        sendMsg.thinking = config.thinking
+      }
+      sendFrame(wsSocket!, sendMsg)
     })
   }
 
@@ -342,6 +359,18 @@ export function createDaemonClient(config: DaemonClientConfig) {
     switch (msg.type) {
       case "text":
         events.onText?.(msg.content as string)
+        break
+
+      case "text_delta":
+        events.onTextDelta?.(msg.delta as string)
+        break
+
+      case "thinking":
+        events.onThinking?.(msg.content as string)
+        break
+
+      case "thinking_end":
+        events.onThinkingEnd?.()
         break
 
       case "tool_start":

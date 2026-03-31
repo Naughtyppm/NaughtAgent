@@ -118,6 +118,8 @@ export function App({ config }: AppProps): React.ReactElement {
   const toggleSelectedToolRef = useRef<() => void>(() => {})
   // 增量事件处理：记录已处理的事件索引
   const lastProcessedEventRef = useRef<number>(0)
+  // 累积 text delta，updateAIMessage 需要完整文本
+  const accumulatedTextRef = useRef<string>('')
 
   // ========== 统一命令系统 ==========
   const unifiedRegistryRef = useRef<UnifiedRegistry>(createSyncRegistry({
@@ -186,6 +188,7 @@ export function App({ config }: AppProps): React.ReactElement {
   useEffect(() => {
     if (events.length === 0) {
       lastProcessedEventRef.current = 0
+      accumulatedTextRef.current = ''
       return
     }
 
@@ -205,7 +208,9 @@ export function App({ config }: AppProps): React.ReactElement {
             // 批量更新：activeView + status 一次 dispatch
             dispatch({ type: 'STREAM_START', status: 'thinking', message: '生成响应...', detail: '正在输出' })
           }
-          updateAIMessage(currentAIMessageIdRef.current, content)
+          // content 是 delta 片段，需要累积到 accumulatedTextRef 后传入
+          accumulatedTextRef.current += content
+          updateAIMessage(currentAIMessageIdRef.current, accumulatedTextRef.current)
           break
         }
 
@@ -215,6 +220,8 @@ export function App({ config }: AppProps): React.ReactElement {
             finishAIMessage(currentAIMessageIdRef.current)
             currentAIMessageIdRef.current = null
           }
+          // 重置文本累积（下一段文本从空开始）
+          accumulatedTextRef.current = ''
           const inkId = addToolCall({
             name: name as ToolName,
             displayName: TOOL_DISPLAY_NAMES[name] || name,
@@ -308,7 +315,8 @@ export function App({ config }: AppProps): React.ReactElement {
           })
           toolIdMapRef.current.clear()
           clearSubAgents()
-          // 重置 thinking 状态
+          // 重置文本累积和 thinking 状态
+          accumulatedTextRef.current = ''
           setThinkingContent('')
           setIsThinking(false)
           break
@@ -520,6 +528,8 @@ export function App({ config }: AppProps): React.ReactElement {
         toolIdMapRef.current.clear()
         clearSubAgents()
         addSystemMessage('warning', '⏹ 任务已中止 (Ctrl+C)')
+      } else {
+        addSystemMessage('info', '使用 /quit 退出会话')
       }
     },
     onCtrlO: () => toggleAllTools(),

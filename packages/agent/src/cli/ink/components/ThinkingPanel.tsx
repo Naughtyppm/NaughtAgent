@@ -25,7 +25,7 @@ export function ThinkingPanel({
   isThinking,
   defaultExpanded = false,
 }: ThinkingPanelProps): React.ReactElement | null {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded)
+  const [_isExpanded] = useState(defaultExpanded)
 
   // 如果没有内容，不显示
   if (!content && !isThinking) {
@@ -35,7 +35,7 @@ export function ThinkingPanel({
   // 截断显示的内容（折叠时只显示前几行）
   const lines = content.split('\n')
   const previewLines = 3
-  const displayContent = isExpanded
+  const displayContent = _isExpanded
     ? content
     : lines.slice(0, previewLines).join('\n') + (lines.length > previewLines ? '\n...' : '')
 
@@ -48,7 +48,7 @@ export function ThinkingPanel({
         </Text>
         <Text color="gray" dimColor>
           {' '}
-          [{isExpanded ? '▼' : '▶'} {lines.length} 行]
+          {_isExpanded ? '▼' : '▶'} {lines.length} 行]
         </Text>
       </Box>
 
@@ -58,7 +58,6 @@ export function ThinkingPanel({
         borderStyle="single"
         borderColor="magenta"
         paddingX={1}
-        dimColor
       >
         <Text color="gray" dimColor wrap="wrap">
           {displayContent || (isThinking ? '正在深度思考...' : '')}

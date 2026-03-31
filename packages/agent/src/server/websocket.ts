@@ -415,7 +415,7 @@ class WebSocketConnection {
 
     switch (message.type) {
       case "send":
-        await this.handleSend(message.message)
+        await this.handleSend(message.message, message.model as string | undefined, message.thinking as { enabled: boolean; budgetTokens?: number } | undefined)
         break
       case "cancel":
         this.handleCancel()
@@ -464,7 +464,7 @@ class WebSocketConnection {
   /**
    * 处理发送消息
    */
-  private async handleSend(message: string): Promise<void> {
+  private async handleSend(message: string, model?: string, thinking?: { enabled: boolean; budgetTokens?: number }): Promise<void> {
     if (this.isRunning) {
       this.sendError("Already running a task")
       return
@@ -472,7 +472,19 @@ class WebSocketConnection {
 
     // 确保有会话
     if (!this.session) {
-      this.session = await this.createOrGetSession()
+      this.session = await this.createOrGetSession(model)
+    }
+
+    // 动态设置 model 配置
+    if (model) {
+      const runner = this.session.runner as ReturnType<typeof createRunner>
+      runner.setModel(model)
+    }
+
+    // 动态设置 thinking 配置
+    if (thinking?.enabled) {
+      const runner = this.session.runner as ReturnType<typeof createRunner>
+      runner.setThinking(thinking)
     }
 
     this.isRunning = true
@@ -480,8 +492,18 @@ class WebSocketConnection {
     const currentSessionId = this.session.id
 
     const handlers: RunnerEventHandlers = {
-      onText: (content) => {
-        const msg: WSServerMessage = { type: "text", content }
+      onTextDelta: (delta) => {
+        const msg: WSServerMessage = { type: "text_delta", delta }
+        this.send(msg)
+        this.callbacks.broadcast(currentSessionId, msg)
+      },
+      onThinking: (content) => {
+        const msg: WSServerMessage = { type: "thinking", content }
+        this.send(msg)
+        this.callbacks.broadcast(currentSessionId, msg)
+      },
+      onThinkingEnd: () => {
+        const msg: WSServerMessage = { type: "thinking_end" }
         this.send(msg)
         this.callbacks.broadcast(currentSessionId, msg)
       },
@@ -583,7 +605,7 @@ class WebSocketConnection {
   /**
    * 创建或获取会话
    */
-  private async createOrGetSession(): Promise<ActiveSession> {
+  private async createOrGetSession(model?: string): Promise<ActiveSession> {
     // 如果有 sessionId，尝试从持久化存储恢复
     if (this.sessionId) {
       const persisted = await this.daemonSessions.getSession(this.sessionId)
@@ -591,6 +613,7 @@ class WebSocketConnection {
         const runner = createRunner({
           agentType: persisted.agentType,
           cwd: persisted.cwd,
+          model,
           apiKey: this.config.claudeApiKey,
           baseURL: this.config.claudeBaseURL,
           autoConfirm: this.config.autoConfirm,
@@ -619,6 +642,7 @@ class WebSocketConnection {
       const runner = createRunner({
         agentType: persisted.agentType,
         cwd: persisted.cwd,
+        model,
         apiKey: this.config.claudeApiKey,
         baseURL: this.config.claudeBaseURL,
         autoConfirm: this.config.autoConfirm,
@@ -639,13 +663,13 @@ class WebSocketConnection {
     }
 
     // 创建新会话
-    return this.createSession()
+    return this.createSession(model)
   }
 
   /**
    * 创建新会话
    */
-  private createSession(): ActiveSession {
+  private createSession(model?: string): ActiveSession {
     const id = this.sessionId || generateId()
     const cwd = this.cwd || this.config.defaultCwd || process.cwd()
     const agentType: AgentType = "build"
@@ -653,6 +677,7 @@ class WebSocketConnection {
     const runner = createRunner({
       agentType,
       cwd,
+      model,
       apiKey: this.config.claudeApiKey,
       baseURL: this.config.claudeBaseURL,
       autoConfirm: this.config.autoConfirm,

@@ -17,7 +17,30 @@ export { RunWorkflowTool } from "./run-workflow-tool"
 export { ForkAgentTool } from "./fork-agent-tool"
 export { ParallelAgentsTool } from "./parallel-agents-tool"
 export { MultiAgentTool } from "./multi-agent-tool"
+export { DispatchAgentTool, setDispatchAgentRuntime, setDispatchAgentProvider } from "./dispatch-agent-tool"
 export { TaskTool } from "../../subtask/task-tool"
+export {
+  RequestShutdownTool,
+  RespondShutdownTool,
+  SubmitPlanTool,
+  ReviewPlanTool,
+  ListPendingPlansTool,
+} from "./protocol-tools"
+export {
+  scanTasksTool,
+  claimTaskTool,
+  completeTaskTool,
+  createTeamTaskTool,
+  listTeamTasksTool,
+} from "./autonomous-tools"
+export {
+  worktreeCreateTool,
+  worktreeRunTool,
+  worktreeCloseoutTool,
+  worktreeListTool,
+  worktreeStatusTool,
+  worktreeEventsTool,
+} from "./worktree-tools"
 
 // 工具注册辅助
 export { registerSubagentTools, updateParentContext, SUBAGENT_TOOL_IDS, type SubagentToolId } from "./register"

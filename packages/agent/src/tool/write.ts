@@ -2,9 +2,11 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import { z } from "zod"
 import { Tool } from "./tool"
+import { resolvePath } from "./safe-path"
+import { WRITE_MAX_LINES } from "../config"
 
 /** 单次写入最大行数限制 */
-const MAX_LINES_PER_WRITE = 80
+const MAX_LINES_PER_WRITE = WRITE_MAX_LINES
 
 /** 内容类型检测和分段建议 */
 interface ContentAnalysis {
@@ -204,10 +206,7 @@ export const WriteTool = Tool.define({
   async execute(params, ctx) {
     let filePath = params.filePath
 
-    // 处理相对路径
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.resolve(ctx.cwd, filePath)
-    }
+    filePath = resolvePath(filePath, ctx.cwd)
 
     const title = path.basename(filePath)
     const dir = path.dirname(filePath)

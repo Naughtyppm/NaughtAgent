@@ -14,6 +14,7 @@
 
 import type { Message } from "../session/message"
 import { getMessageText, getToolCalls } from "../session/message"
+import { DEFAULT_MAX_TOKENS } from "../config"
 import type { ModelType, Tokenizer } from "./types"
 import { getTokenizerProvider } from "./tokenizer-provider"
 
@@ -82,7 +83,7 @@ export interface ToolDefinition {
 /** 默认 Token 限制 */
 export const DEFAULT_TOKEN_LIMITS: TokenLimits = {
   maxContext: 180000,
-  reserveOutput: 8192,
+  reserveOutput: DEFAULT_MAX_TOKENS,
   compressThreshold: 0.8,
   keepRecentMessages: 10,
 }

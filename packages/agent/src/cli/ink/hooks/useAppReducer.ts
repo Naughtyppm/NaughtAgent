@@ -16,13 +16,10 @@
  * - 批量 action（TOOL_START, TASK_DONE 等）原子更新多个状态字段
  */
 
-import { useReducer, useCallback } from 'react'
+import { useReducer } from 'react'
 import type {
   AppReducerState,
   AppAction,
-  StatusType,
-  ActiveView,
-  PermissionRequest,
 } from '../types.js'
 
 /**

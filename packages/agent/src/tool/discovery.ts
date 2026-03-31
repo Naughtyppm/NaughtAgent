@@ -8,7 +8,7 @@
 import type { McpClientPool } from "../mcp/pool"
 import type { McpClientEvent } from "../mcp/types"
 import { wrapMcpTool } from "../mcp/adapter"
-import { ToolRegistry } from "./registry"
+import { ToolRegistryCompat as ToolRegistry } from "./registry"
 import type { Tool } from "./tool"
 
 // ============================================================================

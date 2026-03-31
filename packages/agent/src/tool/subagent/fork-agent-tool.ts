@@ -41,6 +41,9 @@ The forked agent inherits:
 
 This is more expensive than run_agent but maintains continuity.`
 
+/** 最大子代理嵌套深度 */
+const MAX_SUBAGENT_DEPTH = 3
+
 export const ForkAgentTool = Tool.define({
   id: "fork_agent",
   description: DESCRIPTION,
@@ -57,6 +60,16 @@ export const ForkAgentTool = Tool.define({
   }),
 
   async execute(params, ctx) {
+    // 深度检查：防止无限递归
+    const currentDepth = ctx.depth ?? 0
+    if (currentDepth >= MAX_SUBAGENT_DEPTH) {
+      return {
+        title: "fork_agent",
+        output: `Error: 子代理嵌套深度已达上限 (${MAX_SUBAGENT_DEPTH})。当前深度: ${currentDepth}。请在当前层级完成任务。`,
+        metadata: { error: true, depth: currentDepth, maxDepth: MAX_SUBAGENT_DEPTH },
+      }
+    }
+
     if (!globalRuntime || !globalParentContext) {
       return {
         title: "fork_agent",
@@ -83,6 +96,8 @@ export const ForkAgentTool = Tool.define({
           maxTurns: params.maxTurns || 30,
           cwd: ctx.cwd,
           abort: ctx.abort,
+          depth: currentDepth + 1,
+          sharedContextId: ctx.sharedContextId,
         },
         {
           ...globalRuntime,

@@ -39,6 +39,15 @@ export {
   type SkillExecutorRuntime,
 } from "./executor"
 
+// Knowledge Skills（教材路线：按需加载知识）
+export {
+  SkillLoader,
+  initKnowledgeSkills,
+  getKnowledgeSkillLoader,
+  type KnowledgeSkill,
+  type KnowledgeSkillMeta,
+} from "./knowledge"
+
 // Builtin Skills
 export {
   builtinSkills,

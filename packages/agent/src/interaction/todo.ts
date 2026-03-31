@@ -9,10 +9,39 @@
  * - clear: 清空任务
  */
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "node:fs"
+import { join } from "node:path"
 import { z } from "zod"
 import { Tool } from "../tool/tool"
 import { invokeTodoUpdateCallback } from "./callbacks"
 import type { TodoItem, TodoList, TodoStatus } from "./types"
+
+// ============================================================================
+// Todo Storage (file-based, per session)
+// ============================================================================
+
+const TASKS_DIR = join(process.cwd(), ".tasks")
+
+function getSessionDir(sessionId: string): string {
+  const dir = join(TASKS_DIR, sessionId)
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+function saveList(list: TodoList): void {
+  const dir = getSessionDir(list.sessionId)
+  writeFileSync(join(dir, "tasks.json"), JSON.stringify(list, null, 2))
+}
+
+function loadList(sessionId: string): TodoList | null {
+  const path = join(TASKS_DIR, sessionId, "tasks.json")
+  if (!existsSync(path)) return null
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as TodoList
+  } catch {
+    return null
+  }
+}
 
 const DESCRIPTION = `Manage a task list to track progress on complex tasks.
 
@@ -71,46 +100,42 @@ const TodoParamsSchema = z.object({
 
 export type TodoParams = z.infer<typeof TodoParamsSchema>
 
-// ============================================================================
-// Todo Storage (in-memory, per session)
-// ============================================================================
-
-const todoLists = new Map<string, TodoList>()
-let idCounter = 0
-
 /**
- * 获取或创建任务列表
+ * 获取或创建任务列表（从文件加载，不存在则新建）
  */
 function getOrCreateList(sessionId: string): TodoList {
-  let list = todoLists.get(sessionId)
-  if (!list) {
-    list = { sessionId, items: [] }
-    todoLists.set(sessionId, list)
-  }
-  return list
+  return loadList(sessionId) ?? { sessionId, items: [] }
 }
 
 /**
- * 生成任务 ID
+ * 生成任务 ID（时间戳确保跨会话唯一）
  */
 function generateId(): string {
-  return String(++idCounter)
+  return String(Date.now())
 }
 
 /**
- * 重置 ID 计数器（用于测试）
+ * 重置（用于测试）
  */
-export function resetIdCounter(): void {
-  idCounter = 0
-}
+export function resetIdCounter(): void {}
 
 /**
  * 清空所有任务列表（用于测试）
  */
 export function clearAllTodoLists(): void {
-  todoLists.clear()
-  idCounter = 0
+  if (!existsSync(TASKS_DIR)) return
+  for (const sessionDir of readdirSync(TASKS_DIR)) {
+    const taskFile = join(TASKS_DIR, sessionDir, "tasks.json")
+    if (existsSync(taskFile)) unlinkSync(taskFile)
+  }
 }
+
+// ============================================================================
+// Todo Constraints（参考 learn-claude-code s03）
+// ============================================================================
+
+const MAX_TODO_ITEMS = 20
+const MAX_IN_PROGRESS = 1
 
 // ============================================================================
 // Todo Operations
@@ -125,6 +150,12 @@ function addTodo(
   parentId?: string
 ): TodoItem {
   const list = getOrCreateList(sessionId)
+
+  // 约束：最多 20 个任务
+  if (list.items.length >= MAX_TODO_ITEMS) {
+    throw new Error(`任务数量已达上限 (${MAX_TODO_ITEMS})，请先完成或删除一些任务`)
+  }
+
   const now = Date.now()
 
   const item: TodoItem = {
@@ -137,6 +168,7 @@ function addTodo(
   }
 
   list.items.push(item)
+  saveList(list)
   invokeTodoUpdateCallback(list)
 
   return item
@@ -157,8 +189,21 @@ function updateTodo(
     return null
   }
 
+  // 约束：同时只能有 1 个 in_progress
+  if (status === "in_progress") {
+    const currentInProgress = list.items.filter(
+      (i) => i.status === "in_progress" && i.id !== id
+    )
+    if (currentInProgress.length >= MAX_IN_PROGRESS) {
+      throw new Error(
+        `同时只能有 ${MAX_IN_PROGRESS} 个任务处于 in_progress，请先完成: [${currentInProgress[0].id}] ${currentInProgress[0].content}`
+      )
+    }
+  }
+
   item.status = status
   item.updatedAt = Date.now()
+  saveList(list)
   invokeTodoUpdateCallback(list)
 
   return item
@@ -177,6 +222,7 @@ function removeTodo(sessionId: string, id: string): boolean {
 
   // 同时删除子任务
   list.items = list.items.filter((i) => i.id !== id && i.parentId !== id)
+  saveList(list)
   invokeTodoUpdateCallback(list)
 
   return true
@@ -197,6 +243,7 @@ function clearTodos(sessionId: string): number {
   const list = getOrCreateList(sessionId)
   const count = list.items.length
   list.items = []
+  saveList(list)
   invokeTodoUpdateCallback(list)
   return count
 }

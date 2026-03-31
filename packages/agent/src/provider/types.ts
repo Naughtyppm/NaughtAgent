@@ -5,6 +5,7 @@
  */
 
 import type { z } from "zod"
+import { DEFAULT_MAX_TOKENS, FAST_MAX_TOKENS, DEFAULT_TEMPERATURE } from "../config"
 
 /**
  * Provider 类型
@@ -48,6 +49,11 @@ export interface TokenUsage {
 }
 
 /**
+ * 停止原因
+ */
+export type StopReason = "end_turn" | "max_tokens" | "tool_use" | "stop_sequence"
+
+/**
  * 流式事件
  */
 export type StreamEvent =
@@ -55,7 +61,7 @@ export type StreamEvent =
   | { type: "thinking"; text: string }
   | { type: "thinking_end" }
   | { type: "tool_call"; id: string; name: string; args: unknown }
-  | { type: "message_end"; usage: TokenUsage }
+  | { type: "message_end"; usage: TokenUsage; stopReason?: StopReason }
   | { type: "error"; error: Error }
 
 /**
@@ -161,6 +167,8 @@ export interface ChatResult {
     args: unknown
   }>
   usage: TokenUsage
+  /** Extended Thinking 内容（仅 Anthropic 支持） */
+  thinking?: string
 }
 
 /**
@@ -248,8 +256,8 @@ export type ProviderConfig =
 export const DEFAULT_MODEL: ModelConfig = {
   provider: "auto",
   model: "claude-sonnet-4-20250514",
-  temperature: 0,
-  maxTokens: 8192,
+  temperature: DEFAULT_TEMPERATURE,
+  maxTokens: DEFAULT_MAX_TOKENS,
 }
 
 /**
@@ -258,8 +266,8 @@ export const DEFAULT_MODEL: ModelConfig = {
 export const FAST_MODEL: ModelConfig = {
   provider: "auto",
   model: "claude-haiku-4-20250514",
-  temperature: 0,
-  maxTokens: 4096,
+  temperature: DEFAULT_TEMPERATURE,
+  maxTokens: FAST_MAX_TOKENS,
 }
 
 /**
@@ -342,6 +350,78 @@ export const ANTHROPIC_MODEL_MAP: Record<string, string> = {
 }
 
 /**
+ * Copilot API 兼容的模型名映射（简写 -> copilot-api 识别的格式）
+ * copilot-api 不认识带日期后缀的模型名
+ */
+export const COPILOT_MODEL_MAP: Record<string, string> = {
+  // 简写
+  sonnet: "claude-sonnet-4",
+  "sonnet-4": "claude-sonnet-4",
+  "sonnet-4.5": "claude-sonnet-4.5",
+  "sonnet-4.6": "claude-sonnet-4.6",
+  opus: "claude-opus-4.6",
+  "opus-4": "claude-opus-4.6",
+  "opus-4.5": "claude-opus-4.5",
+  "opus-4.6": "claude-opus-4.6",
+  haiku: "claude-haiku-4.5",
+  "haiku-4": "claude-haiku-4.5",
+  "haiku-4.5": "claude-haiku-4.5",
+  // claude- 前缀简写（不带版本号）
+  "claude-opus": "claude-opus-4.6",
+  "claude-sonnet": "claude-sonnet-4",
+  "claude-haiku": "claude-haiku-4.5",
+  // copilot-api 直接支持的格式（直通）
+  "claude-sonnet-4": "claude-sonnet-4",
+  "claude-sonnet-4.5": "claude-sonnet-4.5",
+  "claude-sonnet-4.6": "claude-sonnet-4.6",
+  "claude-opus-4.5": "claude-opus-4.5",
+  "claude-opus-4.6": "claude-opus-4.6",
+  "claude-haiku-4.5": "claude-haiku-4.5",
+  // Anthropic 完整格式 -> copilot 格式
+  "claude-sonnet-4-20250514": "claude-sonnet-4",
+  "claude-sonnet-4-5-20250514": "claude-sonnet-4.5",
+  "claude-opus-4-20250514": "claude-opus-4.5",
+  "claude-opus-4-5-20251101": "claude-opus-4.5",
+  "claude-opus-4-6-20260206": "claude-opus-4.6",
+  "claude-haiku-4-20250514": "claude-haiku-4.5",
+  "claude-haiku-4-5-20250514": "claude-haiku-4.5",
+}
+
+/**
+ * copilot-api 支持的有效模型名集合
+ */
+const COPILOT_VALID_MODELS = new Set([
+  "claude-sonnet-4", "claude-sonnet-4.5", "claude-sonnet-4.6",
+  "claude-opus-4.5", "claude-opus-4.6",
+  "claude-haiku-4.5",
+])
+
+/**
+ * 映射模型名到 Copilot API 兼容的模型名
+ */
+export function mapToCopilotModel(model: string): string {
+  if (!model) return "claude-sonnet-4"
+  if (COPILOT_MODEL_MAP[model]) return COPILOT_MODEL_MAP[model]
+
+  // 已经是 copilot-api 认识的格式（白名单验证）
+  if (COPILOT_VALID_MODELS.has(model)) return model
+
+  // 模糊匹配
+  const m = model.toLowerCase()
+  if (m.includes("opus")) {
+    if (m.includes("4.5")) return "claude-opus-4.5"
+    return "claude-opus-4.6"
+  }
+  if (m.includes("haiku")) return "claude-haiku-4.5"
+  if (m.includes("sonnet")) {
+    if (m.includes("4.6")) return "claude-sonnet-4.6"
+    return m.includes("4.5") ? "claude-sonnet-4.5" : "claude-sonnet-4"
+  }
+
+  return "claude-sonnet-4"
+}
+
+/**
  * 映射模型名到 Anthropic API 模型名
  */
 export function mapToAnthropicModel(model: string): string {
@@ -367,4 +447,23 @@ export function mapToAnthropicModel(model: string): string {
   }
 
   return "claude-sonnet-4-20250514"
+}
+
+/**
+ * 检测 baseURL 是否为反代（copilot-api 等）
+ */
+export function isProxyBaseURL(baseURL?: string): boolean {
+  if (!baseURL) return false
+  return baseURL.includes("localhost") || baseURL.includes("127.0.0.1")
+}
+
+/**
+ * 根据 baseURL 自动选择模型名格式
+ * 反代用 copilot 格式，原生用 Anthropic 格式
+ */
+export function resolveModelName(model: string, baseURL?: string): string {
+  if (isProxyBaseURL(baseURL)) {
+    return mapToCopilotModel(model)
+  }
+  return mapToAnthropicModel(model)
 }

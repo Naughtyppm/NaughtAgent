@@ -28,4 +28,12 @@ Thumbs.db
 coverage/
 
 # 临时文件
-nul  
+nul
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 包管理
+package-lock.json

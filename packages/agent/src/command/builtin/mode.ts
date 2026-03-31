@@ -108,7 +108,6 @@ export const modeCommand: BuiltinCommandDefinition = {
         context.setState({ permissionMode: newMode })
 
         const message = `权限模式已从 ${MODE_ICONS[currentMode]} ${currentMode} 切换到 ${MODE_ICONS[newMode]} ${newMode}`
-        context.addMessage('info', message)
 
         return {
           success: true,
@@ -159,7 +158,6 @@ export const modeCommand: BuiltinCommandDefinition = {
       context.setState({ permissionMode: targetMode })
 
       const message = `权限模式已从 ${MODE_ICONS[currentMode]} ${currentMode} 切换到 ${MODE_ICONS[targetMode]} ${targetMode}`
-      context.addMessage('info', message)
 
       return {
         success: true,

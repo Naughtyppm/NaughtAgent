@@ -24,7 +24,7 @@ import type {
   ToolUseContent,
   ToolResultContent,
 } from "./types"
-import { mapToAnthropicModel } from "./types"
+import { resolveModelName, isProxyBaseURL, DEFAULT_MAX_TOKENS, DEFAULT_THINKING_BUDGET } from "../config"
 
 /**
  * 创建 Anthropic Provider
@@ -179,7 +179,7 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
 
     async *stream(params: ChatParams): AsyncGenerator<StreamEvent> {
       const thinkingEnabled = params.model.thinking?.enabled
-      const thinkingBudget = params.model.thinking?.budgetTokens || 16000
+      const thinkingBudget = params.model.thinking?.budgetTokens || DEFAULT_THINKING_BUDGET
 
       logger.debug('开始流式调用', {
         model: params.model.model,
@@ -193,8 +193,8 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
       try {
         // 构建请求参数
         const requestParams: Anthropic.MessageStreamParams = {
-          model: mapToAnthropicModel(params.model.model),
-          max_tokens: params.model.maxTokens || 8192,
+          model: resolveModelName(params.model.model, config.baseURL),
+          max_tokens: params.model.maxTokens || DEFAULT_MAX_TOKENS,
           system: params.system,
           messages: convertMessages(params.messages),
           tools: convertTools(params.tools),
@@ -208,8 +208,9 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
             budget_tokens: thinkingBudget,
           }
           // 注意：启用 thinking 时不能设置 temperature
-        } else {
-          // 普通模式可以设置 temperature
+        } else if (!isProxyBaseURL(config.baseURL)) {
+          // 仅原生 API 设置 temperature
+          // 反代（copilot-api）可能自动启用 adaptive thinking，设置 temperature 会冲突
           requestParams.temperature = params.model.temperature
         }
 
@@ -285,6 +286,7 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
             inputTokens: finalMessage.usage.input_tokens,
             outputTokens: finalMessage.usage.output_tokens,
           },
+          stopReason: finalMessage.stop_reason as "end_turn" | "max_tokens" | "tool_use" | "stop_sequence" | undefined,
         }
       } catch (err) {
         const agentError = convertError(err)
@@ -299,7 +301,7 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
 
     async chat(params: ChatParams): Promise<ChatResult> {
       const thinkingEnabled = params.model.thinking?.enabled
-      const thinkingBudget = params.model.thinking?.budgetTokens || 16000
+      const thinkingBudget = params.model.thinking?.budgetTokens || DEFAULT_THINKING_BUDGET
 
       logger.debug('开始非流式调用', {
         model: params.model.model,
@@ -316,8 +318,8 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
 
         // 构建请求参数
         const requestParams: Anthropic.MessageCreateParams = {
-          model: mapToAnthropicModel(params.model.model),
-          max_tokens: params.model.maxTokens || 8192,
+          model: resolveModelName(params.model.model, config.baseURL),
+          max_tokens: params.model.maxTokens || DEFAULT_MAX_TOKENS,
           system: params.system,
           messages: convertedMessages,
           tools: convertedTools,
@@ -330,7 +332,8 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
             budget_tokens: thinkingBudget,
           }
           // 注意：启用 thinking 时不能设置 temperature
-        } else {
+        } else if (!isProxyBaseURL(config.baseURL)) {
+          // 仅原生 API 设置 temperature
           requestParams.temperature = params.model.temperature
         }
 
@@ -338,8 +341,9 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           signal: params.abortSignal,
         })
 
-        // 提取文本和工具调用
+        // 提取文本、工具调用和 thinking 内容
         let text = ""
+        let thinking = ""
         const toolCalls: { id: string; name: string; args: unknown }[] = []
 
         for (const block of response.content) {
@@ -351,6 +355,8 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
               name: block.name,
               args: block.input,
             })
+          } else if (block.type === "thinking") {
+            thinking += (block as { type: "thinking"; thinking: string }).thinking
           }
         }
 
@@ -364,6 +370,7 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
         return {
           text,
           toolCalls,
+          thinking: thinking || undefined,
           usage: {
             inputTokens: response.usage.input_tokens,
             outputTokens: response.usage.output_tokens,

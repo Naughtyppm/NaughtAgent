@@ -13,6 +13,9 @@ import type {
   SubTaskResult,
   SubTaskProvider,
 } from "./types"
+import { createLogger } from "../logging"
+
+const log = createLogger("ask-llm")
 
 /**
  * 执行 ask_llm 模式子任务
@@ -34,6 +37,8 @@ export async function runAskLlm(
         duration: Date.now() - startTime,
       }
     }
+
+    log.info("ask_llm calling provider", { promptLength: config.prompt.length, hasSchema: !!config.schema, outputFormat: config.outputFormat })
 
     // 构建消息
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = []

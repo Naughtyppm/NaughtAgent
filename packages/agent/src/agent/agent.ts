@@ -11,6 +11,7 @@
 import type { Tool } from "../tool/tool"
 import type { ModelConfig } from "../provider"
 import type { AgentType, TokenUsage } from "../session/session"
+import { DEFAULT_MAX_STEPS } from "../config"
 
 // 重新导出 Session 中的类型
 export type { AgentType, TokenUsage } from "../session/session"
@@ -27,12 +28,13 @@ export type AgentMode = "primary" | "subagent"
  */
 export type AgentEvent =
   | { type: "text"; content: string }
+  | { type: "text_delta"; delta: string }
   | { type: "thinking"; content: string }
   | { type: "thinking_end" }
   | { type: "tool_start"; id: string; name: string; input: unknown }
   | { type: "tool_end"; id: string; result: Tool.Result; isError?: boolean }
   | { type: "error"; error: Error }
-  | { type: "done"; usage: TokenUsage }
+  | { type: "done"; usage: TokenUsage; stopReason?: string }
 
 /**
  * Agent 定义
@@ -85,8 +87,15 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
       "read", "write", "append", "edit", "bash", "glob", "grep",
       // 子代理工具（智能委托）
       "ask_llm", "run_agent", "fork_agent", "parallel_agents", "multi_agent",
+      "dispatch_agent", "task", "run_workflow",
+      // 团队协作工具（s10 Team Protocols）
+      "request_shutdown", "respond_shutdown", "submit_plan", "review_plan", "list_pending_plans",
+      // 自主任务工具（s11 Autonomous Agents）
+      "scan_tasks", "claim_task", "complete_task", "create_team_task", "list_team_tasks",
+      // Worktree 隔离工具（s12 Worktree Task Isolation）
+      "worktree_create", "worktree_run", "worktree_closeout", "worktree_list", "worktree_status", "worktree_events",
     ],
-    maxSteps: 100,
+    maxSteps: DEFAULT_MAX_STEPS,
   },
   plan: {
     type: "plan",

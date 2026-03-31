@@ -31,7 +31,6 @@ function formatHistory(history: string[], limit: number): string {
 
   // 获取要显示的历史记录（最近的在前）
   const displayHistory = history.slice(-limit).reverse()
-  const startIndex = Math.max(0, history.length - limit)
 
   displayHistory.forEach((cmd, index) => {
     const historyIndex = history.length - index

@@ -370,6 +370,9 @@ async function handleCreateSession(
   // 创建持久化会话
   const persistedSession = await daemonSessions.createSession(cwd, agentType)
 
+  // 后台任务通知队列（scheduler → agent loop）
+  const backgroundNotifications: Array<{ taskId: string; command: string; output: string; error?: string }> = []
+
   // 创建 Runner
   const runner = createRunner({
     agentType,
@@ -377,6 +380,31 @@ async function handleCreateSession(
     apiKey: config.claudeApiKey,
     baseURL: config.claudeBaseURL,
     autoConfirm: config.autoConfirm,
+    backgroundNotifications,
+  })
+
+  // 监听 scheduler 任务完成，写入通知队列
+  // TODO: scheduler 实例需要从外部注入
+  // @ts-ignore - scheduler 尚未实现
+  scheduler?.on("taskCompleted", (task: any, result: any) => {
+    if (task.sessionId === persistedSession.id) {
+      backgroundNotifications.push({
+        taskId: task.id,
+        command: task.input?.command ?? task.type,
+        output: typeof result.output === "string" ? result.output : JSON.stringify(result.output),
+      })
+    }
+  })
+  // @ts-ignore - scheduler 尚未实现
+  scheduler?.on("taskFailed", (task: any, error: any) => {
+    if (task.sessionId === persistedSession.id) {
+      backgroundNotifications.push({
+        taskId: task.id,
+        command: task.input?.command ?? task.type,
+        output: "",
+        error: error.message,
+      })
+    }
   })
 
   const activeSession: ActiveSession = {
@@ -537,8 +565,8 @@ async function handleNonStreamMessage(
   let usage = { inputTokens: 0, outputTokens: 0 }
 
   const handlers: RunnerEventHandlers = {
-    onText: (text) => {
-      content += text
+    onTextDelta: (delta) => {
+      content += delta
     },
     onToolStart: (id, name, input) => {
       const record: ToolCallRecord = { id, name, input, output: "" }
@@ -604,8 +632,8 @@ async function handleStreamMessage(
   }
 
   const handlers: RunnerEventHandlers = {
-    onText: (content) => {
-      sendEvent({ type: "text", content })
+    onTextDelta: (delta) => {
+      sendEvent({ type: "text_delta", delta })
     },
     onToolStart: (id, name, input) => {
       sendEvent({ type: "tool_start", id, name, input })
@@ -792,8 +820,8 @@ async function executeMessageTask(
   let error: string | undefined
 
   const handlers: RunnerEventHandlers = {
-    onText: (text) => {
-      output += text
+    onTextDelta: (delta) => {
+      output += delta
     },
     onDone: (u) => {
       usage = u

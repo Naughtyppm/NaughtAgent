@@ -24,6 +24,9 @@ export enum ErrorCode {
   TOOL_EXECUTION_ERROR = 'TOOL_EXECUTION_ERROR',
   PERMISSION_DENIED = 'PERMISSION_DENIED',
   
+  // 上下文错误（可恢复）
+  CONTEXT_OVERFLOW = 'CONTEXT_OVERFLOW',
+  
   // 系统错误（不可恢复）
   INTERNAL_ERROR = 'INTERNAL_ERROR',
   CONFIGURATION_ERROR = 'CONFIGURATION_ERROR'
@@ -79,6 +82,8 @@ export class AgentError extends Error {
         return '请求参数无效，请检查输入参数'
       case ErrorCode.AUTHENTICATION_ERROR:
         return '身份验证失败，请检查 API 密钥或凭证'
+      case ErrorCode.CONTEXT_OVERFLOW:
+        return '上下文 Token 超限，尝试压缩后重试'
       case ErrorCode.INTERNAL_ERROR:
         return '内部错误，请查看错误日志获取更多信息'
       case ErrorCode.CONFIGURATION_ERROR:

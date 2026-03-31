@@ -2,6 +2,8 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import { z } from "zod"
 import { Tool } from "./tool"
+import { resolvePath } from "./safe-path"
+import { READ_MAX_LINE_LENGTH } from "../config"
 
 const DESCRIPTION = `Reads a file from the local filesystem.
 
@@ -11,8 +13,35 @@ Usage:
 - You can optionally specify a line offset and limit for long files
 - Results are returned with line numbers starting at 1`
 
-const DEFAULT_LIMIT = 2000
-const MAX_LINE_LENGTH = 2000
+const DEFAULT_LIMIT = READ_MAX_LINE_LENGTH
+const MAX_LINE_LENGTH = READ_MAX_LINE_LENGTH
+
+// ─── 文件读取缓存（session 级去重）──────────────────────
+// key: "sessionId:filePath:offset:limit"
+// 用途：重复读取时直接返回缓存内容（静默，不加警告——警告会导致 LLM 绕道 bash）
+
+interface ReadCacheEntry {
+  output: string
+  title: string
+  metadata: Record<string, unknown>
+  count: number
+  mtimeMs: number  // 文件修改时间，变化时视为新读取
+}
+
+const readCache = new Map<string, ReadCacheEntry>()
+
+/** 清除指定 session 的读取缓存（session 结束时调用） */
+export function clearReadCache(sessionId?: string): void {
+  if (!sessionId) {
+    readCache.clear()
+    return
+  }
+  for (const key of readCache.keys()) {
+    if (key.startsWith(`${sessionId}:`)) {
+      readCache.delete(key)
+    }
+  }
+}
 
 /**
  * 检测是否为二进制文件
@@ -64,10 +93,7 @@ export const ReadTool = Tool.define({
   async execute(params, ctx) {
     let filePath = params.filePath
 
-    // 处理相对路径
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.resolve(ctx.cwd, filePath)
-    }
+    filePath = resolvePath(filePath, ctx.cwd)
 
     const title = path.basename(filePath)
 
@@ -89,12 +115,27 @@ export const ReadTool = Tool.define({
       throw new Error(`Cannot read binary file: ${filePath}`)
     }
 
-    // 读取文件
-    const content = await fs.readFile(filePath, "utf-8")
-    const lines = content.split("\n")
-
     const offset = params.offset ?? 0
     const limit = params.limit ?? DEFAULT_LIMIT
+
+    // ─── 读取缓存检测 ─────────────────────────
+    const cacheKey = `${ctx.sessionID}:${filePath}:${offset}:${limit}`
+    const cached = readCache.get(cacheKey)
+    const currentMtimeMs = stat.mtimeMs
+
+    if (cached && cached.mtimeMs === currentMtimeMs) {
+      // 文件未修改，静默返回缓存内容（不加任何警告前缀，避免 LLM 绕道 bash）
+      cached.count++
+      return {
+        title,
+        output: cached.output,
+        metadata: { ...cached.metadata, fromCache: true, readCount: cached.count },
+      }
+    }
+
+    // ─── 首次读取或文件已修改 ─────────────────
+    const content = await fs.readFile(filePath, "utf-8")
+    const lines = content.split("\n")
     const endLine = Math.min(lines.length, offset + limit)
 
     // 格式化输出（带行号）
@@ -122,14 +163,21 @@ export const ReadTool = Tool.define({
     }
     output += "\n</file>"
 
-    return {
-      title,
-      output,
-      metadata: {
-        totalLines,
-        linesRead: endLine - offset,
-        truncated: hasMore,
-      },
+    const metadata = {
+      totalLines,
+      linesRead: endLine - offset,
+      truncated: hasMore,
     }
+
+    // 缓存结果
+    readCache.set(cacheKey, {
+      output,
+      title,
+      metadata,
+      count: 1,
+      mtimeMs: currentMtimeMs,
+    })
+
+    return { title, output, metadata }
   },
 })

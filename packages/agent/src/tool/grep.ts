@@ -3,6 +3,8 @@ import * as path from "path"
 import fg from "fast-glob"
 import { z } from "zod"
 import { Tool } from "./tool"
+import { resolvePath } from "./safe-path"
+import { GREP_MAX_MATCHES } from "../config"
 
 const DESCRIPTION = `Searches for a pattern in file contents using regular expressions.
 
@@ -12,7 +14,7 @@ Usage:
 - Use ignoreCase for case-insensitive search
 - Use context to show surrounding lines`
 
-const DEFAULT_MAX_RESULTS = 100
+const DEFAULT_MAX_RESULTS = GREP_MAX_MATCHES
 const MAX_FILE_SIZE = 1024 * 1024 // 1MB
 const MAX_LINE_LENGTH = 500
 
@@ -165,8 +167,8 @@ export const GrepTool = Tool.define({
     } = params
 
     let searchPath = params.path
-    if (searchPath && !path.isAbsolute(searchPath)) {
-      searchPath = path.resolve(ctx.cwd, searchPath)
+    if (searchPath) {
+      searchPath = resolvePath(searchPath, ctx.cwd)
     }
     const basePath = searchPath || ctx.cwd
 

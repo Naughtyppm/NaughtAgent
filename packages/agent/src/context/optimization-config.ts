@@ -11,6 +11,7 @@
 
 import * as fs from "fs/promises"
 import * as path from "path"
+import { AUTO_COMPACT_TOKEN_THRESHOLD } from "../config"
 
 // ============================================================================
 // Types
@@ -123,7 +124,7 @@ export const DEFAULT_OPTIMIZATION_CONFIG: OptimizationConfig = {
   compression: {
     enabled: true,
     threshold: 80000,
-    targetTokens: 50000,
+    targetTokens: AUTO_COMPACT_TOKEN_THRESHOLD,
     strategy: "importance",
     keepRecentCount: 10,
   },
