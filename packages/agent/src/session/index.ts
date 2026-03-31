@@ -46,7 +46,7 @@ export {
 } from "./session"
 
 // SessionManager 会话管理器
-export { SessionManager, sessionManager, type SessionCompressionConfig } from "./manager"
+export { SessionManager, sessionManager } from "./manager"
 
 // Storage 持久化
 export {

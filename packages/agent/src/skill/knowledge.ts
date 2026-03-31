@@ -57,22 +57,23 @@ function parseFrontmatter(text: string): { meta: Record<string, string>; body: s
 
 export class SkillLoader {
   private skills = new Map<string, KnowledgeSkill>()
-  private skillsDir: string
 
-  constructor(skillsDir: string) {
-    this.skillsDir = skillsDir
-    this.loadAll()
+  constructor(skillsDir?: string) {
+    if (skillsDir) {
+      this.addDirectory(skillsDir)
+    }
   }
 
   /**
-   * 扫描 skills/ 目录，加载所有 SKILL.md
+   * 添加一个 skills 目录，扫描并加载其中的 SKILL.md
+   * 支持多次调用，累积加载多个目录（项目级 + 全局级）
    */
-  private loadAll(): void {
-    if (!existsSync(this.skillsDir)) return
+  addDirectory(skillsDir: string): void {
+    if (!existsSync(skillsDir)) return
 
-    const entries = readdirSync(this.skillsDir)
+    const entries = readdirSync(skillsDir)
     for (const entry of entries) {
-      const entryPath = join(this.skillsDir, entry)
+      const entryPath = join(skillsDir, entry)
       if (!statSync(entryPath).isDirectory()) continue
 
       const skillFile = join(entryPath, "SKILL.md")
@@ -83,15 +84,18 @@ export class SkillLoader {
         const { meta, body } = parseFrontmatter(text)
         const name = meta.name || entry
 
-        this.skills.set(name, {
-          meta: {
-            name,
-            description: meta.description || "No description",
-            tags: meta.tags,
-          },
-          body,
-          path: skillFile,
-        })
+        // 项目级优先：如果同名 skill 已存在（来自先加载的目录），不覆盖
+        if (!this.skills.has(name)) {
+          this.skills.set(name, {
+            meta: {
+              name,
+              description: meta.description || "No description",
+              tags: meta.tags,
+            },
+            body,
+            path: skillFile,
+          })
+        }
       } catch {
         // 跳过解析失败的 skill
       }

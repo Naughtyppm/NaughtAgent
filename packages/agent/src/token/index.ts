@@ -90,14 +90,4 @@ export {
   createTruncator,
 } from "./truncator"
 
-// Token 压缩器
-export {
-  // Types
-  type CompressionConfig,
-  type CompressionResult,
-  type TokenCompressor,
-  // Constants
-  DEFAULT_COMPRESSION_CONFIG,
-  // Functions
-  createCompressor,
-} from "./compressor"
+// token/compressor.ts 已删除（v0.3.0），压缩统一由 agent/compact.ts 处理

@@ -6,7 +6,7 @@
  * Layer 3: compact 工具 - LLM 主动触发压缩（注册为工具）
  */
 
-import { writeFileSync, mkdirSync } from "node:fs"
+import { writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs"
 import { join } from "node:path"
 import type { Session } from "../session"
 import type { ToolResultBlock } from "../session"
@@ -191,6 +191,7 @@ export async function autoCompact(
     const timestamp = Date.now()
     const transcriptPath = join(transcriptDir, `${timestamp}.json`)
     writeFileSync(transcriptPath, JSON.stringify(session.messages, null, 2))
+    cleanOldTranscripts(transcriptDir, 7 * 24 * 60 * 60 * 1000) // 保留 7 天
   } catch {
     // 存档失败不阻塞压缩流程
   }
@@ -265,4 +266,23 @@ export async function autoCompact(
 
 export function shouldAutoCompact(session: Session): boolean {
   return estimateTokens(session) > AUTO_COMPACT_TOKEN_THRESHOLD
+}
+
+// ============================================================================
+// 过期 transcript 清理
+// ============================================================================
+
+function cleanOldTranscripts(dir: string, maxAge: number): void {
+  try {
+    const now = Date.now()
+    for (const file of readdirSync(dir)) {
+      const filePath = join(dir, file)
+      const stat = statSync(filePath)
+      if (now - stat.mtimeMs > maxAge) {
+        unlinkSync(filePath)
+      }
+    }
+  } catch {
+    // 清理失败不影响主流程
+  }
 }

@@ -80,19 +80,7 @@ export {
   PROJECT_CONTEXT_TAG_CLOSE,
 } from "./context-injector"
 
-export {
-  // Types
-  type TokenCompressorConfig,
-  type CompressionResult,
-  type TokenCompressor,
-  // Functions
-  createTokenCompressor,
-  // Re-exports from subtask/context
-  SimpleTokenCounter,
-  evaluateMessageImportance,
-  // Constants
-  DEFAULT_TOKEN_COMPRESSOR_CONFIG,
-} from "./token-compressor"
+// token-compressor.ts 已删除（v0.3.0），压缩统一由 agent/compact.ts 处理
 
 export {
   // Types

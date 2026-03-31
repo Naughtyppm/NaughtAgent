@@ -85,6 +85,12 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
     tools: [
       // 基础工具
       "read", "write", "append", "edit", "bash", "glob", "grep",
+      // 交互工具（s03: Todo Write / Question）
+      "todo", "question",
+      // 上下文压缩（s06: Layer 3 LLM 主动触发）
+      "compact",
+      // Skill 加载（s05: Layer 2 按需加载）
+      "load_skill",
       // 子代理工具（智能委托）
       "ask_llm", "run_agent", "fork_agent", "parallel_agents", "multi_agent",
       "dispatch_agent", "task", "run_workflow",

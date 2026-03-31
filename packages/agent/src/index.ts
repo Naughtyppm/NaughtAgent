@@ -97,10 +97,6 @@ export {
   type ToolOutputTruncator,
   DEFAULT_TRUNCATION_CONFIG,
   createTruncator,
-  // 压缩器 (排除 CompressionResult/TokenCompressor，已由 ./context 导出)
-  type CompressionConfig,
-  DEFAULT_COMPRESSION_CONFIG,
-  createCompressor,
 } from "./token"
 
 // Security 安全系统

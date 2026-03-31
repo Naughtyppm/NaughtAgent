@@ -33,7 +33,7 @@ import { TodoTool } from "../interaction/todo"
 import { QuestionTool } from "../interaction/question"
 import { LoadSkillTool } from "../tool/load-skill"
 import { CompactTool } from "../tool/compact"
-import { initKnowledgeSkills } from "../skill/knowledge"
+import { initKnowledgeSkills, getKnowledgeSkillLoader } from "../skill/knowledge"
 import { initSkills } from "../skill"
 import { existsSync } from "fs"
 import { homedir } from "os"
@@ -361,17 +361,25 @@ function registerBuiltinTools(registry: ToolRegistry): void {
 }
 
 /**
- * 初始化 Knowledge Skill 目录（全局 + 项目级）
- * 扫描 ~/.naughtyagent/skills/ 和 {cwd}/.naughty/skills/
+ * 初始化 Knowledge Skill 目录（项目级 + 全局级同时加载）
+ * 项目级优先：同名 skill 以项目级为准
  */
 function initKnowledgeSkillDirs(cwd: string): void {
   const projectDir = path.join(cwd, ".naughty", "skills")
   const globalDir = path.join(homedir(), ".naughtyagent", "skills")
 
+  // 项目级先加载（优先级高）
   if (existsSync(projectDir)) {
     initKnowledgeSkills(projectDir)
-  } else if (existsSync(globalDir)) {
-    initKnowledgeSkills(globalDir)
+  }
+  // 全局级追加加载（不覆盖同名 skill）
+  if (existsSync(globalDir)) {
+    const loader = getKnowledgeSkillLoader()
+    if (loader) {
+      loader.addDirectory(globalDir)
+    } else {
+      initKnowledgeSkills(globalDir)
+    }
   }
 }
 
