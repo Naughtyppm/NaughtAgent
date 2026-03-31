@@ -10,7 +10,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "node:fs"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+import { createHash } from "node:crypto"
 import { z } from "zod"
 import { Tool } from "../tool/tool"
 import { invokeTodoUpdateCallback } from "./callbacks"
@@ -261,8 +262,8 @@ export const TodoTool = Tool.define({
   parameters: TodoParamsSchema,
 
   async execute(params, ctx) {
-    // 使用 cwd 作为简单的 session 标识
-    const sessionId = ctx.cwd
+    // 用 cwd 的短 hash 作为 session 标识（避免绝对路径拼接 join 出错）
+    const sessionId = createHash("md5").update(resolve(ctx.cwd)).digest("hex").slice(0, 12)
 
     // 验证参数
     const validationError = validateTodoParams(params)
