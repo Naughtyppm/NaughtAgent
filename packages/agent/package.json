@@ -1,6 +1,6 @@
 {
   "name": "@naughtyagent/agent",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "NaughtyAgent 核心 Agent 服务",
   "type": "module",
   "main": "dist/index.js",

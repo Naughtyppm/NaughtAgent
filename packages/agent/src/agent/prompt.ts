@@ -239,7 +239,7 @@ export function buildSystemPrompt(
     }
 
     if (definition.tools.length > 0) {
-      parts.push(`\nAvailable tools: ${definition.tools.join(", ")}`)
+      parts.push(buildToolGuide(definition.tools))
     }
     
     return parts.join('\n')
@@ -270,7 +270,7 @@ function buildLegacySystemPrompt(
 
   // 添加可用工具信息
   if (definition.tools.length > 0) {
-    parts.push(`\nAvailable tools: ${definition.tools.join(", ")}`)
+    parts.push(buildToolGuide(definition.tools))
   }
 
   // 添加自定义上下文
@@ -279,6 +279,54 @@ function buildLegacySystemPrompt(
   }
 
   return parts.join("\n")
+}
+
+/**
+ * 工具使用指南 - 让 LLM 知道每个工具的用途和使用时机
+ * 按教程 s02 原则：系统提示词中直接列出工具清单 + 描述
+ */
+const TOOL_GUIDE: Record<string, { desc: string; when: string }> = {
+  // 基础文件操作
+  read:    { desc: "读取文件内容", when: "查看代码/配置文件" },
+  write:   { desc: "创建/覆写文件", when: "新建文件或完整重写" },
+  edit:    { desc: "精确替换文件片段", when: "修改现有代码（首选）" },
+  append:  { desc: "追加内容到文件末尾", when: "添加日志/配置项" },
+  bash:    { desc: "执行 shell 命令", when: "git/npm/build 等系统命令（勿用于读写文件）" },
+  glob:    { desc: "按模式搜索文件名", when: "找文件（替代 find/ls）" },
+  grep:    { desc: "搜索文件内容", when: "搜索代码/关键词（替代 grep/rg）" },
+  // 交互
+  todo:      { desc: "任务跟踪清单", when: "多步任务时记录进度" },
+  question:  { desc: "向用户提问", when: "需要确认或选择时" },
+  // 上下文管理
+  compact:    { desc: "压缩对话上下文", when: "对话过长时主动触发（可节省 token）" },
+  load_skill: { desc: "加载 Skill 详细内容", when: "需要技能或模板的完整指导时" },
+  memory:     { desc: "跨会话持久记忆", when: "保存重要信息（项目模式、用户偏好、关键决策）到磁盘" },
+  // 子代理（仅在需要并行独立工作时使用）
+  run_agent:       { desc: "启动子代理执行任务", when: "需要独立并行的子任务" },
+  dispatch_agent:  { desc: "智能路由到专家代理", when: "需要特定领域专家" },
+  parallel_agents: { desc: "并行执行多个子代理", when: "≥2 个独立子任务并行" },
+}
+
+function buildToolGuide(tools: string[]): string {
+  const lines: string[] = ["\n## Your Available Tools\n"]
+  const described: string[] = []
+  const other: string[] = []
+
+  for (const t of tools) {
+    const info = TOOL_GUIDE[t]
+    if (info) {
+      described.push(`- **${t}**: ${info.desc} → ${info.when}`)
+    } else {
+      other.push(t)
+    }
+  }
+
+  lines.push(...described)
+  if (other.length > 0) {
+    lines.push(`- 其他工具: ${other.join(", ")}`)
+  }
+  lines.push("\nIMPORTANT: You already know your tools — do NOT search your own source code to discover them.")
+  return lines.join("\n")
 }
 
 /**

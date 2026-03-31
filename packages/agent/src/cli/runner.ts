@@ -33,6 +33,7 @@ import { TodoTool } from "../interaction/todo"
 import { QuestionTool } from "../interaction/question"
 import { LoadSkillTool } from "../tool/load-skill"
 import { CompactTool } from "../tool/compact"
+import { MemoryTool } from "../tool/memory"
 import { initKnowledgeSkills, getKnowledgeSkillLoader } from "../skill/knowledge"
 import { initSkills } from "../skill"
 import { existsSync } from "fs"
@@ -358,6 +359,8 @@ function registerBuiltinTools(registry: ToolRegistry): void {
   registry.register(LoadSkillTool)
   // 上下文压缩工具（s06: Layer 3 LLM 主动触发）
   registry.register(CompactTool)
+  // 持久记忆工具（跨会话记忆）
+  registry.register(MemoryTool)
 }
 
 /**

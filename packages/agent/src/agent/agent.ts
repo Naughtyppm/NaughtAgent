@@ -91,6 +91,8 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
       "compact",
       // Skill 加载（s05: Layer 2 按需加载）
       "load_skill",
+      // 持久记忆（跨会话记忆保存）
+      "memory",
       // 子代理工具（智能委托）
       "ask_llm", "run_agent", "fork_agent", "parallel_agents", "multi_agent",
       "dispatch_agent", "task", "run_workflow",

@@ -134,7 +134,7 @@ ${instructions.project}
     try {
       const indexCache = createDefaultIndexCache(this.cwd)
       const contextInjector = createContextInjector()
-      
+
       // 尝试从缓存加载索引
       const cachedIndex = indexCache.loadSync()
       if (cachedIndex) {
@@ -145,6 +145,17 @@ ${instructions.project}
       }
     } catch {
       // 忽略上下文注入错误，不影响主流程
+    }
+
+    // 4.5 持久记忆注入（跨会话记忆）
+    const memoryContent = this.loadMemory()
+    if (memoryContent) {
+      parts.push(`
+<persistent-memory source="project" path="${join(this.cwd, '.naughty', 'memory.md')}">
+${memoryContent}
+</persistent-memory>
+
+IMPORTANT: The above is your persistent memory from previous sessions. Use the \`memory\` tool to update it when you learn something important.`)
     }
 
     // 5. 环境信息
@@ -173,6 +184,14 @@ ${instructions.project}
     }
 
     return parts.join('\n')
+  }
+
+  /**
+   * 加载持久记忆文件
+   */
+  loadMemory(): string | null {
+    const memoryPath = join(this.cwd, ".naughty", "memory.md")
+    return safeReadFile(memoryPath)
   }
 
   /**

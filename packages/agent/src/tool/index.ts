@@ -53,6 +53,7 @@ export { BashTool } from "./bash"
 export { GlobTool } from "./glob"
 export { GrepTool } from "./grep"
 export { LoadSkillTool } from "./load-skill"
+export { MemoryTool } from "./memory"
 
 // 子代理工具
 export {
@@ -79,6 +80,7 @@ import { BashTool } from "./bash"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { LoadSkillTool } from "./load-skill"
+import { MemoryTool } from "./memory"
 
 export function registerBuiltinTools(): void {
   ToolRegistry.register(ReadTool)
@@ -89,4 +91,5 @@ export function registerBuiltinTools(): void {
   ToolRegistry.register(GlobTool)
   ToolRegistry.register(GrepTool)
   ToolRegistry.register(LoadSkillTool)
+  ToolRegistry.register(MemoryTool)
 }
