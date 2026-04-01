@@ -38,12 +38,15 @@ import { NotebookEditTool } from "../tool/notebook-edit"
 import { WebFetchTool } from "../tool/web-fetch"
 import { TaskOutputTool, TaskStopTool } from "../tool/background-task"
 import { EnterPlanModeTool, ExitPlanModeTool, isPlanMode } from "../tool/plan-mode"
+import { ListMcpResourcesTool, ReadMcpResourceTool } from "../tool/mcp-resource"
+import { CronCreateTool, CronDeleteTool, CronListTool } from "../tool/cron"
 import { initKnowledgeSkills, getKnowledgeSkillLoader } from "../skill/knowledge"
 import { initSkills } from "../skill"
 import { existsSync } from "fs"
 import { homedir } from "os"
 import * as path from "path"
 import { registerSubagentTools } from "../tool/subagent"
+import { initMcpManager, type McpManager } from "../mcp/manager"
 import type { SubTaskProvider, RunAgentRuntime } from "../subtask"
 import { getSubAgentConfigManager, getAgentRegistry } from "../subtask"
 import {
@@ -220,6 +223,14 @@ export function createRunner(config: RunnerConfig) {
   // 子 Agent 初始化
   const subAgentSystemReady = initializeSubAgentSystem(cwd)
 
+  // MCP 初始化（异步，不阻塞启动）
+  let mcpManager: McpManager | null = null
+  const mcpReady = initializeMcpSystem(cwd).then((manager) => {
+    mcpManager = manager
+  }).catch((error) => {
+    log.warn("MCP 初始化失败（跳过）:", { error: error instanceof Error ? error.message : String(error) })
+  })
+
   // Provider
   const provider: LLMProvider = apiKey
     ? createProvider({ type: "anthropic", config: { apiKey, baseURL } })
@@ -283,6 +294,7 @@ export function createRunner(config: RunnerConfig) {
   return {
     async run(input: string, handlers: RunnerEventHandlers = {}, options: RunOptions = {}): Promise<void> {
       await subAgentSystemReady
+      await mcpReady
       if (!session) session = createSession({ cwd, agentType })
 
       // 构建权限检查器（在 loop 层拦截，不是事后通知）
@@ -300,7 +312,7 @@ export function createRunner(config: RunnerConfig) {
       }
 
       // toolMeta 对象（PlanMode 工具会修改 meta.planMode）
-      const toolMeta: Record<string, unknown> = { session, summarizer }
+      const toolMeta: Record<string, unknown> = { session, summarizer, mcpManager }
 
       // 计划模式写入拦截（包装 permissionChecker）
       const PLAN_MODE_BLOCKED_TOOLS = new Set(["write", "edit", "append", "bash", "notebook_edit"])
@@ -401,6 +413,13 @@ function registerBuiltinTools(registry: ToolRegistry): void {
   // 计划模式工具
   registry.register(EnterPlanModeTool)
   registry.register(ExitPlanModeTool)
+  // MCP 资源工具
+  registry.register(ListMcpResourcesTool)
+  registry.register(ReadMcpResourceTool)
+  // Cron 定时任务工具
+  registry.register(CronCreateTool)
+  registry.register(CronDeleteTool)
+  registry.register(CronListTool)
 }
 
 /**
@@ -440,6 +459,47 @@ async function initializeSubAgentSystem(cwd: string): Promise<void> {
     await registry.loadCustomAgents(customAgentsDir ?? ".naughty/agents")
   } catch (error) {
     console.warn(`[SubAgentSystem] Agent 注册表加载失败: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+/**
+ * 初始化 MCP 系统
+ *
+ * 加载 .naught/mcp.json 配置，连接 MCP 服务器，
+ * 发现并注册 MCP 工具到 ToolRegistry。
+ * 配置文件不存在时静默跳过。
+ */
+async function initializeMcpSystem(cwd: string): Promise<McpManager | null> {
+  const configPath = path.join(cwd, ".naught", "mcp.json")
+
+  // 配置文件不存在时静默跳过
+  if (!existsSync(configPath)) {
+    log.debug("MCP 配置文件不存在，跳过 MCP 初始化", { configPath })
+    return null
+  }
+
+  try {
+    const manager = await initMcpManager(cwd)
+
+    // 检查是否有成功连接的服务器
+    const status = manager.getStatus()
+    const connectedCount = status.filter((s) => s.state === "connected").length
+
+    if (connectedCount === 0) {
+      log.warn("所有 MCP 服务器连接失败", { status })
+      return manager
+    }
+
+    log.info("MCP 系统初始化完成", {
+      servers: status.length,
+      connected: connectedCount,
+      tools: status.reduce((sum, s) => sum + s.toolCount, 0),
+    })
+
+    return manager
+  } catch (error) {
+    log.warn("MCP 系统初始化异常", { error: error instanceof Error ? error.message : String(error) })
+    return null
   }
 }
 

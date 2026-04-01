@@ -28,6 +28,10 @@ export type SessionStatus = "idle" | "running" | "paused" | "completed" | "error
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
+  /** Prompt Cache 创建的 token 数（仅 Anthropic） */
+  cacheCreationTokens?: number
+  /** Prompt Cache 命中读取的 token 数（仅 Anthropic） */
+  cacheReadTokens?: number
 }
 
 /**
@@ -143,6 +147,12 @@ export function updateUsage(
   }
   if (usage.outputTokens !== undefined) {
     session.usage.outputTokens += usage.outputTokens
+  }
+  if (usage.cacheCreationTokens !== undefined) {
+    session.usage.cacheCreationTokens = (session.usage.cacheCreationTokens || 0) + usage.cacheCreationTokens
+  }
+  if (usage.cacheReadTokens !== undefined) {
+    session.usage.cacheReadTokens = (session.usage.cacheReadTokens || 0) + usage.cacheReadTokens
   }
   session.updatedAt = Date.now()
 }

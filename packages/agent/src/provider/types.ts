@@ -50,6 +50,10 @@ export interface ModelConfig {
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
+  /** Prompt Cache 创建的 token 数（仅 Anthropic） */
+  cacheCreationTokens?: number
+  /** Prompt Cache 命中读取的 token 数（仅 Anthropic） */
+  cacheReadTokens?: number
 }
 
 /**

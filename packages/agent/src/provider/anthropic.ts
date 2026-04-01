@@ -45,7 +45,7 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
   function convertTools(tools?: ToolDefinition[]): Anthropic.Tool[] | undefined {
     if (!tools || tools.length === 0) return undefined
 
-    return tools.map((t) => {
+    const converted: Anthropic.Tool[] = tools.map((t) => {
       // 使用 zodToJsonSchema 将 Zod schema 转换为 JSON Schema
       const jsonSchema = zodToJsonSchema(t.parameters, { $refStrategy: "none" })
       return {
@@ -54,13 +54,20 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
         input_schema: jsonSchema as Anthropic.Tool.InputSchema,
       }
     })
+
+    // 在最后一个工具上设置 cache_control，作为 Prompt Cache 断点
+    if (converted.length > 0) {
+      converted[converted.length - 1].cache_control = { type: "ephemeral" as const }
+    }
+
+    return converted
   }
 
   /**
    * 转换消息为 Anthropic 原生格式
    */
   function convertMessages(messages: Message[]): Anthropic.MessageParam[] {
-    return messages.map((msg) => {
+    const converted = messages.map((msg) => {
       if (msg.role === "user") {
         // 用户消息
         if (typeof msg.content === "string") {
@@ -132,6 +139,20 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
         return { role: "assistant" as const, content }
       }
     })
+
+    // 在最后一条 user 消息的最后一个 content block 上添加 cache_control
+    for (let i = converted.length - 1; i >= 0; i--) {
+      const msg = converted[i]
+      if (msg.role === "user" && Array.isArray(msg.content) && msg.content.length > 0) {
+        const lastBlock = msg.content[msg.content.length - 1] as Anthropic.ContentBlockParam & {
+          cache_control?: { type: "ephemeral" }
+        }
+        lastBlock.cache_control = { type: "ephemeral" }
+        break
+      }
+    }
+
+    return converted
   }
 
   /**
@@ -277,7 +298,9 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           textChunks,
           toolCalls,
           inputTokens: finalMessage.usage.input_tokens,
-          outputTokens: finalMessage.usage.output_tokens
+          outputTokens: finalMessage.usage.output_tokens,
+          cacheCreationTokens: finalMessage.usage.cache_creation_input_tokens,
+          cacheReadTokens: finalMessage.usage.cache_read_input_tokens,
         })
 
         yield {
@@ -285,6 +308,8 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           usage: {
             inputTokens: finalMessage.usage.input_tokens,
             outputTokens: finalMessage.usage.output_tokens,
+            cacheCreationTokens: finalMessage.usage.cache_creation_input_tokens ?? undefined,
+            cacheReadTokens: finalMessage.usage.cache_read_input_tokens ?? undefined,
           },
           stopReason: finalMessage.stop_reason as "end_turn" | "max_tokens" | "tool_use" | "stop_sequence" | undefined,
         }
@@ -364,7 +389,9 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           textLength: text.length,
           toolCallCount: toolCalls.length,
           inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens,
+          cacheReadTokens: response.usage.cache_read_input_tokens,
         })
 
         return {
@@ -374,6 +401,8 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           usage: {
             inputTokens: response.usage.input_tokens,
             outputTokens: response.usage.output_tokens,
+            cacheCreationTokens: response.usage.cache_creation_input_tokens ?? undefined,
+            cacheReadTokens: response.usage.cache_read_input_tokens ?? undefined,
           },
         }
       } catch (err) {

@@ -107,6 +107,13 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，自主可控。
 
 ## 版本更新日志
 
+### v0.8.0（2026-04-01）
+- **feat**: Prompt Cache 完善——TokenUsage 扩展 cache 统计字段，anthropic.ts 提取 cache_creation/cache_read tokens，消息层+工具层 cache_control 断点
+- **feat**: Cron 定时任务——CronCreate/CronDelete/CronList 3 个工具，内置 cron 解析器，setInterval 驱动，支持 recurring/one-shot
+- **feat**: MCP 资源工具——ListMcpResourcesTool/ReadMcpResourceTool，runner.ts 集成 MCP 客户端池初始化
+- **refactor**: 子代理精简 7→3 核心原语（-1337行），删除 parallel_agents/multi_agent/dispatch_agent/run_workflow
+- **工具总数**: 47 个（基础 7 + 交互 2 + 管理 7 + CC 对齐 6 + MCP 2 + Cron 3 + 子代理 4 + 团队 16）
+
 ### v0.6.0（2026-04-01）
 - **feat**: 追平 CC 工具集——新增 6 个工具（WebFetch/NotebookEdit/TaskOutput/TaskStop/EnterPlanMode/ExitPlanMode）
 - **feat**: bash 后台执行——`run_in_background` 参数，spawn 进程注册到 BackgroundTask 注册表，配合 TaskOutput/TaskStop 管理

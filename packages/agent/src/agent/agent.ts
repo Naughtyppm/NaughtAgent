@@ -96,6 +96,10 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
       // CC 对齐工具
       "web_fetch", "notebook_edit", "task_output", "task_stop",
       "enter_plan_mode", "exit_plan_mode",
+      // MCP 资源工具
+      "list_mcp_resources", "read_mcp_resource",
+      // Cron 定时任务
+      "cron_create", "cron_delete", "cron_list",
       // 子代理工具（核心 3 原语 + 统一入口）
       "ask_llm", "run_agent", "fork_agent", "task",
       // 团队协作工具（s10 Team Protocols）
