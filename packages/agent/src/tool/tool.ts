@@ -393,8 +393,12 @@ export namespace Tool {
   export interface Definition<TParams = unknown> {
     /** 工具 ID */
     id: string
-    /** 工具描述（给 LLM 看） */
-    description: string
+    /**
+     * 工具描述（给 LLM 看）
+     * - string: 静态描述（默认）
+     * - 函数: 动态描述，根据上下文变化（如 subagent 根据模式返回不同描述）
+     */
+    description: string | ((context?: { cwd?: string; depth?: number }) => string)
     /** 参数 Schema（Zod） */
     parameters: z.ZodType<TParams>
     /** 执行函数 */
@@ -417,6 +421,23 @@ export namespace Tool {
     source?: "builtin" | "mcp" | "custom"
     /** MCP 服务器名称（仅 MCP 工具） */
     mcpServer?: string
+
+    // ===== 并行执行控制 =====
+
+    /**
+     * 是否并行安全（可与其他工具同时执行）
+     * - true: 只读操作，无副作用（如 read, glob, grep）
+     * - false: 有写入或副作用（如 write, edit, bash）
+     * - 函数: 根据参数动态判断
+     * 默认 false（保守策略）
+     */
+    isConcurrencySafe?: boolean | ((input: TParams) => boolean)
+
+    /**
+     * 是否只读操作（不修改文件系统或外部状态）
+     * 默认 false
+     */
+    isReadOnly?: boolean | ((input: TParams) => boolean)
 
     // ===== 内部字段 =====
 

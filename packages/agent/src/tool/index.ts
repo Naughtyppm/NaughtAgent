@@ -8,15 +8,6 @@
 export { Tool, TOOL_TIMEOUTS, DEFAULT_TIMEOUT, getToolTimeout } from "./tool"
 export { ToolRegistry, ToolRegistryCompat, type TruncationOptions } from "./registry"
 
-// 工具执行包装器
-export {
-  withToolWrapper,
-  defineWithWrapper,
-  TimeoutError,
-  type ToolExecutionStats,
-  type WrapperOptions,
-} from "./wrapper"
-
 // Schema 转换
 export {
   jsonSchemaToZod,
@@ -69,27 +60,3 @@ export {
   SUBAGENT_TOOL_IDS,
   type SubagentToolId,
 } from "./subagent"
-
-// 注册所有内置工具
-import { ToolRegistryCompat as ToolRegistry } from "./registry"
-import { ReadTool } from "./read"
-import { WriteTool } from "./write"
-import { AppendTool } from "./append"
-import { EditTool } from "./edit"
-import { BashTool } from "./bash"
-import { GlobTool } from "./glob"
-import { GrepTool } from "./grep"
-import { LoadSkillTool } from "./load-skill"
-import { MemoryTool } from "./memory"
-
-export function registerBuiltinTools(): void {
-  ToolRegistry.register(ReadTool)
-  ToolRegistry.register(WriteTool)
-  ToolRegistry.register(AppendTool)
-  ToolRegistry.register(EditTool)
-  ToolRegistry.register(BashTool)
-  ToolRegistry.register(GlobTool)
-  ToolRegistry.register(GrepTool)
-  ToolRegistry.register(LoadSkillTool)
-  ToolRegistry.register(MemoryTool)
-}

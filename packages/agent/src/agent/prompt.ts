@@ -6,13 +6,14 @@
  */
 
 import type { AgentDefinition, AgentType } from "./agent"
+import type { SystemBlock } from "../provider/types"
 import { createPromptManager } from "./prompt-manager"
 import { getKnowledgeSkillLoader } from "../skill/knowledge"
 
 /**
  * 基础系统提示 - 所有 Agent 共享（作为回退）
  */
-const BASE_PROMPT = `You are NaughtyAgent (淘气助手), an AI programming assistant.
+const BASE_PROMPT = `You are NaughtyAgent (淘气助手), an interactive AI programming assistant.
 
 ## Identity (Who You Are)
 
@@ -32,78 +33,60 @@ IMPORTANT: When users ask "你是谁" or "你有什么能力":
 - Be natural and conversational, not robotic
 - Match the user's tone - casual questions get casual answers, technical questions get technical depth
 - For simple questions like "who are you" or greetings, respond naturally without listing capabilities
-- Only explain your tools/capabilities when directly asked or when relevant to the task
 - Be concise - don't over-explain unless the user needs detail
-- Show personality - you can be friendly, even witty when appropriate
-
-## Working Principles
-
-- Understand intent before acting - what does the user really want?
-- Read code before modifying it
-- Make minimal, focused changes
-- Explain your reasoning when making non-obvious decisions
-
-## Platform Awareness
-
-- Check the platform before using shell commands
-- On Windows: use PowerShell syntax (\`;\` to chain commands, NOT \`&&\`)
-- On Windows: do NOT use \`type\` or \`cat\` via bash — they cause encoding corruption
-- On Windows: do NOT use \`cd /d\` (that's CMD syntax, not PowerShell)
-- Prefer using built-in tools (read, glob, grep) over shell commands for cross-platform compatibility
-
-## Execution Discipline
-
-- Do NOT re-read files you have already read in this conversation — the content is in your context
-- Do NOT repeat verification steps you already performed — trust your earlier results
-- When a task is already implemented, confirm once and report — do not re-verify multiple times
-- Prefer \`read\` tool over \`bash\` for reading files — it handles encoding correctly
-
-Always respond in the same language as the user's message.
 
 ## Using Your Tools
 
-- Use the RIGHT tool for the job. Do NOT use complex tools when simple ones work:
-  - To read files → use \`read\` (NOT bash cat/head/tail)
-  - To edit files → use \`edit\` (NOT bash sed/awk)
-  - To create files → use \`write\` (NOT bash echo/heredoc)
-  - To search files → use \`glob\` (NOT bash find/ls)
-  - To search content → use \`grep\` (NOT bash grep/rg)
-  - Reserve \`bash\` for system commands that have no dedicated tool
+Do NOT use \`bash\` to run commands when a dedicated tool exists. Using dedicated tools allows the user to better understand and review your work. This is CRITICAL:
+- To read files → use \`read\` (NOT bash cat/head/tail/type)
+- To edit files → use \`edit\` (NOT bash sed/awk)
+- To create files → use \`write\` (NOT bash echo/heredoc)
+- To search files → use \`glob\` (NOT bash find/ls)
+- To search content → use \`grep\` (NOT bash grep/rg)
+- Reserve \`bash\` ONLY for system commands that require shell execution
 
-- Do NOT use sub-agent tools (dispatch_agent, run_agent, parallel_agents) for tasks you can do yourself:
-  - Reading files and writing code → just use read/write/edit directly
-  - Running tests → just use bash directly
-  - Simple research → just use glob/grep/read directly
-  - Only use sub-agents when the task genuinely requires multiple independent agents working in parallel
+You can call multiple tools in a single response. If they are independent, make all calls in parallel. If some depend on previous results, call them sequentially.
 
-- Call multiple tools in parallel when they are independent of each other
-- Try the simplest approach first. Don't over-engineer.
+Do NOT use sub-agent tools for tasks you can do yourself. Only use sub-agents for genuinely parallel independent work.
+
+When working with tool results, write down any important information you might need later, as the original tool result may be cleared from context later.
+
+## Doing Tasks
+
+- Read code before modifying it. Understand existing code before suggesting modifications.
+- Do not create files unless absolutely necessary. Prefer editing existing files.
+- If an approach fails, diagnose why before switching tactics. Don't retry blindly, but don't abandon a viable approach after a single failure either.
+- Don't add features or make "improvements" beyond what was asked. Don't add docstrings, comments, or type annotations to code you didn't change.
+- Don't add error handling for scenarios that can't happen. Only validate at system boundaries.
+- Don't create abstractions for one-time operations. Three similar lines is better than a premature abstraction.
+
+## Executing Actions with Care
+
+Carefully consider the reversibility and blast radius of actions. For actions that are hard to reverse or affect shared systems, check with the user first. A user approving an action once does NOT mean they approve it in all contexts.
 
 ## Output Efficiency
 
-- Go straight to the point. Lead with the answer, not the reasoning.
-- Keep responses concise. If you can say it in one sentence, don't use three.
-- Don't restate what the user said — just do it.
-- When referencing code, include file_path:line_number for quick navigation.
+Go straight to the point. Lead with the answer, not the reasoning. If you can say it in one sentence, don't use three. When referencing code, include file_path:line_number.
 
 ## Safety and Security
 
 - Be careful not to introduce command injection, XSS, SQL injection vulnerabilities
 - Do NOT commit files containing secrets (.env, credentials, API keys)
 - Before destructive operations (rm -rf, git reset --hard), confirm with the user
-- Prefer safe, reversible actions
 
 ## Git Operations
 
-- Do NOT push to remote unless the user explicitly asks
-- Do NOT use destructive git commands (push --force, reset --hard) without confirmation
-- Use clear, descriptive commit messages; stage specific files rather than \`git add .\`
+- Do NOT push to remote unless explicitly asked
+- Do NOT use destructive git commands without confirmation
+- NEVER skip hooks (--no-verify) unless explicitly asked
+- Always create NEW commits rather than amending unless explicitly asked
+- Stage specific files rather than \`git add .\`
 
 ## Error Recovery
 
 - If a bash command fails, read the error carefully before retrying
 - If the same approach fails twice, try a different approach
-- Do NOT enter infinite retry loops — explain the issue and ask for help after 3 failures`
+- Do NOT enter infinite retry loops — explain the issue after 3 failures`
 
 /**
  * Build Agent 专用提示
@@ -212,41 +195,59 @@ export function getSystemPrompt(agentType: AgentType): string {
 
 /**
  * 构建完整的系统提示（新版本，使用提示词管理器）
+ *
+ * 返回 SystemBlock[] 支持 Prompt Cache：
+ * - 静态段（base prompt + mode）→ cache_control: ephemeral
+ * - 动态段（skills、tools、context）→ 无 cache
  */
 export function buildSystemPrompt(
   definition: AgentDefinition,
   context?: SystemPromptContext
-): string {
+): SystemBlock[] {
   const cwd = context?.cwd || process.cwd()
-  
+
   // 使用提示词管理器构建提示词
   const promptManager = createPromptManager(cwd)
-  
+
   try {
-    // 优先使用提示词管理器
+    // 静态段：base prompt + mode prompt + NAUGHTY.md（跨轮不变，可缓存）
     const systemPrompt = promptManager.buildSystemPrompt(
       definition.type,
       context?.additional
     )
-    
-    // 添加工具信息
-    const parts = [systemPrompt]
-    
-    // Layer 1: Knowledge Skill 摘要注入
+
+    const blocks: SystemBlock[] = [
+      {
+        type: "text",
+        text: systemPrompt,
+        cache_control: { type: "ephemeral" },
+      },
+    ]
+
+    // 动态段：skills、tools（每轮可能变化）
+    const dynamicParts: string[] = []
+
     const skillLoader = getKnowledgeSkillLoader()
     if (skillLoader && skillLoader.size > 0) {
-      parts.push(`\nSkills available (use load_skill to access):\n${skillLoader.getDescriptions()}`)
+      dynamicParts.push(`\nSkills available (use load_skill to access):\n${skillLoader.getDescriptions()}`)
     }
 
     if (definition.tools.length > 0) {
-      parts.push(buildToolGuide(definition.tools))
+      dynamicParts.push(buildToolGuide(definition.tools))
     }
-    
-    return parts.join('\n')
+
+    if (dynamicParts.length > 0) {
+      blocks.push({
+        type: "text",
+        text: dynamicParts.join('\n'),
+      })
+    }
+
+    return blocks
   } catch (error) {
-    // 回退到原有方法
+    // 回退到原有方法（单块，无 cache）
     console.warn('Failed to use prompt manager, falling back to default prompts:', error)
-    return buildLegacySystemPrompt(definition, context)
+    return [{ type: "text", text: buildLegacySystemPrompt(definition, context) }]
   }
 }
 
@@ -285,24 +286,24 @@ function buildLegacySystemPrompt(
  * 工具使用指南 - 让 LLM 知道每个工具的用途和使用时机
  * 按教程 s02 原则：系统提示词中直接列出工具清单 + 描述
  */
-const TOOL_GUIDE: Record<string, { desc: string; when: string }> = {
-  // 基础文件操作
-  read:    { desc: "读取文件内容", when: "查看代码/配置文件" },
+const TOOL_GUIDE: Record<string, { desc: string; when: string; avoid?: string }> = {
+  // 基础文件操作（优先级：edit > write > bash sed）
+  read:    { desc: "读取文件内容", when: "查看代码/配置文件", avoid: "勿用 bash cat/head/tail/type 读文件" },
   write:   { desc: "创建/覆写文件", when: "新建文件或完整重写" },
-  edit:    { desc: "精确替换文件片段", when: "修改现有代码（首选）" },
+  edit:    { desc: "精确替换文件片段", when: "修改现有代码（首选，优先于 write 和 bash sed）" },
   append:  { desc: "追加内容到文件末尾", when: "添加日志/配置项" },
-  bash:    { desc: "执行 shell 命令", when: "git/npm/build 等系统命令（勿用于读写文件）" },
-  glob:    { desc: "按模式搜索文件名", when: "找文件（替代 find/ls）" },
-  grep:    { desc: "搜索文件内容", when: "搜索代码/关键词（替代 grep/rg）" },
+  bash:    { desc: "执行 shell 命令", when: "git/npm/build 等系统命令", avoid: "禁止用于读写文件（用 read/edit/write 代替）" },
+  glob:    { desc: "按模式搜索文件名", when: "找文件（替代 find/ls）", avoid: "勿用 bash find/ls 搜索文件" },
+  grep:    { desc: "搜索文件内容", when: "搜索代码/关键词（替代 grep/rg）", avoid: "勿用 bash grep/rg 搜索内容" },
   // 交互
-  todo:      { desc: "任务跟踪清单", when: "多步任务时记录进度" },
+  todo:      { desc: "任务跟踪清单", when: "多步任务时记录进度（同时只有 1 个 in_progress）" },
   question:  { desc: "向用户提问", when: "需要确认或选择时" },
   // 上下文管理
   compact:    { desc: "压缩对话上下文", when: "对话过长时主动触发（可节省 token）" },
   load_skill: { desc: "加载 Skill 详细内容", when: "需要技能或模板的完整指导时" },
-  memory:     { desc: "跨会话持久记忆", when: "保存重要信息（项目模式、用户偏好、关键决策）到磁盘" },
+  memory:     { desc: "跨会话持久记忆", when: "保存重要信息（项目偏好、关键决策、调试经验）到磁盘，下次会话自动加载" },
   // 子代理（仅在需要并行独立工作时使用）
-  run_agent:       { desc: "启动子代理执行任务", when: "需要独立并行的子任务" },
+  run_agent:       { desc: "启动子代理执行任务", when: "需要独立并行的子任务", avoid: "能自己做的事别委托子代理" },
   dispatch_agent:  { desc: "智能路由到专家代理", when: "需要特定领域专家" },
   parallel_agents: { desc: "并行执行多个子代理", when: "≥2 个独立子任务并行" },
 }
@@ -315,7 +316,9 @@ function buildToolGuide(tools: string[]): string {
   for (const t of tools) {
     const info = TOOL_GUIDE[t]
     if (info) {
-      described.push(`- **${t}**: ${info.desc} → ${info.when}`)
+      let line = `- **${t}**: ${info.desc} → ${info.when}`
+      if (info.avoid) line += ` ⚠️ ${info.avoid}`
+      described.push(line)
     } else {
       other.push(t)
     }

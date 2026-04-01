@@ -17,6 +17,8 @@ const MAX_RESULTS = GLOB_MAX_RESULTS
 export const GlobTool = Tool.define({
   id: "glob",
   description: DESCRIPTION,
+  isConcurrencySafe: true,
+  isReadOnly: true,
   parameters: z.object({
     pattern: z.string().describe("The glob pattern to match (e.g., '**/*.ts')"),
     path: z.string().optional().describe("The directory to search in (defaults to cwd)"),

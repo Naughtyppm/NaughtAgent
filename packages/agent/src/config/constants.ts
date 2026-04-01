@@ -66,6 +66,10 @@ export const DEFAULT_MAX_STEPS = 20_000
 export const MAX_CONSECUTIVE_ERRORS = 3
 /** 自动压缩的 token 阈值 */
 export const AUTO_COMPACT_TOKEN_THRESHOLD = 50_000
+/** Compact 摘要 LLM 输入字符上限 */
+export const COMPACT_SUMMARY_INPUT_LIMIT = 80_000
+/** Compact 记忆提取输入字符上限 */
+export const COMPACT_MEMORY_INPUT_LIMIT = 40_000
 
 // ─── 工具输出 ──────────────────────────────────────────
 /** Bash 工具最大输出字节 */

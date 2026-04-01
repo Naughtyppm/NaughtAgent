@@ -50,7 +50,7 @@ import {
   type ConfirmCallback,
   type PermissionType,
 } from "../permission"
-import { microCompact, autoCompact, estimateTokens } from "../agent/compact"
+import { microCompact, autoCompact, estimateTokens, COMPACT_SYSTEM_PROMPT, COMPACT_USER_PROMPT_PREFIX } from "../agent/compact"
 import { DEFAULT_MAX_TOKENS, DEFAULT_THINKING_BUDGET, AUTO_COMPACT_TOKEN_THRESHOLD } from "../config"
 import { createLogger } from "../logging"
 
@@ -285,11 +285,12 @@ export function createRunner(config: RunnerConfig) {
       const permissionChecker = buildPermissionChecker(permissions, confirmCallback, handlers)
 
       // compact 摘要器（供 autoCompact 和 compact 工具共用）
+      // 使用 CC 9 段结构 + <analysis>/<summary> 模式
       const summarizer = async (text: string): Promise<string> => {
         const resp = await provider.chat({
           model: definition.model || { provider: "auto", model: "claude-sonnet-4" },
-          messages: [{ role: "user", content: "Summarize this conversation concisely. Include:\n1) What was accomplished so far\n2) Current state and next steps\n3) Key decisions made\n4) ALL files that were read (list file paths) - these must NOT be re-read\n5) ALL files that were created or modified\n\n" + text }],
-          system: "You are a conversation summarizer. Output a concise summary. IMPORTANT: List every file path that was read, so the agent knows not to re-read them.",
+          messages: [{ role: "user", content: COMPACT_USER_PROMPT_PREFIX + text }],
+          system: COMPACT_SYSTEM_PROMPT,
         })
         return resp.text
       }
@@ -308,6 +309,9 @@ export function createRunner(config: RunnerConfig) {
         toolRegistry,
         permissionChecker,
         onBeforeStep,
+        onReactiveCompact: async (s: Session) => {
+          return await autoCompact(s, summarizer)
+        },
         toolMeta: { session, summarizer },
         backgroundNotifications: config.backgroundNotifications,
       })

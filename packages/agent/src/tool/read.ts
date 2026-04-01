@@ -84,6 +84,8 @@ async function isBinaryFile(filePath: string): Promise<boolean> {
 export const ReadTool = Tool.define({
   id: "read",
   description: DESCRIPTION,
+  isConcurrencySafe: true,
+  isReadOnly: true,
   parameters: z.object({
     filePath: z.string().describe("The absolute path to the file to read"),
     offset: z.number().optional().describe("The line number to start reading from (0-based)"),

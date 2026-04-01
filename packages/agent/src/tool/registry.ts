@@ -81,7 +81,8 @@ export class ToolRegistry {
   /**
    * 注册工具（支持单个或批量）
    */
-  register(tool: Tool.Definition | Tool.Definition[]): this {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  register(tool: Tool.Definition<any> | Tool.Definition<any>[]): this {
     const tools = Array.isArray(tool) ? tool : [tool]
 
     for (const t of tools) {
@@ -367,7 +368,8 @@ const _defaultRegistry = new ToolRegistry()
 // eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace ToolRegistryCompat {
   export const clear = () => _defaultRegistry.clear()
-  export const register = (tool: Tool.Definition | Tool.Definition[]) => _defaultRegistry.register(tool)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export const register = (tool: Tool.Definition<any> | Tool.Definition<any>[]) => _defaultRegistry.register(tool)
   export const get = (id: string) => _defaultRegistry.get(id)
   export const getByNames = (names: string[]) => _defaultRegistry.getByNames(names)
   export const list = (filter?: ToolFilter) => _defaultRegistry.list(filter)

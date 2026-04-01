@@ -20,6 +20,7 @@ import {
   getAgentDefinition,
   type AgentType,
 } from "../agent"
+import { DEFAULT_MAX_TOKENS } from "../config"
 import type { ToolRegistry } from "../tool/registry"
 import { createSession } from "../session"
 import { createProviderFromEnv, createProvider } from "../provider"
@@ -124,7 +125,7 @@ export async function runRunAgent(
           provider: "auto",
           model: runtime.model,
           temperature: filteredDefinition.model?.temperature || 0,
-          maxTokens: filteredDefinition.model?.maxTokens || 8192,
+          maxTokens: filteredDefinition.model?.maxTokens || DEFAULT_MAX_TOKENS,
         },
       }
     }

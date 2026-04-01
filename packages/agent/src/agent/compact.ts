@@ -6,11 +6,59 @@
  * Layer 3: compact 工具 - LLM 主动触发压缩（注册为工具）
  */
 
-import { writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs"
+import { writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync, existsSync, readFileSync, appendFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Session } from "../session"
 import type { ToolResultBlock } from "../session"
-import { AUTO_COMPACT_TOKEN_THRESHOLD } from "../config"
+import { AUTO_COMPACT_TOKEN_THRESHOLD, COMPACT_SUMMARY_INPUT_LIMIT, COMPACT_MEMORY_INPUT_LIMIT } from "../config"
+
+// ============================================================================
+// Compact 提示词（CC 9 段结构 + <analysis>/<summary> 模式）
+// ============================================================================
+
+export const COMPACT_SYSTEM_PROMPT = `You are a conversation summarizer. Your task is to create a structured summary that preserves all context needed for an AI assistant to continue working seamlessly.
+
+Use the following structure in your <summary> output (skip sections that have no content):
+
+1. **Primary Request and Intent**: The user's original goal and what they are trying to accomplish
+2. **Key Technical Concepts**: Important technical details, patterns, or domain knowledge discussed
+3. **Files and Code Sections**: ALL file paths read, created, or modified (the assistant MUST NOT re-read these)
+4. **Errors and Fixes**: Any errors encountered and how they were resolved
+5. **Problem Solving**: Key decisions, trade-offs, and reasoning chains
+6. **All User Messages**: Preserve the essence of every user message (preferences, constraints, style)
+7. **Pending Tasks**: Incomplete items or known issues that need to be addressed
+8. **Current Work**: What the assistant was doing when compression happened
+9. **Optional Next Step**: The single most logical next action to take
+
+IMPORTANT rules:
+- List EVERY file path that was read — the agent must NOT re-read them after compression
+- Preserve ALL user preferences and constraints mentioned anywhere in the conversation
+- Include specific code snippets, function names, and line numbers when relevant
+- Do NOT lose any pending tasks or action items`
+
+export const COMPACT_USER_PROMPT_PREFIX = `Summarize the following conversation. First draft your analysis inside <analysis> tags, then write the final summary inside <summary> tags.
+
+The <analysis> section is your scratchpad — think through what matters, what can be dropped, and what must be preserved. The <summary> section is what the agent will see.
+
+Conversation:
+`
+
+/**
+ * 从 LLM 摘要响应中提取 <summary> 内容（剥离 <analysis> 部分）
+ *
+ * CC 的 formatCompactSummary() 模式：LLM 在 <analysis> 中思考，
+ * 只有 <summary> 内容被保留到压缩后的对话中。
+ */
+export function formatCompactSummary(response: string): string {
+  // 提取 <summary> 标签内的内容
+  const summaryMatch = response.match(/<summary>([\s\S]*?)<\/summary>/i)
+  if (summaryMatch) {
+    return summaryMatch[1].trim()
+  }
+  // 如果没有 <summary> 标签，移除 <analysis> 部分后返回剩余内容
+  const withoutAnalysis = response.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '').trim()
+  return withoutAnalysis || response
+}
 
 // ============================================================================
 // 配置
@@ -217,10 +265,18 @@ export async function autoCompact(
   }
 
   // 截断避免超长（给摘要 LLM 的输入也要控制）
-  const conversationText = lines.join("\n\n").slice(0, 80000)
+  const conversationText = lines.join("\n\n").slice(0, COMPACT_SUMMARY_INPUT_LIMIT)
 
-  // 2. LLM 生成摘要
-  const summary = await summarizer(conversationText)
+  // 2. LLM 生成摘要（使用 9 段结构 + <analysis>/<summary> 模式）
+  const rawSummary = await summarizer(conversationText)
+  const summary = formatCompactSummary(rawSummary)
+
+  // 2.5 提取需要跨会话持久化的关键信息，append 到 memory.md
+  try {
+    await persistMemoryFromCompact(conversationText, summarizer)
+  } catch {
+    // 持久化失败不阻塞压缩流程
+  }
 
   // 3. 提取最近读取的文件内容（compact 后保留，避免重读）
   const preservedFiles = extractRecentFileContents(session)
@@ -285,4 +341,60 @@ function cleanOldTranscripts(dir: string, maxAge: number): void {
   } catch {
     // 清理失败不影响主流程
   }
+}
+
+// ============================================================================
+// Compact 记忆持久化：压缩时自动提取关键信息写入 memory.md
+// ============================================================================
+
+const MEMORY_EXTRACT_PROMPT = `Based on the conversation below, extract ONLY information that should persist across sessions. Return ONLY the items, one per line, prefixed with "- ". If nothing worth persisting, return "NONE".
+
+What to extract:
+- User preferences and workflow patterns confirmed in this session
+- Key architectural decisions made
+- Bugs found and their root causes
+- Important file paths or project conventions discovered
+
+What NOT to extract:
+- Temporary task progress (what step you're on)
+- File contents already in code
+- Generic knowledge (how Git works, etc.)
+
+Conversation:
+`
+
+/**
+ * 从即将被压缩的对话中提取值得持久化的信息，append 到 .naughty/memory.md
+ */
+async function persistMemoryFromCompact(
+  conversationText: string,
+  summarizer: (text: string) => Promise<string>,
+): Promise<void> {
+  // 截取对话给提取器（比摘要更短，只需要关键信息）
+  const input = MEMORY_EXTRACT_PROMPT + conversationText.slice(0, COMPACT_MEMORY_INPUT_LIMIT)
+  const extracted = await summarizer(input)
+
+  // 没有值得持久化的内容
+  if (!extracted || extracted.trim() === "NONE" || extracted.trim().length < 10) return
+
+  // 读取已有 memory 避免重复
+  const memoryDir = join(process.cwd(), ".naughty")
+  const memoryPath = join(memoryDir, "memory.md")
+  let existingMemory = ""
+  if (existsSync(memoryPath)) {
+    existingMemory = readFileSync(memoryPath, "utf-8")
+  }
+
+  // 过滤掉已经存在的行（简单去重）
+  const newLines = extracted
+    .split("\n")
+    .filter((line) => line.startsWith("- "))
+    .filter((line) => !existingMemory.includes(line.slice(2).trim()))
+
+  if (newLines.length === 0) return
+
+  // append 到 memory.md
+  mkdirSync(memoryDir, { recursive: true })
+  const section = `\n\n## Auto-extracted (${new Date().toISOString().slice(0, 10)})\n${newLines.join("\n")}\n`
+  appendFileSync(memoryPath, section, "utf-8")
 }

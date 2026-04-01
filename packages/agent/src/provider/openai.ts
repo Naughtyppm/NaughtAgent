@@ -13,7 +13,15 @@ import type {
   ChatResult,
   StreamEvent,
   ToolDefinition,
+  SystemBlock,
 } from "./types"
+
+/** 将 SystemBlock[] | string 统一为 string（OpenAI 不支持 cache_control） */
+function flattenSystem(system?: string | SystemBlock[]): string | undefined {
+  if (!system) return undefined
+  if (typeof system === 'string') return system
+  return system.map(b => b.text).join('\n\n')
+}
 
 /**
  * OpenRouter 默认 Base URL
@@ -87,7 +95,7 @@ export function createOpenAIProvider(config: OpenAIConfig): LLMProvider {
       try {
         const result = streamText({
           model,
-          system: params.system,
+          system: flattenSystem(params.system),
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           messages: params.messages as any,
           tools: convertTools(params.tools),
@@ -148,7 +156,7 @@ export function createOpenAIProvider(config: OpenAIConfig): LLMProvider {
       try {
         const result = await generateText({
           model,
-          system: params.system,
+          system: flattenSystem(params.system),
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           messages: params.messages as any,
           tools: convertTools(params.tools),

@@ -21,21 +21,23 @@ import type { TodoItem, TodoList, TodoStatus } from "./types"
 // Todo Storage (file-based, per session)
 // ============================================================================
 
-const TASKS_DIR = join(process.cwd(), ".tasks")
+function getTasksDir(cwd: string): string {
+  return join(cwd, ".tasks")
+}
 
-function getSessionDir(sessionId: string): string {
-  const dir = join(TASKS_DIR, sessionId)
+function getSessionDir(cwd: string, sessionId: string): string {
+  const dir = join(getTasksDir(cwd), sessionId)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   return dir
 }
 
-function saveList(list: TodoList): void {
-  const dir = getSessionDir(list.sessionId)
+function saveList(cwd: string, list: TodoList): void {
+  const dir = getSessionDir(cwd, list.sessionId)
   writeFileSync(join(dir, "tasks.json"), JSON.stringify(list, null, 2))
 }
 
-function loadList(sessionId: string): TodoList | null {
-  const path = join(TASKS_DIR, sessionId, "tasks.json")
+function loadList(cwd: string, sessionId: string): TodoList | null {
+  const path = join(getTasksDir(cwd), sessionId, "tasks.json")
   if (!existsSync(path)) return null
   try {
     return JSON.parse(readFileSync(path, "utf-8")) as TodoList
@@ -104,8 +106,8 @@ export type TodoParams = z.infer<typeof TodoParamsSchema>
 /**
  * 获取或创建任务列表（从文件加载，不存在则新建）
  */
-function getOrCreateList(sessionId: string): TodoList {
-  return loadList(sessionId) ?? { sessionId, items: [] }
+function getOrCreateList(cwd: string, sessionId: string): TodoList {
+  return loadList(cwd, sessionId) ?? { sessionId, items: [] }
 }
 
 /**
@@ -123,10 +125,11 @@ export function resetIdCounter(): void {}
 /**
  * 清空所有任务列表（用于测试）
  */
-export function clearAllTodoLists(): void {
-  if (!existsSync(TASKS_DIR)) return
-  for (const sessionDir of readdirSync(TASKS_DIR)) {
-    const taskFile = join(TASKS_DIR, sessionDir, "tasks.json")
+export function clearAllTodoLists(cwd: string = process.cwd()): void {
+  const tasksDir = getTasksDir(cwd)
+  if (!existsSync(tasksDir)) return
+  for (const sessionDir of readdirSync(tasksDir)) {
+    const taskFile = join(tasksDir, sessionDir, "tasks.json")
     if (existsSync(taskFile)) unlinkSync(taskFile)
   }
 }
@@ -146,11 +149,12 @@ const MAX_IN_PROGRESS = 1
  * 添加任务
  */
 function addTodo(
+  cwd: string,
   sessionId: string,
   content: string,
   parentId?: string
 ): TodoItem {
-  const list = getOrCreateList(sessionId)
+  const list = getOrCreateList(cwd, sessionId)
 
   // 约束：最多 20 个任务
   if (list.items.length >= MAX_TODO_ITEMS) {
@@ -169,7 +173,7 @@ function addTodo(
   }
 
   list.items.push(item)
-  saveList(list)
+  saveList(cwd, list)
   invokeTodoUpdateCallback(list)
 
   return item
@@ -179,32 +183,36 @@ function addTodo(
  * 更新任务状态
  */
 function updateTodo(
+  cwd: string,
   sessionId: string,
   id: string,
   status: TodoStatus
 ): TodoItem | null {
-  const list = getOrCreateList(sessionId)
+  const list = getOrCreateList(cwd, sessionId)
   const item = list.items.find((i) => i.id === id)
 
   if (!item) {
     return null
   }
 
-  // 约束：同时只能有 1 个 in_progress
+  // 约束：in_progress 数量上限，超出时自动降级最老的为 pending（而非报错）
   if (status === "in_progress") {
-    const currentInProgress = list.items.filter(
-      (i) => i.status === "in_progress" && i.id !== id
-    )
-    if (currentInProgress.length >= MAX_IN_PROGRESS) {
-      throw new Error(
-        `同时只能有 ${MAX_IN_PROGRESS} 个任务处于 in_progress，请先完成: [${currentInProgress[0].id}] ${currentInProgress[0].content}`
-      )
+    const currentInProgress = list.items
+      .filter((i) => i.status === "in_progress" && i.id !== id)
+      .sort((a, b) => a.updatedAt - b.updatedAt) // 最老的排前面
+    while (currentInProgress.length >= MAX_IN_PROGRESS) {
+      const oldest = currentInProgress.shift()!
+      const oldItem = list.items.find((i) => i.id === oldest.id)
+      if (oldItem) {
+        oldItem.status = "pending"
+        oldItem.updatedAt = Date.now()
+      }
     }
   }
 
   item.status = status
   item.updatedAt = Date.now()
-  saveList(list)
+  saveList(cwd, list)
   invokeTodoUpdateCallback(list)
 
   return item
@@ -213,8 +221,8 @@ function updateTodo(
 /**
  * 删除任务
  */
-function removeTodo(sessionId: string, id: string): boolean {
-  const list = getOrCreateList(sessionId)
+function removeTodo(cwd: string, sessionId: string, id: string): boolean {
+  const list = getOrCreateList(cwd, sessionId)
   const index = list.items.findIndex((i) => i.id === id)
 
   if (index === -1) {
@@ -223,7 +231,7 @@ function removeTodo(sessionId: string, id: string): boolean {
 
   // 同时删除子任务
   list.items = list.items.filter((i) => i.id !== id && i.parentId !== id)
-  saveList(list)
+  saveList(cwd, list)
   invokeTodoUpdateCallback(list)
 
   return true
@@ -232,19 +240,19 @@ function removeTodo(sessionId: string, id: string): boolean {
 /**
  * 列出任务
  */
-function listTodos(sessionId: string): TodoItem[] {
-  const list = getOrCreateList(sessionId)
+function listTodos(cwd: string, sessionId: string): TodoItem[] {
+  const list = getOrCreateList(cwd, sessionId)
   return list.items
 }
 
 /**
  * 清空任务
  */
-function clearTodos(sessionId: string): number {
-  const list = getOrCreateList(sessionId)
+function clearTodos(cwd: string, sessionId: string): number {
+  const list = getOrCreateList(cwd, sessionId)
   const count = list.items.length
   list.items = []
-  saveList(list)
+  saveList(cwd, list)
   invokeTodoUpdateCallback(list)
   return count
 }
@@ -262,8 +270,9 @@ export const TodoTool = Tool.define({
   parameters: TodoParamsSchema,
 
   async execute(params, ctx) {
+    const cwd = resolve(ctx.cwd)
     // 用 cwd 的短 hash 作为 session 标识（避免绝对路径拼接 join 出错）
-    const sessionId = createHash("md5").update(resolve(ctx.cwd)).digest("hex").slice(0, 12)
+    const sessionId = createHash("md5").update(cwd).digest("hex").slice(0, 12)
 
     // 验证参数
     const validationError = validateTodoParams(params)
@@ -274,7 +283,7 @@ export const TodoTool = Tool.define({
     // 执行操作
     switch (params.action) {
       case "add": {
-        const item = addTodo(sessionId, params.content!, params.parentId)
+        const item = addTodo(cwd, sessionId, params.content!, params.parentId)
         return {
           title: "todo: add",
           output: `Added task [${item.id}]: ${item.content}`,
@@ -283,7 +292,7 @@ export const TodoTool = Tool.define({
       }
 
       case "update": {
-        const item = updateTodo(sessionId, params.id!, params.status as TodoStatus)
+        const item = updateTodo(cwd, sessionId, params.id!, params.status as TodoStatus)
         if (!item) {
           return {
             title: "todo: update",
@@ -299,7 +308,7 @@ export const TodoTool = Tool.define({
       }
 
       case "remove": {
-        const success = removeTodo(sessionId, params.id!)
+        const success = removeTodo(cwd, sessionId, params.id!)
         return {
           title: "todo: remove",
           output: success
@@ -310,7 +319,7 @@ export const TodoTool = Tool.define({
       }
 
       case "list": {
-        const items = listTodos(sessionId)
+        const items = listTodos(cwd, sessionId)
         const output = formatTodoList(items)
         return {
           title: "todo: list",
@@ -320,7 +329,7 @@ export const TodoTool = Tool.define({
       }
 
       case "clear": {
-        const count = clearTodos(sessionId)
+        const count = clearTodos(cwd, sessionId)
         return {
           title: "todo: clear",
           output: `Cleared ${count} task(s)`,

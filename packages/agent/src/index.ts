@@ -30,10 +30,6 @@ export {
   type ProviderConfig,
   // Constants
   DEFAULT_MODEL,
-  FAST_MODEL,
-  KIRO_MODEL_MAP,
-  KIRO_MODELS,
-  mapToKiroModel,
   // Factories
   createAnthropicProvider,
   createKiroProvider,

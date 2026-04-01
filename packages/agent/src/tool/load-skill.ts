@@ -12,6 +12,8 @@ import { getKnowledgeSkillLoader } from "../skill/knowledge"
 export const LoadSkillTool = Tool.define({
   id: "load_skill",
   description: "Load specialized knowledge by name. Use this when you need domain expertise listed in your available skills.",
+  isConcurrencySafe: true,
+  isReadOnly: true,
   parameters: z.object({
     name: z.string().describe("Skill name to load"),
   }),

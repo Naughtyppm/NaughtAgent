@@ -148,6 +148,8 @@ async function searchFile(
 export const GrepTool = Tool.define({
   id: "grep",
   description: DESCRIPTION,
+  isConcurrencySafe: true,
+  isReadOnly: true,
   parameters: z.object({
     pattern: z.string().describe("The regex pattern to search for"),
     path: z.string().optional().describe("File or directory to search (defaults to cwd)"),

@@ -48,13 +48,22 @@ export interface AgentLoopConfig {
   toolMeta?: Record<string, unknown>
   /** 最大连续错误数（默认 3） */
   maxConsecutiveErrors?: number
+  /** Reactive compact 回调：API 返回 413 (prompt too long) 时触发压缩，返回 true 表示已压缩可重试 */
+  onReactiveCompact?: (session: Session) => Promise<boolean>
 }
 
 // ─── 工具定义转换 ─────────────────────────────────────
 
+/** 解析动态 description：如果是函数则调用，否则直接返回字符串 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function resolveDescription(desc: string | ((ctx?: any) => string), context?: { cwd?: string; depth?: number }): string {
+  return typeof desc === 'function' ? desc(context) : desc
+}
+
 function getToolDefinitions(
   toolIds: string[],
   registry: ToolRegistry,
+  context?: { cwd?: string; depth?: number },
 ): ToolDefinition[] {
   const defs: ToolDefinition[] = []
   for (const id of toolIds) {
@@ -62,7 +71,7 @@ function getToolDefinitions(
     if (tool) {
       defs.push({
         name: tool.id,
-        description: tool.description,
+        description: resolveDescription(tool.description, context),
         // Tool.Definition.parameters 是 ZodType，ToolDefinition 要求 ZodObject
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         parameters: tool.parameters as any,
@@ -91,7 +100,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
     addMessage(session, "user", [{ type: "text", text: input }])
 
     const systemPrompt = buildSystemPrompt(definition, { cwd: runConfig.cwd })
-    const tools = getToolDefinitions(definition.tools, registry)
+    const tools = getToolDefinitions(definition.tools, registry, { cwd: runConfig.cwd, depth: config.depth })
     const modelConfig = definition.model || DEFAULT_MODEL
 
     let stepCount = 0
@@ -102,6 +111,9 @@ export function createAgentLoop(config: AgentLoopConfig) {
     // 重复工具调用检测：key = "toolName:argsHash" → 调用次数
     const toolCallCounts = new Map<string, number>()
     const MAX_DUPLICATE_CALLS = 3
+    // 写操作计数器（验证子代理触发用）
+    const WRITE_TOOLS = new Set(['write', 'edit', 'append'])
+    let writeOpCount = 0
 
     while (stepCount < maxSteps) {
       stepCount++
@@ -136,6 +148,9 @@ export function createAgentLoop(config: AgentLoopConfig) {
       let usage = { inputTokens: 0, outputTokens: 0 }
       lastStopReason = undefined
 
+      // StreamingToolExecutor: stream 期间提前启动并行安全工具
+      const earlyExecutions = new Map<string, Promise<{ output: string; isError?: boolean; title: string; metadata?: Record<string, unknown> }>>()
+
       try {
         for await (const event of provider.stream({
           model: modelConfig,
@@ -159,9 +174,31 @@ export function createAgentLoop(config: AgentLoopConfig) {
               yield { type: "text_delta", delta: event.text }
               yield { type: "text", content: responseText }
               break
-            case 'tool_call':
+            case 'tool_call': {
               toolCalls.push({ id: event.id, name: event.name, args: event.args })
+              // StreamingToolExecutor: 并行安全工具在 stream 期间提前启动
+              const toolDef = registry.get(event.name)
+              const isSafe = toolDef?.isConcurrencySafe
+              const safe = typeof isSafe === 'function' ? isSafe(event.args) : (isSafe === true)
+              if (safe) {
+                const earlyCtx: ExecutionContext = {
+                  sessionID: runConfig.sessionId,
+                  cwd: runConfig.cwd,
+                  abort: abortController.signal,
+                  depth: config.depth ?? 0,
+                  sharedContextId: config.sharedContextId,
+                  permissionChecker: config.permissionChecker,
+                  meta: config.toolMeta,
+                }
+                earlyExecutions.set(event.id, registry.execute(event.name, event.args, earlyCtx).catch(err => ({
+                  title: event.name,
+                  output: `Error: ${err instanceof Error ? err.message : String(err)}`,
+                  isError: true as const,
+                })))
+                logger.debug(`streaming tool executor: started early execution of ${event.name}`, { id: event.id })
+              }
               break
+            }
             case 'message_end':
               usage = event.usage
               lastStopReason = event.stopReason as StopReason | undefined
@@ -172,6 +209,21 @@ export function createAgentLoop(config: AgentLoopConfig) {
         }
       } catch (error) {
         if (abortController.signal.aborted) break
+
+        // ─── Reactive Compact：413 prompt too long → 强制压缩 → 重试 ───
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        const is413 = errorMsg.includes('413') || errorMsg.includes('prompt is too long') ||
+          errorMsg.includes('prompt_too_long') || errorMsg.includes('context_length_exceeded')
+        if (is413 && config.onReactiveCompact) {
+          logger.warn('API 返回 prompt too long，触发 reactive compact', { stepCount })
+          yield { type: "thinking", content: "Context too large, compressing conversation..." }
+          const compacted = await config.onReactiveCompact(session)
+          if (compacted) {
+            stepCount-- // 回退步数，让 while 重新执行这一轮
+            continue
+          }
+        }
+
         const agentError = error instanceof AgentError ? error
           : new AgentError(error instanceof Error ? error.message : String(error), ErrorCode.API_ERROR, false, { originalError: error })
         yield { type: "error", error: agentError }
@@ -214,20 +266,13 @@ export function createAgentLoop(config: AgentLoopConfig) {
         meta: config.toolMeta,
       }
 
-      for (const toolCall of toolCalls) {
-        yield { type: "tool_start", id: toolCall.id, name: toolCall.name, input: toolCall.args }
-        logger.debug(`executing tool: ${toolCall.name}`, { id: toolCall.id, argsKeys: Object.keys(toolCall.args || {}) })
-
-        const result = await registry.execute(toolCall.name, toolCall.args, ctx)
+      // 工具调用后处理（截断、重复检测、错误追踪）
+      const postProcess = (toolCall: { id: string; name: string; args: unknown }, result: { output: string; isError?: boolean; title: string; metadata?: Record<string, unknown> }) => {
         const isError = result.isError ?? false
-
-        // 输出截断
         if (result.output) {
           const truncated = truncator.truncate(result.output)
           if (truncated.truncated) result.output = truncated.output
         }
-
-        // 重复调用检测：相同工具+参数超过 N 次注入警告
         const argsKey = `${toolCall.name}:${JSON.stringify(toolCall.args)}`
         const callCount = (toolCallCounts.get(argsKey) || 0) + 1
         toolCallCounts.set(argsKey, callCount)
@@ -239,10 +284,6 @@ export function createAgentLoop(config: AgentLoopConfig) {
             result.output
           logger.warn(`duplicate tool call detected: ${toolCall.name} (${callCount}x)`, { argsKey })
         }
-
-        yield { type: "tool_end", id: toolCall.id, result, isError }
-
-        // 错误追踪
         if (isError) {
           consecutiveErrors++
           if (consecutiveErrors >= maxErrors) {
@@ -251,6 +292,80 @@ export function createAgentLoop(config: AgentLoopConfig) {
         } else {
           consecutiveErrors = 0
         }
+        return isError
+      }
+
+      // ─── 并行分区：按 isConcurrencySafe 将工具调用分为并行安全和串行两组 ───
+      const concurrentCalls: typeof toolCalls = []
+      const serialCalls: typeof toolCalls = []
+
+      for (const tc of toolCalls) {
+        // 已经在 streaming 期间启动的工具归入 concurrent
+        if (earlyExecutions.has(tc.id)) {
+          concurrentCalls.push(tc)
+        } else {
+          const toolDef = registry.get(tc.name)
+          const isSafe = toolDef?.isConcurrencySafe
+          const safe = typeof isSafe === 'function' ? isSafe(tc.args) : (isSafe === true)
+          if (safe) {
+            concurrentCalls.push(tc)
+          } else {
+            serialCalls.push(tc)
+          }
+        }
+      }
+
+      // 1) 并行执行安全工具（优先使用 streaming 期间已启动的结果）
+      if (concurrentCalls.length > 0) {
+        for (const tc of concurrentCalls) {
+          yield { type: "tool_start", id: tc.id, name: tc.name, input: tc.args }
+        }
+        const earlyCount = concurrentCalls.filter(tc => earlyExecutions.has(tc.id)).length
+        logger.debug(`executing ${concurrentCalls.length} tool(s) in parallel (${earlyCount} started during stream)`, {
+          tools: concurrentCalls.map(tc => tc.name),
+        })
+
+        const parallelResults = await Promise.all(
+          concurrentCalls.map(async (tc) => {
+            // 优先使用 streaming 期间已启动的执行结果
+            const early = earlyExecutions.get(tc.id)
+            if (early) return early
+            // 未提前启动的，现在启动
+            try {
+              return await registry.execute(tc.name, tc.args, ctx)
+            } catch (err) {
+              return {
+                title: tc.name,
+                output: `Error: ${err instanceof Error ? err.message : String(err)}`,
+                isError: true,
+              }
+            }
+          })
+        )
+
+        for (let i = 0; i < concurrentCalls.length; i++) {
+          const tc = concurrentCalls[i]
+          const result = parallelResults[i]
+          const isError = postProcess(tc, result)
+          yield { type: "tool_end", id: tc.id, result, isError }
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: tc.id,
+            content: result.output,
+            is_error: isError || undefined,
+          } as ToolResultBlock)
+        }
+      }
+
+      // 2) 串行执行非安全工具
+      for (const toolCall of serialCalls) {
+        yield { type: "tool_start", id: toolCall.id, name: toolCall.name, input: toolCall.args }
+        logger.debug(`executing tool: ${toolCall.name}`, { id: toolCall.id, argsKeys: Object.keys(toolCall.args || {}) })
+
+        const result = await registry.execute(toolCall.name, toolCall.args, ctx)
+        const isError = postProcess(toolCall, result)
+
+        yield { type: "tool_end", id: toolCall.id, result, isError }
 
         toolResults.push({
           type: "tool_result",
@@ -263,6 +378,10 @@ export function createAgentLoop(config: AgentLoopConfig) {
       // 工具结果回写
       if (toolResults.length > 0) {
         addMessage(session, "user", toolResults)
+        // 写操作计数
+        for (const tc of [...concurrentCalls, ...serialCalls]) {
+          if (WRITE_TOOLS.has(tc.name)) writeOpCount++
+        }
       }
 
       // 连续错误终止
@@ -283,7 +402,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
       ) }
     }
 
-    yield { type: "done", usage: totalUsage, stopReason: lastStopReason }
+    yield { type: "done", usage: totalUsage, stopReason: lastStopReason, writeOpCount }
   }
 
   function abort() {

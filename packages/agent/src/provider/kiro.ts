@@ -20,8 +20,16 @@ import type {
   StreamEvent,
   Message,
   ToolDefinition,
+  SystemBlock,
 } from "./types"
-import { mapToKiroModel } from "./types"
+
+/** 将 SystemBlock[] | string 统一为 string（Kiro 不支持 cache_control） */
+function flattenSystem(system?: string | SystemBlock[]): string | undefined {
+  if (!system) return undefined
+  if (typeof system === 'string') return system
+  return system.map(b => b.text).join('\n\n')
+}
+import { resolveModelId } from "../config/models"
 
 // ==================== 常量 ====================
 
@@ -751,10 +759,10 @@ export function createKiroProvider(config?: KiroConfig): LLMProvider {
           await refreshToken(config?.proxy)
         }
 
-        const model = mapToKiroModel(params.model.model)
+        const model = resolveModelId(params.model.model, "kiro")
         const { userContent, history, toolResults } = convertMessages(
           params.messages,
-          params.system,
+          flattenSystem(params.system),
           model
         )
         const tools = convertTools(params.tools)
@@ -860,10 +868,10 @@ export function createKiroProvider(config?: KiroConfig): LLMProvider {
           await refreshToken(config?.proxy)
         }
 
-        const model = mapToKiroModel(params.model.model)
+        const model = resolveModelId(params.model.model, "kiro")
         const { userContent, history, toolResults } = convertMessages(
           params.messages,
-          params.system,
+          flattenSystem(params.system),
           model
         )
         const tools = convertTools(params.tools)

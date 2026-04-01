@@ -33,10 +33,6 @@ export type {
 
 export {
   DEFAULT_MODEL,
-  FAST_MODEL,
-  KIRO_MODEL_MAP,
-  KIRO_MODELS,
-  mapToKiroModel,
 } from "./types"
 
 // Provider 实现
