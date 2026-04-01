@@ -50,7 +50,7 @@ import {
   type ConfirmCallback,
   type PermissionType,
 } from "../permission"
-import { microCompact, autoCompact, estimateTokens, COMPACT_SYSTEM_PROMPT, COMPACT_USER_PROMPT_PREFIX } from "../agent/compact"
+import { microCompact, autoCompact, estimateTokens, COMPACT_SYSTEM_PROMPT, COMPACT_USER_PROMPT_PREFIX, MEMORY_EXTRACT_PROMPT } from "../agent/compact"
 import { DEFAULT_MAX_TOKENS, DEFAULT_THINKING_BUDGET, AUTO_COMPACT_TOKEN_THRESHOLD } from "../config"
 import { createLogger } from "../logging"
 
@@ -295,11 +295,21 @@ export function createRunner(config: RunnerConfig) {
         return resp.text
       }
 
+      // 独立记忆提取器（使用专用 system prompt，不复用 summarizer 的 COMPACT_SYSTEM_PROMPT）
+      const memoryExtractor = async (text: string): Promise<string> => {
+        const resp = await provider.chat({
+          model: definition.model || { provider: "auto", model: "claude-sonnet-4" },
+          messages: [{ role: "user", content: MEMORY_EXTRACT_PROMPT + text }],
+        })
+        return resp.text
+      }
+
       // compact 管道通过 onBeforeStep 注入
+      const compactOptions = { memoryExtractor, cwd }
       const onBeforeStep = async (ctx: { session: Session; stepCount: number; provider: LLMProvider }) => {
         microCompact(ctx.session)
         if (estimateTokens(ctx.session) > AUTO_COMPACT_TOKEN_THRESHOLD) {
-          await autoCompact(ctx.session, summarizer)
+          await autoCompact(ctx.session, summarizer, compactOptions)
         }
       }
 
@@ -310,7 +320,7 @@ export function createRunner(config: RunnerConfig) {
         permissionChecker,
         onBeforeStep,
         onReactiveCompact: async (s: Session) => {
-          return await autoCompact(s, summarizer)
+          return await autoCompact(s, summarizer, compactOptions)
         },
         toolMeta: { session, summarizer },
         backgroundNotifications: config.backgroundNotifications,

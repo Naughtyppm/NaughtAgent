@@ -228,6 +228,12 @@ function extractRecentFileContents(session: Session): Array<{ path: string; cont
 export async function autoCompact(
   session: Session,
   summarizer: (text: string) => Promise<string>,
+  options?: {
+    /** 独立的记忆提取器（不复用 summarizer，使用专用 system prompt） */
+    memoryExtractor?: (text: string) => Promise<string>
+    /** 项目工作目录（记忆写入路径） */
+    cwd?: string
+  },
 ): Promise<boolean> {
   const tokens = estimateTokens(session)
   if (tokens <= AUTO_COMPACT_TOKEN_THRESHOLD) return false
@@ -273,7 +279,9 @@ export async function autoCompact(
 
   // 2.5 提取需要跨会话持久化的关键信息，append 到 memory.md
   try {
-    await persistMemoryFromCompact(conversationText, summarizer)
+    if (options?.memoryExtractor && options?.cwd) {
+      await persistMemoryFromCompact(conversationText, options.memoryExtractor, options.cwd)
+    }
   } catch {
     // 持久化失败不阻塞压缩流程
   }
@@ -347,7 +355,7 @@ function cleanOldTranscripts(dir: string, maxAge: number): void {
 // Compact 记忆持久化：压缩时自动提取关键信息写入 memory.md
 // ============================================================================
 
-const MEMORY_EXTRACT_PROMPT = `Based on the conversation below, extract ONLY information that should persist across sessions. Return ONLY the items, one per line, prefixed with "- ". If nothing worth persisting, return "NONE".
+export const MEMORY_EXTRACT_PROMPT = `Based on the conversation below, extract ONLY information that should persist across sessions. Return ONLY the items, one per line, prefixed with "- ". If nothing worth persisting, return "NONE".
 
 What to extract:
 - User preferences and workflow patterns confirmed in this session
@@ -365,20 +373,25 @@ Conversation:
 
 /**
  * 从即将被压缩的对话中提取值得持久化的信息，append 到 .naughty/memory.md
+ *
+ * @param extractor 独立的提取器函数（使用 MEMORY_EXTRACT_PROMPT 作为 system prompt，
+ *   不复用 summarizer，避免 COMPACT_SYSTEM_PROMPT 干扰输出格式）
+ * @param cwd 项目工作目录（记忆写入到对应项目的 .naughty/memory.md）
  */
 async function persistMemoryFromCompact(
   conversationText: string,
-  summarizer: (text: string) => Promise<string>,
+  extractor: (text: string) => Promise<string>,
+  cwd: string,
 ): Promise<void> {
   // 截取对话给提取器（比摘要更短，只需要关键信息）
-  const input = MEMORY_EXTRACT_PROMPT + conversationText.slice(0, COMPACT_MEMORY_INPUT_LIMIT)
-  const extracted = await summarizer(input)
+  const input = conversationText.slice(0, COMPACT_MEMORY_INPUT_LIMIT)
+  const extracted = await extractor(input)
 
   // 没有值得持久化的内容
   if (!extracted || extracted.trim() === "NONE" || extracted.trim().length < 10) return
 
-  // 读取已有 memory 避免重复
-  const memoryDir = join(process.cwd(), ".naughty")
+  // 读取已有 memory 避免重复（使用传入的 cwd，而非 process.cwd()）
+  const memoryDir = join(cwd, ".naughty")
   const memoryPath = join(memoryDir, "memory.md")
   let existingMemory = ""
   if (existsSync(memoryPath)) {

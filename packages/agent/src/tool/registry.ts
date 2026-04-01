@@ -80,14 +80,16 @@ export class ToolRegistry {
 
   /**
    * 注册工具（支持单个或批量）
+   *
+   * 泛型签名让调用方保持类型安全，内部存储为 Tool.Definition（无参数约束），
+   * 因为 isConcurrencySafe 的函数签名在 TParams 上逆变不兼容 unknown。
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  register(tool: Tool.Definition<any> | Tool.Definition<any>[]): this {
+  register<TParams>(tool: Tool.Definition<TParams> | Tool.Definition<TParams>[]): this {
     const tools = Array.isArray(tool) ? tool : [tool]
 
     for (const t of tools) {
       const entry: ToolEntry = {
-        tool: t,
+        tool: t as Tool.Definition,
         metadata: {
           registeredAt: new Date(),
           source: t.source || "builtin",
@@ -110,7 +112,7 @@ export class ToolRegistry {
         serverSet.add(t.id)
       }
 
-      this.notifyListeners({ type: "registered", tool: t })
+      this.notifyListeners({ type: "registered", tool: entry.tool })
     }
 
     return this
@@ -368,8 +370,7 @@ const _defaultRegistry = new ToolRegistry()
 // eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace ToolRegistryCompat {
   export const clear = () => _defaultRegistry.clear()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  export const register = (tool: Tool.Definition<any> | Tool.Definition<any>[]) => _defaultRegistry.register(tool)
+  export const register = <TParams>(tool: Tool.Definition<TParams> | Tool.Definition<TParams>[]) => _defaultRegistry.register(tool)
   export const get = (id: string) => _defaultRegistry.get(id)
   export const getByNames = (names: string[]) => _defaultRegistry.getByNames(names)
   export const list = (filter?: ToolFilter) => _defaultRegistry.list(filter)

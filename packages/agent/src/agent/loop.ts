@@ -362,7 +362,16 @@ export function createAgentLoop(config: AgentLoopConfig) {
         yield { type: "tool_start", id: toolCall.id, name: toolCall.name, input: toolCall.args }
         logger.debug(`executing tool: ${toolCall.name}`, { id: toolCall.id, argsKeys: Object.keys(toolCall.args || {}) })
 
-        const result = await registry.execute(toolCall.name, toolCall.args, ctx)
+        let result: { output: string; isError?: boolean; title: string; metadata?: Record<string, unknown> }
+        try {
+          result = await registry.execute(toolCall.name, toolCall.args, ctx)
+        } catch (err) {
+          result = {
+            title: toolCall.name,
+            output: `Error: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          }
+        }
         const isError = postProcess(toolCall, result)
 
         yield { type: "tool_end", id: toolCall.id, result, isError }
