@@ -75,6 +75,12 @@ export {
   type CronFireEvent,
 } from "./cron"
 
+// MCP 资源工具
+export {
+  ListMcpResourcesTool,
+  ReadMcpResourceTool,
+} from "./mcp-resource"
+
 // 子代理工具
 export {
   AskLlmTool,
