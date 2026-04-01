@@ -37,7 +37,7 @@ import { MemoryTool } from "../tool/memory"
 import { NotebookEditTool } from "../tool/notebook-edit"
 import { WebFetchTool } from "../tool/web-fetch"
 import { TaskOutputTool, TaskStopTool } from "../tool/background-task"
-import { EnterPlanModeTool, ExitPlanModeTool } from "../tool/plan-mode"
+import { EnterPlanModeTool, ExitPlanModeTool, isPlanMode } from "../tool/plan-mode"
 import { initKnowledgeSkills, getKnowledgeSkillLoader } from "../skill/knowledge"
 import { initSkills } from "../skill"
 import { existsSync } from "fs"
@@ -299,6 +299,18 @@ export function createRunner(config: RunnerConfig) {
         return resp.text
       }
 
+      // toolMeta 对象（PlanMode 工具会修改 meta.planMode）
+      const toolMeta: Record<string, unknown> = { session, summarizer }
+
+      // 计划模式写入拦截（包装 permissionChecker）
+      const PLAN_MODE_BLOCKED_TOOLS = new Set(["write", "edit", "append", "bash", "notebook_edit"])
+      const wrappedPermissionChecker: PermissionChecker = async (toolName, input) => {
+        if (isPlanMode(toolMeta) && PLAN_MODE_BLOCKED_TOOLS.has(toolName)) {
+          return false // 计划模式下拒绝写入工具
+        }
+        return permissionChecker(toolName, input)
+      }
+
       // 独立记忆提取器（使用专用 system prompt，不复用 summarizer 的 COMPACT_SYSTEM_PROMPT）
       const memoryExtractor = async (text: string): Promise<string> => {
         const resp = await provider.chat({
@@ -321,12 +333,12 @@ export function createRunner(config: RunnerConfig) {
         definition, session, provider,
         runConfig: { sessionId: session.id, cwd, abort: options.abort },
         toolRegistry,
-        permissionChecker,
+        permissionChecker: wrappedPermissionChecker,
         onBeforeStep,
         onReactiveCompact: async (s: Session) => {
           return await autoCompact(s, summarizer, compactOptions)
         },
-        toolMeta: { session, summarizer },
+        toolMeta,
         backgroundNotifications: config.backgroundNotifications,
       })
 

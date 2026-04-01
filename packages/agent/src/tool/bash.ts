@@ -3,6 +3,7 @@ import { z } from "zod"
 import { Tool } from "./tool"
 import { resolvePath } from "./safe-path"
 import { BASH_MAX_OUTPUT_LENGTH } from "../config"
+import { registerBackgroundTask, appendTaskOutput, updateBackgroundTask } from "./background-task"
 
 const DESCRIPTION = `Executes a shell command with optional timeout.
 
@@ -10,7 +11,8 @@ Usage:
 - Commands run in the current working directory by default
 - Use workdir parameter to run in a different directory
 - Default timeout is 120 seconds
-- Output is automatically truncated if too long`
+- Output is automatically truncated if too long
+- Set run_in_background to run the command in the background. Use task_output to check results later.`
 
 const DEFAULT_TIMEOUT = 120_000 // 2 minutes
 const MAX_OUTPUT_LENGTH = BASH_MAX_OUTPUT_LENGTH
@@ -68,10 +70,11 @@ export const BashTool = Tool.define({
     workdir: z.string().optional().describe("Working directory for the command"),
     timeout: z.number().optional().describe("Timeout in milliseconds (default 120000)"),
     description: z.string().optional().describe("Brief description of what the command does"),
+    run_in_background: z.boolean().optional().describe("Run command in background. Use task_output to get results."),
   }),
 
   async execute(params, ctx) {
-    const { command, timeout = DEFAULT_TIMEOUT, description } = params
+    const { command, timeout = DEFAULT_TIMEOUT, description, run_in_background } = params
     let workdir = params.workdir
 
     if (workdir) {
@@ -94,6 +97,54 @@ export const BashTool = Tool.define({
 
     const title = description || command.substring(0, 50)
     const { shell, args } = getShell()
+
+    // ─── 后台执行模式 ───────────────────────────
+    if (run_in_background) {
+      const taskId = `bg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      let resolveCompletion: () => void
+      const completion = new Promise<void>((resolve) => { resolveCompletion = resolve })
+
+      const proc = spawn(shell, [...args, command], {
+        cwd,
+        env: { ...process.env, TERM: "dumb" },
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+
+      registerBackgroundTask({
+        id: taskId,
+        command,
+        output: "",
+        status: "running",
+        startTime: Date.now(),
+        kill: () => proc.kill("SIGTERM"),
+        completion,
+      })
+
+      proc.stdout?.on("data", (chunk) => appendTaskOutput(taskId, chunk.toString()))
+      proc.stderr?.on("data", (chunk) => appendTaskOutput(taskId, chunk.toString()))
+
+      proc.on("close", (code) => {
+        updateBackgroundTask(taskId, {
+          status: code === 0 ? "completed" : "failed",
+          exitCode: code ?? undefined,
+        })
+        resolveCompletion!()
+      })
+
+      proc.on("error", (err) => {
+        appendTaskOutput(taskId, `\nProcess error: ${err.message}`)
+        updateBackgroundTask(taskId, { status: "failed" })
+        resolveCompletion!()
+      })
+
+      return {
+        title: `Background: ${title}`,
+        output: `Background task started.\nTask ID: ${taskId}\nCommand: ${command}\n\nUse task_output with task_id="${taskId}" to check results.`,
+        metadata: { taskId, background: true },
+      }
+    }
+
+    // ─── 前台执行 ───────────────────────────────
 
     return new Promise<Tool.Result>((resolve, reject) => {
       let output = ""
