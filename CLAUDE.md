@@ -107,6 +107,17 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，自主可控。
 
 ## 版本更新日志
 
+### v0.6.0（2026-04-01）
+- **feat**: 追平 CC 工具集——新增 6 个工具（WebFetch/NotebookEdit/TaskOutput/TaskStop/EnterPlanMode/ExitPlanMode）
+- **feat**: bash 后台执行——`run_in_background` 参数，spawn 进程注册到 BackgroundTask 注册表，配合 TaskOutput/TaskStop 管理
+- **feat**: PlanMode 权限拦截——计划模式下 wrappedPermissionChecker 阻断 write/edit/append/bash/notebook_edit
+- **feat**: 独立 memoryExtractor——分离记忆提取（MEMORY_EXTRACT_PROMPT）与摘要（COMPACT_SYSTEM_PROMPT），避免互相干扰
+- **fix**: Copilot review 4 项修复（compact.ts 独立提取器/cwd 路径/loop.ts 串行错误处理/registry.ts 泛型协变）
+
+### v0.5.0（2026-04-01）
+- **feat**: CC 源码改进 Phase D（系统提示词/工具并行/Reactive Compact/StreamingToolExecutor）
+- 详见 memory/naughtagent-history.md
+
 ### v0.3.0（2026-03-31）
 - **fix(致命)**: 子代理（run_agent/fork_agent/parallel_agents/dispatch_agent）无法使用 read/write/edit 等基础工具——createAgentLoop 未传 toolRegistry，fallback 到全局空实例。修复：RunAgentRuntime/ForkAgentRuntime 新增 toolRegistry 字段，runner.ts 传入
 - **fix**: dispatch_agent 的 callExpert 未传 cwd——子代理在 daemon 模式下工作目录错误（fallback 到 process.cwd()）。修复：callExpert 接受 cwd 参数
