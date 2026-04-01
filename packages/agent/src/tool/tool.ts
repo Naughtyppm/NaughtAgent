@@ -16,9 +16,11 @@ export const TOOL_TIMEOUTS: Record<string, number> = {
   write: 10_000,    // 10 秒
   append: 10_000,   // 10 秒
   edit: 10_000,     // 10 秒
+  notebook_edit: 10_000, // 10 秒
   grep: 15_000,     // 15 秒
   bash: 60_000,     // 60 秒
   glob: 10_000,     // 10 秒
+  web_fetch: 30_000, // 30 秒
   // 子代理工具 - 需要更长超时
   ask_llm: 60_000,        // 60 秒
   run_agent: 180_000,     // 3 分钟

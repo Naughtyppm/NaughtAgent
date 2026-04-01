@@ -45,6 +45,21 @@ export { GlobTool } from "./glob"
 export { GrepTool } from "./grep"
 export { LoadSkillTool } from "./load-skill"
 export { MemoryTool } from "./memory"
+export { NotebookEditTool } from "./notebook-edit"
+export { WebFetchTool } from "./web-fetch"
+export { EnterPlanModeTool, ExitPlanModeTool, isPlanMode } from "./plan-mode"
+
+// 后台任务工具
+export {
+  TaskOutputTool,
+  TaskStopTool,
+  registerBackgroundTask,
+  updateBackgroundTask,
+  appendTaskOutput,
+  getBackgroundTask,
+  getAllBackgroundTasks,
+  type BackgroundTask,
+} from "./background-task"
 
 // 子代理工具
 export {

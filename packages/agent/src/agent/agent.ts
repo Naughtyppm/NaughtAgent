@@ -93,6 +93,9 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
       "load_skill",
       // 持久记忆（跨会话记忆保存）
       "memory",
+      // CC 对齐工具
+      "web_fetch", "notebook_edit", "task_output", "task_stop",
+      "enter_plan_mode", "exit_plan_mode",
       // 子代理工具（智能委托）
       "ask_llm", "run_agent", "fork_agent", "parallel_agents", "multi_agent",
       "dispatch_agent", "task", "run_workflow",

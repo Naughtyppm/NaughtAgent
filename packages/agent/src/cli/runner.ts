@@ -34,6 +34,10 @@ import { QuestionTool } from "../interaction/question"
 import { LoadSkillTool } from "../tool/load-skill"
 import { CompactTool } from "../tool/compact"
 import { MemoryTool } from "../tool/memory"
+import { NotebookEditTool } from "../tool/notebook-edit"
+import { WebFetchTool } from "../tool/web-fetch"
+import { TaskOutputTool, TaskStopTool } from "../tool/background-task"
+import { EnterPlanModeTool, ExitPlanModeTool } from "../tool/plan-mode"
 import { initKnowledgeSkills, getKnowledgeSkillLoader } from "../skill/knowledge"
 import { initSkills } from "../skill"
 import { existsSync } from "fs"
@@ -375,6 +379,16 @@ function registerBuiltinTools(registry: ToolRegistry): void {
   registry.register(CompactTool)
   // 持久记忆工具（跨会话记忆）
   registry.register(MemoryTool)
+  // Jupyter Notebook 编辑工具
+  registry.register(NotebookEditTool)
+  // 网页抓取工具
+  registry.register(WebFetchTool)
+  // 后台任务管理工具
+  registry.register(TaskOutputTool)
+  registry.register(TaskStopTool)
+  // 计划模式工具
+  registry.register(EnterPlanModeTool)
+  registry.register(ExitPlanModeTool)
 }
 
 /**
