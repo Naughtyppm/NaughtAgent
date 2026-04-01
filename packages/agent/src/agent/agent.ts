@@ -96,9 +96,8 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
       // CC 对齐工具
       "web_fetch", "notebook_edit", "task_output", "task_stop",
       "enter_plan_mode", "exit_plan_mode",
-      // 子代理工具（智能委托）
-      "ask_llm", "run_agent", "fork_agent", "parallel_agents", "multi_agent",
-      "dispatch_agent", "task", "run_workflow",
+      // 子代理工具（核心 3 原语 + 统一入口）
+      "ask_llm", "run_agent", "fork_agent", "task",
       // 团队协作工具（s10 Team Protocols）
       "request_shutdown", "respond_shutdown", "submit_plan", "review_plan", "list_pending_plans",
       // 自主任务工具（s11 Autonomous Agents）
@@ -117,7 +116,7 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
     tools: [
       "read", "write", "append", "glob", "grep",
       // 规划模式可用的子代理
-      "ask_llm", "parallel_agents", "multi_agent",
+      "ask_llm", "fork_agent",
     ],
     maxSteps: 50,
   },

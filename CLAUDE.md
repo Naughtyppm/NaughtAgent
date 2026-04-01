@@ -92,12 +92,12 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，自主可控。
 - 统一命令系统：`command/` — 直接复用
 - Zod→JSON Schema：`tool/tool.ts` 中的 `zodToJsonSchema` — 直接复用
 
-### 删除清单
+### 删除清单（已全部完成 ✅）
 
-- `src/cli/repl.ts`（943 行传统 REPL）→ 被 Ink REPL 取代
-- `provider/types.ts` 中 3 套独立映射表 → 合并到 `config/models.ts`
-- `provider/types.ts` 中 DEFAULT_MODEL/FAST_MODEL → 死代码
-- 冗余子代理模式（parallel_agents, multi_agent, run_workflow, dispatch_agent）→ 只留 4 种核心
+- ~~`src/cli/repl.ts`（943 行传统 REPL）~~ → Phase C 已删除
+- ~~`provider/types.ts` 中 3 套独立映射表~~ → 已合并到 `config/models.ts`
+- ~~`provider/types.ts` 中 DEFAULT_MODEL/FAST_MODEL~~ → FAST_MODEL 已删，DEFAULT_MODEL 仍被 loop.ts/recovery.ts 引用（非死代码）
+- ~~冗余子代理模式（parallel_agents, multi_agent, run_workflow, dispatch_agent）~~ → v0.6.0 已删除，净减 1281 行，保留 ask_llm/run_agent/fork_agent 3 核心原语
 
 ## 核心原则
 
@@ -112,6 +112,7 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，自主可控。
 - **feat**: bash 后台执行——`run_in_background` 参数，spawn 进程注册到 BackgroundTask 注册表，配合 TaskOutput/TaskStop 管理
 - **feat**: PlanMode 权限拦截——计划模式下 wrappedPermissionChecker 阻断 write/edit/append/bash/notebook_edit
 - **feat**: 独立 memoryExtractor——分离记忆提取（MEMORY_EXTRACT_PROMPT）与摘要（COMPACT_SYSTEM_PROMPT），避免互相干扰
+- **refactor**: 子代理精简——删除 parallel_agents/multi_agent/dispatch_agent/run_workflow（1281行），保留 ask_llm/run_agent/fork_agent 3 核心原语
 - **fix**: Copilot review 4 项修复（compact.ts 独立提取器/cwd 路径/loop.ts 串行错误处理/registry.ts 泛型协变）
 
 ### v0.5.0（2026-04-01）
