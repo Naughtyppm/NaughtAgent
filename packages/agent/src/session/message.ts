@@ -62,9 +62,21 @@ export interface AudioBlock {
 }
 
 /**
+ * Thinking 内容块（Extended Thinking，仅 assistant 消息）
+ *
+ * Anthropic API 要求：启用 thinking 时，assistant 消息必须以 thinking 块开头
+ * signature 是 Anthropic 的加密签名，回放消息时必须原样发送
+ */
+export interface ThinkingBlock {
+  type: "thinking"
+  thinking: string
+  signature: string
+}
+
+/**
  * 消息内容块
  */
-export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ImageBlock | AudioBlock
+export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ImageBlock | AudioBlock | ThinkingBlock
 
 /**
  * 停止原因

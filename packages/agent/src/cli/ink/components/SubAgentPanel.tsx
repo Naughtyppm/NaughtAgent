@@ -7,7 +7,7 @@
  */
 
 import React from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text } from '../../cc-ink/index.js'
 import { Spinner } from '@inkjs/ui'
 import type { SubAgentState, SubAgentToolCall } from '../types.js'
 import { getToolColor, getToolIcon } from '../utils/colors.js'

@@ -21,7 +21,7 @@ import {
   type AgentType,
 } from "../agent"
 import { DEFAULT_MAX_TOKENS } from "../config"
-import type { ToolRegistry } from "../tool/registry"
+import { ToolRegistry } from "../tool/registry"
 import { createSession } from "../session"
 import { createProviderFromEnv, createProvider } from "../provider"
 import {
@@ -160,7 +160,7 @@ export async function runRunAgent(
         },
         depth: config.depth ?? 0,
         sharedContextId: config.sharedContextId,
-        toolRegistry: runtime.toolRegistry,
+        toolRegistry: runtime.toolRegistry ?? new ToolRegistry(),
       })
 
       // 工具执行计时（每次重试重置）

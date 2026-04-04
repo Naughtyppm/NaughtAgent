@@ -21,9 +21,6 @@ export interface EnvConfig {
   ci: boolean
   legacyRepl: boolean
   shell: string | undefined
-
-  // Kiro
-  kiroDebug: boolean
 }
 
 let _cache: EnvConfig | null = null
@@ -52,9 +49,6 @@ export function getEnvConfig(reload = false): EnvConfig {
     ci: !!process.env.CI,
     legacyRepl: process.env.NAUGHTY_LEGACY_REPL === "1",
     shell: process.env.SHELL || undefined,
-
-    // Kiro
-    kiroDebug: process.env.KIRO_DEBUG === "1",
   }
 
   return _cache

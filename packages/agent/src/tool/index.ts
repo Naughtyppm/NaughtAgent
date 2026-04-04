@@ -49,6 +49,14 @@ export { NotebookEditTool } from "./notebook-edit"
 export { WebFetchTool } from "./web-fetch"
 export { EnterPlanModeTool, ExitPlanModeTool, isPlanMode } from "./plan-mode"
 
+// 文件访问预算
+export {
+  checkFileAccessBudget,
+  resetFileAccessBudget,
+  clearFileAccessBudget,
+  getFileAccessCount,
+} from "./file-access-budget"
+
 // 后台任务工具
 export {
   TaskOutputTool,

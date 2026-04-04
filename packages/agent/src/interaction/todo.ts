@@ -22,7 +22,7 @@ import type { TodoItem, TodoList, TodoStatus } from "./types"
 // ============================================================================
 
 function getTasksDir(cwd: string): string {
-  return join(cwd, ".tasks")
+  return join(cwd, ".naughty", "tasks")
 }
 
 function getSessionDir(cwd: string, sessionId: string): string {

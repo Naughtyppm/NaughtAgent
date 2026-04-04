@@ -44,7 +44,7 @@ export interface DaemonClientEvents {
   onToolStart?: (id: string, name: string, input: unknown) => void
   onToolEnd?: (id: string, output: string, isError?: boolean) => void
   onError?: (error: Error) => void
-  onDone?: (usage: { inputTokens: number; outputTokens: number }) => void
+  onDone?: (usage: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number }) => void
   onPermissionRequest?: (request: PermissionRequest) => void
 }
 
@@ -394,7 +394,7 @@ export function createDaemonClient(config: DaemonClientConfig) {
         break
 
       case "done":
-        events.onDone?.(msg.usage as { inputTokens: number; outputTokens: number })
+        events.onDone?.(msg.usage as { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number })
         cleanup()
         resolve()
         break

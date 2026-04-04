@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { Box, Text, useInput } from 'ink'
+import { Box, Text, useInput } from '../../cc-ink/index.js'
 import { TextInput } from '@inkjs/ui'
 import type { InputAreaProps } from '../types.js'
 import { CommandPrompt, type UnifiedCommandItem } from './CommandPrompt.js'
@@ -171,7 +171,7 @@ export function InputArea({
         {/* 提示符 */}
         <Text color="cyan">{'>'}</Text>
 
-        {/* 输入框 */}
+        {/* 输入框：运行时显示等待提示，TextInput 始终挂载避免重建开销 */}
         {disabled ? (
           <Text color="gray">等待中...</Text>
         ) : (

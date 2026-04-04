@@ -8,7 +8,7 @@
  */
 
 import React from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text } from '../../cc-ink/index.js'
 import type { HelpViewProps } from '../types.js'
 
 /**

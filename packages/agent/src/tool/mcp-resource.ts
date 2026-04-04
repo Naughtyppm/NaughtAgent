@@ -40,7 +40,7 @@ export const ListMcpResourcesTool = Tool.define({
     if (!mcpManager) {
       return {
         title: "ListMcpResources",
-        output: "No MCP servers configured. Add MCP server configuration to .naught/mcp.json to use this tool.",
+        output: "No MCP servers configured. Add MCP server configuration to .naughty/mcp.json to use this tool.",
         isError: true,
       }
     }
@@ -133,7 +133,7 @@ export const ReadMcpResourceTool = Tool.define({
     if (!mcpManager) {
       return {
         title: "ReadMcpResource",
-        output: "No MCP servers configured. Add MCP server configuration to .naught/mcp.json to use this tool.",
+        output: "No MCP servers configured. Add MCP server configuration to .naughty/mcp.json to use this tool.",
         isError: true,
       }
     }

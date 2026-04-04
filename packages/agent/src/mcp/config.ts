@@ -321,13 +321,13 @@ export async function loadMcpConfigFromFile(configPath: string): Promise<ConfigL
 /**
  * 从工作目录加载 MCP 配置
  *
- * 查找 .naught/mcp.json 文件
+ * 查找 .naughty/mcp.json 文件
  *
  * @param cwd 工作目录
  * @returns 配置加载结果
  */
 export async function loadMcpConfig(cwd: string): Promise<ConfigLoadResult> {
-  const configPath = path.join(cwd, ".naught", "mcp.json")
+  const configPath = path.join(cwd, ".naughty", "mcp.json")
   return loadMcpConfigFromFile(configPath)
 }
 
@@ -569,6 +569,6 @@ export function createConfigHotReloader(
   cwd: string,
   initialConfig: McpConfigWithSettings
 ): ConfigHotReloader {
-  const configPath = path.join(cwd, ".naught", "mcp.json")
+  const configPath = path.join(cwd, ".naughty", "mcp.json")
   return new ConfigHotReloader(configPath, initialConfig)
 }

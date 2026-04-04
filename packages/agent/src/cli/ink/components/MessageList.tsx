@@ -9,7 +9,7 @@
  */
 
 import React, { memo, useMemo } from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text } from '../../cc-ink/index.js'
 import type { MessageListProps, Message, SubAgentState } from '../types.js'
 import { UserMessage } from './UserMessage.js'
 import { AIMessage } from './AIMessage.js'
@@ -180,6 +180,8 @@ const MessageItem = memo(function MessageItem({
           content={message.content}
           model={message.model}
           isStreaming={message.isStreaming}
+          thinking={message.thinking}
+          isThinking={message.isThinking}
         />
       )
 
@@ -218,8 +220,10 @@ const MessageItem = memo(function MessageItem({
   if (prevMsg.type !== nextMsg.type) return false
   
   if (prevMsg.type === 'ai' && nextMsg.type === 'ai') {
-    return prevMsg.content === nextMsg.content && 
-           prevMsg.isStreaming === nextMsg.isStreaming
+    return prevMsg.content === nextMsg.content &&
+           prevMsg.isStreaming === nextMsg.isStreaming &&
+           prevMsg.thinking === nextMsg.thinking &&
+           prevMsg.isThinking === nextMsg.isThinking
   }
   
   if (prevMsg.type === 'tool' && nextMsg.type === 'tool') {

@@ -12,6 +12,7 @@ import type {
   AudioContent,
   ToolUseContent,
   ToolResultContent,
+  ThinkingContent,
 } from "../provider/types"
 
 import type {
@@ -19,6 +20,7 @@ import type {
   TextBlock,
   ImageBlock,
   AudioBlock,
+  ThinkingBlock,
   ToolResultBlock,
   ToolUseBlock,
 } from "../session/message"
@@ -135,12 +137,16 @@ function convertUserContent(blocks: ContentBlock[]): MessageContent {
 }
 
 /**
- * 助手消息：text + tool_use
+ * 助手消息：thinking + text + tool_use
+ *
+ * 启用 thinking 时，assistant 消息必须以 thinking 块开头（Anthropic API 要求）
  */
-function convertAssistantContent(blocks: ContentBlock[]): Array<TextContent | ToolUseContent> {
-  const content: Array<TextContent | ToolUseContent> = []
+function convertAssistantContent(blocks: ContentBlock[]): Array<ThinkingContent | TextContent | ToolUseContent> {
+  const content: Array<ThinkingContent | TextContent | ToolUseContent> = []
   for (const block of blocks) {
-    if (block.type === "text") {
+    if (block.type === "thinking") {
+      content.push({ type: "thinking", thinking: (block as ThinkingBlock).thinking, signature: (block as ThinkingBlock).signature })
+    } else if (block.type === "text") {
       content.push({ type: "text", text: block.text })
     } else if (block.type === "tool_use") {
       content.push({ type: "tool_use", id: block.id, name: block.name, input: block.input })

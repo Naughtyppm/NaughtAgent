@@ -2,7 +2,7 @@
  * Autonomous Agent 自主执行层（s11）
  *
  * 实现三个核心机制：
- * 1. 全局任务板（.team/tasks/task_*.json）- 跨 Agent 共享
+ * 1. 全局任务板（.naughty/teams/tasks/task_*.json）- 跨 Agent 共享
  * 2. Idle 轮询循环 - Agent 空闲时自动找任务
  * 3. 身份重注入 - context 压缩后保持 Agent 身份
  *
@@ -14,12 +14,20 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, write
 import { join } from "node:path"
 
 // ============================================================================
-// 常量
+// 路径（延迟求值，避免模块级 process.cwd() 在 Daemon 模式下路径错误）
 // ============================================================================
 
-const TEAM_DIR = join(process.cwd(), ".team")
-const INBOX_DIR = join(TEAM_DIR, "inbox")
-const GLOBAL_TASKS_DIR = join(TEAM_DIR, "tasks")
+function getTeamsDir(cwd?: string): string {
+  return join(cwd ?? process.cwd(), ".naughty", "teams")
+}
+
+function getInboxDir(cwd?: string): string {
+  return join(getTeamsDir(cwd), "inbox")
+}
+
+function getGlobalTasksDir(cwd?: string): string {
+  return join(getTeamsDir(cwd), "tasks")
+}
 
 export const POLL_INTERVAL_MS = 5_000  // 5 秒
 export const IDLE_TIMEOUT_MS = 60_000 // 60 秒
@@ -45,13 +53,15 @@ export interface GlobalTask {
 // 全局任务板操作
 // ============================================================================
 
-function ensureDirs(): void {
-  if (!existsSync(GLOBAL_TASKS_DIR)) mkdirSync(GLOBAL_TASKS_DIR, { recursive: true })
-  if (!existsSync(INBOX_DIR)) mkdirSync(INBOX_DIR, { recursive: true })
+function ensureDirs(cwd?: string): void {
+  const tasksDir = getGlobalTasksDir(cwd)
+  const inboxDir = getInboxDir(cwd)
+  if (!existsSync(tasksDir)) mkdirSync(tasksDir, { recursive: true })
+  if (!existsSync(inboxDir)) mkdirSync(inboxDir, { recursive: true })
 }
 
-function taskPath(id: string): string {
-  return join(GLOBAL_TASKS_DIR, `task_${id}.json`)
+function taskPath(id: string, cwd?: string): string {
+  return join(getGlobalTasksDir(cwd), `task_${id}.json`)
 }
 
 /** 创建新任务 */
@@ -73,11 +83,12 @@ export function createGlobalTask(subject: string, description?: string): GlobalT
 /** 扫描未认领任务 */
 export function scanUnclaimedTasks(): GlobalTask[] {
   ensureDirs()
+  const tasksDir = getGlobalTasksDir()
   const tasks: GlobalTask[] = []
-  for (const f of readdirSync(GLOBAL_TASKS_DIR).sort()) {
+  for (const f of readdirSync(tasksDir).sort()) {
     if (!f.startsWith("task_") || !f.endsWith(".json")) continue
     try {
-      const task = JSON.parse(readFileSync(join(GLOBAL_TASKS_DIR, f), "utf-8")) as GlobalTask
+      const task = JSON.parse(readFileSync(join(tasksDir, f), "utf-8")) as GlobalTask
       if (task.status === "pending" && !task.owner && !(task.blockedBy?.length)) {
         tasks.push(task)
       }
@@ -114,11 +125,12 @@ export function updateGlobalTask(taskId: string, updates: Partial<GlobalTask>): 
 /** 列出所有任务 */
 export function listGlobalTasks(statusFilter?: GlobalTaskStatus): GlobalTask[] {
   ensureDirs()
+  const tasksDir = getGlobalTasksDir()
   const tasks: GlobalTask[] = []
-  for (const f of readdirSync(GLOBAL_TASKS_DIR).sort()) {
+  for (const f of readdirSync(tasksDir).sort()) {
     if (!f.startsWith("task_") || !f.endsWith(".json")) continue
     try {
-      const task = JSON.parse(readFileSync(join(GLOBAL_TASKS_DIR, f), "utf-8")) as GlobalTask
+      const task = JSON.parse(readFileSync(join(tasksDir, f), "utf-8")) as GlobalTask
       if (!statusFilter || task.status === statusFilter) tasks.push(task)
     } catch { /* 忽略 */ }
   }
@@ -137,7 +149,7 @@ export interface InboxMessage {
 }
 
 function inboxPath(agentName: string): string {
-  return join(INBOX_DIR, `${agentName}.jsonl`)
+  return join(getInboxDir(), `${agentName}.jsonl`)
 }
 
 /** 读取并清空 Agent 收件箱 */

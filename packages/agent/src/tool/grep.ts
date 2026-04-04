@@ -5,6 +5,7 @@ import { z } from "zod"
 import { Tool } from "./tool"
 import { resolvePath } from "./safe-path"
 import { GREP_MAX_MATCHES } from "../config"
+import { checkFileAccessBudget } from "./file-access-budget"
 
 const DESCRIPTION = `Searches for a pattern in file contents using regular expressions.
 
@@ -176,6 +177,23 @@ export const GrepTool = Tool.define({
 
     const title = pattern
 
+    // ─── 滥用检测：catch-all pattern 对单文件 = 读取全文（绕过 read cache）──
+    // 扩展检测：.  .*  .+  ^.*$  [\s\S]*  \S  \w  [^\n]+  (?s).  等高匹配率模式
+    const CATCH_ALL_PATTERNS = /^(\.\*?|\.\+|\^(\.\*?)?\$?|\[\\s\\S\][*+]?|[\s\S]|\\S[*+]?|\\w[*+]?|\[\^\\n\][*+]?|\(\?s\)\.)$/
+    if (CATCH_ALL_PATTERNS.test(pattern.trim())) {
+      try {
+        const pathStat = await fs.stat(basePath)
+        if (pathStat.isFile()) {
+          return {
+            title,
+            output: `Error: Pattern "${pattern}" matches all lines. Use the "read" tool to read file contents instead of grep.`,
+            isError: true,
+            metadata: { matchCount: 0, fileCount: 0, truncated: false },
+          }
+        }
+      } catch { /* 路径不存在，让后面的逻辑处理 */ }
+    }
+
     // 验证正则表达式
     let regex: RegExp
     try {
@@ -195,7 +213,16 @@ export const GrepTool = Tool.define({
     let files: string[]
 
     if (stat.isFile()) {
-      // 搜索单个文件
+      // 单文件搜索：计入全局文件访问预算
+      const budgetResult = checkFileAccessBudget(basePath, "grep")
+      if (budgetResult) {
+        return {
+          title,
+          output: budgetResult,
+          isError: true,
+          metadata: { matchCount: 0, fileCount: 0, truncated: false, budgetExhausted: true },
+        }
+      }
       files = [basePath]
     } else {
       // 搜索目录
@@ -230,6 +257,8 @@ export const GrepTool = Tool.define({
         allMatches.push(...matches)
         filesWithMatches.add(file)
         totalCount = count
+        // 目录搜索也计入文件访问预算（防止 grep dir/ --include=target.ts 绕过）
+        checkFileAccessBudget(file, "grep")
       }
 
       // 重置 regex lastIndex

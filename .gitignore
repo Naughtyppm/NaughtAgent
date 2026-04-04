@@ -30,6 +30,14 @@ coverage/
 # 临时文件
 nul
 
+# NaughtAgent 运行时数据
+.naughty/
+.naught/
+.tasks/
+.team/
+.worktrees/
+.learnings/
+
 # Python
 __pycache__/
 *.pyc

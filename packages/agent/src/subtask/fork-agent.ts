@@ -20,7 +20,7 @@ import {
   type AgentType,
 } from "../agent"
 import { DEFAULT_MAX_TOKENS } from "../config"
-import type { ToolRegistry } from "../tool/registry"
+import { ToolRegistry } from "../tool/registry"
 import { createSession, type Message } from "../session"
 import { createProviderFromEnv, createProvider } from "../provider"
 import { createContextManager, type PreparedContext } from "./context"
@@ -227,7 +227,7 @@ export async function runForkAgent(
       },
       depth: config.depth ?? 0,
       sharedContextId: config.sharedContextId,
-      toolRegistry: runtime.toolRegistry,
+      toolRegistry: runtime.toolRegistry ?? new ToolRegistry(),
     })
 
     // 8. 收集输出
@@ -247,7 +247,7 @@ export async function runForkAgent(
       runConfig: { sessionId: childSession.id, cwd, abort: config.abort },
       depth: config.depth ?? 0,
       sharedContextId: config.sharedContextId,
-      toolRegistry: runtime.toolRegistry,
+      toolRegistry: runtime.toolRegistry ?? new ToolRegistry(),
     })
 
     // 工具执行计时

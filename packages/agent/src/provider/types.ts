@@ -14,7 +14,7 @@ export type { StopReason }
 /**
  * Provider 类型
  */
-export type ProviderType = "anthropic" | "kiro" | "openai" | "auto"
+export type ProviderType = "anthropic" | "openai" | "auto"
 
 /**
  * Extended Thinking 配置
@@ -57,6 +57,15 @@ export interface TokenUsage {
 }
 
 /**
+ * Thinking 块原始数据（含签名，用于回放回 API）
+ */
+export interface ThinkingBlockRaw {
+  type: "thinking"
+  thinking: string
+  signature: string
+}
+
+/**
  * 流式事件
  */
 export type StreamEvent =
@@ -64,7 +73,7 @@ export type StreamEvent =
   | { type: "thinking"; text: string }
   | { type: "thinking_end" }
   | { type: "tool_call"; id: string; name: string; args: unknown }
-  | { type: "message_end"; usage: TokenUsage; stopReason?: StopReason }
+  | { type: "message_end"; usage: TokenUsage; stopReason?: StopReason; thinkingBlocks?: ThinkingBlockRaw[] }
   | { type: "error"; error: Error }
 
 /**
@@ -124,6 +133,18 @@ export interface ToolUseContent {
 }
 
 /**
+ * Thinking 内容块（Anthropic Extended Thinking）
+ *
+ * 启用 thinking 时，assistant 消息必须以此块开头
+ * signature 是 Anthropic 的加密签名，回放消息时必须原样发送
+ */
+export interface ThinkingContent {
+  type: "thinking"
+  thinking: string
+  signature: string
+}
+
+/**
  * 工具结果内容块
  */
 export interface ToolResultContent {
@@ -138,7 +159,7 @@ export interface ToolResultContent {
  */
 export type MessageContent =
   | string
-  | Array<TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent>
+  | Array<TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent | ThinkingContent>
 
 /**
  * 消息
@@ -214,26 +235,6 @@ export interface AnthropicConfig {
 }
 
 /**
- * Kiro 配置
- */
-export interface KiroConfig {
-  /**
-   * Token 缓存目录（默认 ~/.aws/sso/cache）
-   */
-  tokenCacheDir?: string
-
-  /**
-   * HTTP 代理
-   */
-  proxy?: string
-
-  /**
-   * 调试模式
-   */
-  debug?: boolean
-}
-
-/**
  * OpenAI 兼容配置
  *
  * 支持 OpenRouter、Azure OpenAI 等 OpenAI 兼容服务
@@ -260,9 +261,8 @@ export interface OpenAIConfig {
  */
 export type ProviderConfig =
   | { type: "anthropic"; config: AnthropicConfig }
-  | { type: "kiro"; config?: KiroConfig }
   | { type: "openai"; config: OpenAIConfig }
-  | { type: "auto"; anthropic?: AnthropicConfig; kiro?: KiroConfig; openai?: OpenAIConfig }
+  | { type: "auto"; anthropic?: AnthropicConfig; openai?: OpenAIConfig }
 
 /**
  * 默认模型配置

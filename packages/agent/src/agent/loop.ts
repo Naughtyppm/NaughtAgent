@@ -7,7 +7,7 @@
 
 import type { AgentDefinition, AgentEvent, AgentRunConfig, TokenUsage } from "./agent"
 import { buildSystemPrompt } from "./prompt"
-import { ToolRegistry, ToolRegistryCompat, type ExecutionContext, type PermissionChecker } from "../tool/registry"
+import { ToolRegistry, type ExecutionContext, type PermissionChecker } from "../tool/registry"
 import { createOutputTruncator } from "../tool/output-truncator"
 import { AgentError, ErrorCode } from "../error"
 import { Logger } from "../logging"
@@ -23,7 +23,7 @@ import {
   type StopReason,
 } from "../session"
 import { convertSessionMessages } from "./message-converter"
-import { DEFAULT_MAX_STEPS, MAX_CONSECUTIVE_ERRORS } from "../config"
+import { DEFAULT_MAX_STEPS, MAX_CONSECUTIVE_ERRORS, MAX_TOKENS_RECOVERY_LIMIT } from "../config"
 
 const logger = new Logger('agent-loop')
 
@@ -34,8 +34,8 @@ export interface AgentLoopConfig {
   session: Session
   provider: LLMProvider
   runConfig: AgentRunConfig
-  /** 工具注册表实例（不传则用全局兼容实例） */
-  toolRegistry?: ToolRegistry
+  /** 工具注册表实例（必传，禁止回退到全局实例） */
+  toolRegistry: ToolRegistry
   /** 权限检查器 */
   permissionChecker?: PermissionChecker
   depth?: number
@@ -85,7 +85,7 @@ function getToolDefinitions(
 
 export function createAgentLoop(config: AgentLoopConfig) {
   const { definition, session, provider, runConfig } = config
-  const registry = config.toolRegistry ?? ToolRegistryCompat.getInstance()
+  const registry = config.toolRegistry
   const abortController = new AbortController()
   const truncator = createOutputTruncator()
   const maxErrors = config.maxConsecutiveErrors ?? MAX_CONSECUTIVE_ERRORS
@@ -99,7 +99,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
     // 添加用户消息
     addMessage(session, "user", [{ type: "text", text: input }])
 
-    const systemPrompt = buildSystemPrompt(definition, { cwd: runConfig.cwd })
+    const systemPrompt = buildSystemPrompt(definition, { cwd: runConfig.cwd, model: definition.model?.model })
     const tools = getToolDefinitions(definition.tools, registry, { cwd: runConfig.cwd, depth: config.depth })
     const modelConfig = definition.model || DEFAULT_MODEL
 
@@ -108,12 +108,18 @@ export function createAgentLoop(config: AgentLoopConfig) {
     const totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
     let consecutiveErrors = 0
     let lastStopReason: StopReason | undefined
+    // max_tokens 恢复计数器（CC: MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3）
+    let maxTokensRecoveryCount = 0
     // 重复工具调用检测：key = "toolName:argsHash" → 调用次数
     const toolCallCounts = new Map<string, number>()
-    const MAX_DUPLICATE_CALLS = 3
+    const MAX_DUPLICATE_CALLS = 3       // 软警告阈值
+    const HARD_BLOCK_THRESHOLD = 10     // 硬阻断阈值：超过此次数不执行工具
     // 写操作计数器（验证子代理触发用）
     const WRITE_TOOLS = new Set(['write', 'edit', 'append'])
     let writeOpCount = 0
+    // 全局重复阻断计数：当硬阻断触发累计 N 次，强制注入系统提示终止循环
+    let globalDuplicateBlockCount = 0
+    const CIRCUIT_BREAKER_THRESHOLD = 5  // 累计 5 次硬阻断后触发熔断
 
     while (stepCount < maxSteps) {
       stepCount++
@@ -123,6 +129,35 @@ export function createAgentLoop(config: AgentLoopConfig) {
       if (abortController.signal.aborted) {
         yield { type: "error", error: new AgentError("Agent execution aborted", ErrorCode.INTERNAL_ERROR, false) }
         break
+      }
+
+      // 循环熔断：累计硬阻断超过阈值，注入强制跳出指令
+      if (globalDuplicateBlockCount >= CIRCUIT_BREAKER_THRESHOLD) {
+        logger.error(`circuit breaker triggered: ${globalDuplicateBlockCount} hard-blocks accumulated`)
+        const blockedTools = [...toolCallCounts.entries()]
+          .filter(([, count]) => count > HARD_BLOCK_THRESHOLD)
+          .map(([key, count]) => `  - ${key.split(':')[0]} (${count}x)`)
+          .join('\n')
+        addMessage(session, "user", [{
+          type: "text",
+          text: `🚨 CIRCUIT BREAKER: You are stuck in an infinite read loop. ${globalDuplicateBlockCount} tool calls have been hard-blocked.\n` +
+            `Blocked tools:\n${blockedTools}\n\n` +
+            `You MUST stop reading files and take action NOW:\n` +
+            `1. Summarize what you have learned from the files you already read\n` +
+            `2. Propose your solution or changes to the user\n` +
+            `3. If you cannot proceed, explain what is blocking you and ask the user for help\n\n` +
+            `DO NOT call read, glob, or grep again until you have produced output or asked the user a question.`,
+        }])
+        // Assistant prefill 仅 Anthropic 原生 API 支持，Copilot/OpenAI 兼容 API 会报 400
+        if (provider.type === 'anthropic') {
+          addMessage(session, "assistant", [{
+            type: "text",
+            text: "I understand I'm stuck in a loop. Let me summarize what I know and proceed with action.",
+          }])
+        }
+        // 重置计数器给 LLM 一次机会（同时清零 toolCallCounts 避免死循环）
+        globalDuplicateBlockCount = 0
+        toolCallCounts.clear()
       }
 
       // 后台通知注入
@@ -146,6 +181,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
       let responseText = ""
       const toolCalls: { id: string; name: string; args: unknown }[] = []
       let usage = { inputTokens: 0, outputTokens: 0 }
+      let thinkingBlocks: Array<{ type: "thinking"; thinking: string; signature: string }> | undefined
       lastStopReason = undefined
 
       // StreamingToolExecutor: stream 期间提前启动并行安全工具
@@ -202,6 +238,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
             case 'message_end':
               usage = event.usage
               lastStopReason = event.stopReason as StopReason | undefined
+              thinkingBlocks = event.thinkingBlocks
               break
             case 'error':
               throw event.error
@@ -224,6 +261,21 @@ export function createAgentLoop(config: AgentLoopConfig) {
           }
         }
 
+        // ─── 429/529/503 可恢复错误：等待后重试（参照 CC retry-after 机制） ───
+        const isRetryable = errorMsg.includes('429') || errorMsg.includes('529') ||
+          errorMsg.includes('503') || errorMsg.includes('rate_limit') ||
+          errorMsg.includes('overloaded') || errorMsg.includes('too many requests')
+        if (isRetryable) {
+          // 解析 retry-after 头（如果错误消息中包含）
+          const retryAfterMatch = errorMsg.match(/retry.?after[:\s]*(\d+)/i)
+          const waitSec = retryAfterMatch ? Math.min(parseInt(retryAfterMatch[1], 10), 60) : 10
+          logger.warn(`API 可恢复错误，等待 ${waitSec}s 后重试`, { stepCount, errorMsg: errorMsg.substring(0, 200) })
+          yield { type: "thinking", content: `API rate limited/overloaded, waiting ${waitSec}s...` }
+          await new Promise(resolve => setTimeout(resolve, waitSec * 1000))
+          stepCount-- // 回退步数重试
+          continue
+        }
+
         const agentError = error instanceof AgentError ? error
           : new AgentError(error instanceof Error ? error.message : String(error), ErrorCode.API_ERROR, false, { originalError: error })
         yield { type: "error", error: agentError }
@@ -236,7 +288,14 @@ export function createAgentLoop(config: AgentLoopConfig) {
       updateUsage(session, usage)
 
       // 保存 assistant 消息（含 stop_reason）
+      // 重要：启用 thinking 时，Anthropic API 要求 assistant 消息以 thinking 块开头
+      // 使用 provider 返回的完整 thinking 块（含 signature），而非手动累积的文本
       const assistantContent: ContentBlock[] = []
+      if (thinkingBlocks && thinkingBlocks.length > 0) {
+        for (const tb of thinkingBlocks) {
+          assistantContent.push({ type: "thinking", thinking: tb.thinking, signature: tb.signature })
+        }
+      }
       if (responseText) assistantContent.push({ type: "text", text: responseText })
       for (const tc of toolCalls) {
         assistantContent.push({ type: "tool_use", id: tc.id, name: tc.name, input: tc.args } as ToolUseBlock)
@@ -246,9 +305,22 @@ export function createAgentLoop(config: AgentLoopConfig) {
         if (msg && lastStopReason) msg.stop_reason = lastStopReason
       }
 
-      // max_tokens 截断警告
-      if (lastStopReason === "max_tokens") {
-        logger.warn('LLM 响应被 max_tokens 截断', { stepCount, outputTokens: usage.outputTokens })
+      // ─── max_tokens 恢复机制（参照 CC MAX_OUTPUT_TOKENS_RECOVERY_LIMIT） ───
+      if (lastStopReason === "max_tokens" && toolCalls.length === 0) {
+        if (maxTokensRecoveryCount < MAX_TOKENS_RECOVERY_LIMIT) {
+          maxTokensRecoveryCount++
+          logger.warn(`max_tokens 截断，恢复尝试 ${maxTokensRecoveryCount}/${MAX_TOKENS_RECOVERY_LIMIT}`, {
+            stepCount, outputTokens: usage.outputTokens
+          })
+          // 注入恢复元消息让 LLM 继续输出
+          addMessage(session, "user", [{
+            type: "text",
+            text: "Your response was cut off due to length limits. Resume EXACTLY where you left off — continue the output directly without repeating what was already said.",
+          }])
+          yield { type: "thinking", content: `[Output truncated, resuming... (${maxTokensRecoveryCount}/${MAX_TOKENS_RECOVERY_LIMIT})]` }
+          continue // 重新进入循环
+        }
+        logger.warn('max_tokens 恢复次数已用尽，终止', { maxTokensRecoveryCount })
       }
 
       // 无工具调用 → 结束
@@ -273,10 +345,30 @@ export function createAgentLoop(config: AgentLoopConfig) {
           const truncated = truncator.truncate(result.output)
           if (truncated.truncated) result.output = truncated.output
         }
-        const argsKey = `${toolCall.name}:${JSON.stringify(toolCall.args)}`
+        // 重复检测 key：对 read 工具只按 filePath 做 key，忽略 offset/limit 变化
+        // 对 grep 单文件搜索也按 path 归类，防止不同 pattern 绕过检测
+        // 防止 LLM 通过变换参数绕过重复检测
+        let argsKey: string
+        if (toolCall.name === 'read' && toolCall.args && typeof toolCall.args === 'object' && 'filePath' in toolCall.args) {
+          argsKey = `read:${(toolCall.args as { filePath: string }).filePath}`
+        } else if (toolCall.name === 'grep' && toolCall.args && typeof toolCall.args === 'object' && 'path' in toolCall.args) {
+          argsKey = `grep:${(toolCall.args as { path: string }).path}`
+        } else {
+          argsKey = `${toolCall.name}:${JSON.stringify(toolCall.args)}`
+        }
         const callCount = (toolCallCounts.get(argsKey) || 0) + 1
         toolCallCounts.set(argsKey, callCount)
-        if (callCount > MAX_DUPLICATE_CALLS) {
+        if (callCount > HARD_BLOCK_THRESHOLD) {
+          // 硬阻断：不返回文件内容，只返回错误摘要，强制 LLM 跳出循环
+          result.output = `🛑 BLOCKED: You have called ${toolCall.name} with the same arguments ${callCount} times (limit: ${HARD_BLOCK_THRESHOLD}). ` +
+            `The content was already returned in previous tool calls and is in your context. ` +
+            `DO NOT call this tool again with these arguments. ` +
+            `Proceed to the NEXT step of your task immediately: write code, propose a plan, or ask the user for clarification.`
+          result.isError = true
+          logger.error(`hard-blocked duplicate tool call: ${toolCall.name} (${callCount}x)`, { argsKey })
+          // 累计全局重复计数，用于触发熔断
+          globalDuplicateBlockCount++
+        } else if (callCount > MAX_DUPLICATE_CALLS) {
           result.output = `⚠️ WARNING: You have called ${toolCall.name} with the same arguments ${callCount} times. ` +
             `The content is already in your context. ` +
             `STOP re-reading and proceed with the task. ` +

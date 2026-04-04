@@ -12,6 +12,7 @@ export {
   type ToolResultBlock,
   type ImageBlock,
   type AudioBlock,
+  type ThinkingBlock,
   type ContentBlock,
   type StopReason,
   type Message,

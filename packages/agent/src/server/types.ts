@@ -163,6 +163,8 @@ export interface DoneEvent {
   usage: {
     inputTokens: number
     outputTokens: number
+    cacheCreationTokens?: number
+    cacheReadTokens?: number
   }
 }
 

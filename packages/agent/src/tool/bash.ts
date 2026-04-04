@@ -33,14 +33,21 @@ const FILE_READ_PATTERNS = [
 
 /**
  * 检测命令是否为纯文件读取操作
- * 仅拦截"只读文件"的命令，不拦截包含管道处理的复合命令
+ * 拦截"只读文件"的命令，也检测分号分隔的复合命令中的尾段
  */
 function isFileReadCommand(command: string): boolean {
   const trimmed = command.trim()
-  // 包含管道（|）、重定向（>）、分号（;）、逻辑操作（&&/||）的不拦截
-  // 这些是复合命令，可能有合理的 bash 用途
-  if (/[|>;]|&&|\|\|/.test(trimmed)) return false
-  return FILE_READ_PATTERNS.some(pattern => pattern.test(trimmed))
+  // 包含管道（|）、重定向（>）、逻辑操作（&&/||）的不拦截——这些有合理 bash 用途
+  if (/[|>]|&&|\|\|/.test(trimmed)) return false
+  // 不含分号的简单命令
+  if (!trimmed.includes(';')) {
+    return FILE_READ_PATTERNS.some(pattern => pattern.test(trimmed))
+  }
+  // 含分号的复合命令：检查最后一段是否为文件读取
+  // 典型模式：[Console]::OutputEncoding = ...; Get-Content "file.kt"
+  const parts = trimmed.split(';').map(p => p.trim()).filter(Boolean)
+  const lastPart = parts[parts.length - 1]
+  return FILE_READ_PATTERNS.some(pattern => pattern.test(lastPart))
 }
 
 /**

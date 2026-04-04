@@ -18,7 +18,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Box } from 'ink'
+import { Box } from '../cc-ink/index.js'
 import type {
   AppProps,
   PermissionRequest,
@@ -38,7 +38,6 @@ import { StatusIndicator } from './components/StatusIndicator.js'
 import { PermissionDialog } from './components/PermissionDialog.js'
 import { InputArea } from './components/InputArea.js'
 import { HelpView } from './components/HelpView.js'
-import { ThinkingPanel } from './components/ThinkingPanel.js'
 // SubAgentPanel 已统一在 ToolPanel 内嵌显示，App.tsx 不再直接使用
 // 统一命令系统
 import {
@@ -96,15 +95,13 @@ export function App({ config }: AppProps): React.ReactElement {
   const [commandsLoaded, setCommandsLoaded] = useState(0)
 
   // ========== Extended Thinking 状态 ==========
-  const [thinkingContent, setThinkingContent] = useState('')
-  const [isThinking, setIsThinking] = useState(false)
-
   // ========== 消息管理（保持独立，因为流式更新有自己的节流逻辑） ==========
   const {
     messages,
     addUserMessage,
     addAIMessage,
     updateAIMessage,
+    updateAIThinking,
     finishAIMessage,
     addToolCall,
     updateToolCall,
@@ -115,6 +112,7 @@ export function App({ config }: AppProps): React.ReactElement {
   const permissionResolverRef = useRef<((result: boolean) => void) | null>(null)
   const currentAIMessageIdRef = useRef<string | null>(null)
   const toolIdMapRef = useRef<Map<string, string>>(new Map())
+  const thinkingAccRef = useRef<string>('')
   const toggleSelectedToolRef = useRef<() => void>(() => {})
   // 增量事件处理：记录已处理的事件索引
   const lastProcessedEventRef = useRef<number>(0)
@@ -280,25 +278,25 @@ export function App({ config }: AppProps): React.ReactElement {
         }
 
         case 'thinking': {
-          // Extended Thinking 内容流式输出
+          // Extended Thinking 内容流式输出 → 更新当前 AI 消息的 thinking 字段
           const { content } = event.data as { content: string }
-          if (!isThinking) {
-            setIsThinking(true)
-            setThinkingContent(content)
-          } else {
-            setThinkingContent(prev => prev + content)
+          thinkingAccRef.current += content
+          if (currentAIMessageIdRef.current) {
+            updateAIThinking(currentAIMessageIdRef.current, thinkingAccRef.current, true)
           }
           break
         }
 
         case 'thinking_end': {
-          // Extended Thinking 结束
-          setIsThinking(false)
+          // Extended Thinking 结束 → 标记 isThinking = false（保留内容可回看）
+          if (currentAIMessageIdRef.current) {
+            updateAIThinking(currentAIMessageIdRef.current, thinkingAccRef.current, false)
+          }
           break
         }
 
         case 'done': {
-          const { usage } = event.data as { usage?: { inputTokens: number; outputTokens: number } }
+          const { usage } = event.data as { usage?: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number } }
           if (currentAIMessageIdRef.current) {
             finishAIMessage(currentAIMessageIdRef.current)
             currentAIMessageIdRef.current = null
@@ -306,19 +304,22 @@ export function App({ config }: AppProps): React.ReactElement {
           // 显示 token 消耗信息
           if (usage) {
             const formatTokens = (n: number) => n < 1000 ? String(n) : n < 10000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n / 1000)}k`
-            addSystemMessage('info', `📊 Token: ${formatTokens(usage.inputTokens)}↓ ${formatTokens(usage.outputTokens)}↑ (总计 ${formatTokens(usage.inputTokens + usage.outputTokens)})`)
+            let tokenMsg = `📊 Token: ${formatTokens(usage.inputTokens)}↓ ${formatTokens(usage.outputTokens)}↑ (总计 ${formatTokens(usage.inputTokens + usage.outputTokens)})`
+            if (usage.cacheReadTokens || usage.cacheCreationTokens) {
+              tokenMsg += ` | Cache: ${formatTokens(usage.cacheReadTokens || 0)} 命中 / ${formatTokens(usage.cacheCreationTokens || 0)} 写入`
+            }
+            addSystemMessage('info', tokenMsg)
           }
           // 批量更新：activeView + status + stepCount + tokenUsage 一次 dispatch
           dispatch({
             type: 'TASK_DONE',
-            usage: usage ? { input: usage.inputTokens, output: usage.outputTokens } : undefined,
+            usage: usage ? { input: usage.inputTokens, output: usage.outputTokens, cacheRead: usage.cacheReadTokens, cacheCreation: usage.cacheCreationTokens } : undefined,
           })
           toolIdMapRef.current.clear()
           clearSubAgents()
-          // 重置文本累积和 thinking 状态
+          // 重置文本累积和 thinking 累积 ref
           accumulatedTextRef.current = ''
-          setThinkingContent('')
-          setIsThinking(false)
+          thinkingAccRef.current = ''
           break
         }
 
@@ -334,6 +335,7 @@ export function App({ config }: AppProps): React.ReactElement {
     state.currentModel,
     addAIMessage,
     updateAIMessage,
+    updateAIThinking,
     finishAIMessage,
     addToolCall,
     updateToolCall,
@@ -561,15 +563,6 @@ export function App({ config }: AppProps): React.ReactElement {
             })),
             [commandsLoaded]
           )}
-        />
-      )}
-
-      {/* Extended Thinking 面板 */}
-      {(isThinking || thinkingContent) && (
-        <ThinkingPanel
-          content={thinkingContent}
-          isThinking={isThinking}
-          defaultExpanded={false}
         />
       )}
 

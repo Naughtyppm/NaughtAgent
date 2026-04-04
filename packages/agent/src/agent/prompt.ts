@@ -9,6 +9,7 @@ import type { AgentDefinition, AgentType } from "./agent"
 import type { SystemBlock } from "../provider/types"
 import { createPromptManager } from "./prompt-manager"
 import { getKnowledgeSkillLoader } from "../skill/knowledge"
+import { getModelEntry } from "../config/models"
 
 /**
  * 基础系统提示 - 所有 Agent 共享（作为回退）
@@ -81,6 +82,15 @@ Go straight to the point. Lead with the answer, not the reasoning. If you can sa
 - NEVER skip hooks (--no-verify) unless explicitly asked
 - Always create NEW commits rather than amending unless explicitly asked
 - Stage specific files rather than \`git add .\`
+
+## File Reading Discipline
+
+- Do NOT re-read a file you have already read in this conversation. The content is in your context.
+- If you need to recall file content, refer to the previous tool result — do NOT call read again.
+- After context compaction, key files are preserved in the summary. Only re-read if the file was NOT preserved.
+- NEVER use grep with pattern "." or similar catch-all patterns to read entire files. Use the read tool.
+- NEVER spawn sub-agents just to re-read files. The read cache is shared — they will get the same content.
+- If a file read returns a truncated summary or "budget exhausted", STOP trying to read that file and work with what you have.
 
 ## Error Recovery
 
@@ -227,6 +237,13 @@ export function buildSystemPrompt(
     // 动态段：skills、tools（每轮可能变化）
     const dynamicParts: string[] = []
 
+    // 注入当前模型信息（让 LLM 知道自己是什么模型）
+    if (context?.model) {
+      const entry = getModelEntry(context.model)
+      const displayName = entry?.displayName || context.model
+      dynamicParts.push(`\n## Environment\n\nYou are powered by the model named ${displayName}. The exact model ID is ${context.model}.`)
+    }
+
     const skillLoader = getKnowledgeSkillLoader()
     if (skillLoader && skillLoader.size > 0) {
       dynamicParts.push(`\nSkills available (use load_skill to access):\n${skillLoader.getDescriptions()}`)
@@ -267,6 +284,13 @@ function buildLegacySystemPrompt(
   // 添加工作目录信息
   if (context?.cwd) {
     parts.push(`\nCurrent working directory: ${context.cwd}`)
+  }
+
+  // 注入当前模型信息
+  if (context?.model) {
+    const entry = getModelEntry(context.model)
+    const displayName = entry?.displayName || context.model
+    parts.push(`\nYou are powered by the model named ${displayName}. The exact model ID is ${context.model}.`)
   }
 
   // 添加可用工具信息
@@ -340,6 +364,8 @@ export interface SystemPromptContext {
   cwd?: string
   /** 额外的上下文信息 */
   additional?: string
+  /** 当前模型名（如 claude-opus-4, claude-sonnet-4）*/
+  model?: string
 }
 
 /**

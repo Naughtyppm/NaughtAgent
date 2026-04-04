@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import { Box, Text, useInput } from 'ink'
+import { Box, Text, useInput } from '../../cc-ink/index.js'
 
 /**
  * 统一命令类型（简化版，用于 UI 显示）

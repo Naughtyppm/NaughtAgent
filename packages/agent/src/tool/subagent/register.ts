@@ -4,7 +4,7 @@
  * 提供统一的注册入口，配置所有子代理工具的运行时
  */
 
-import { ToolRegistry, ToolRegistryCompat } from "../registry"
+import { ToolRegistry } from "../registry"
 import { AskLlmTool, setAskLlmProvider } from "./ask-llm-tool"
 import { RunAgentTool, setRunAgentRuntime } from "./run-agent-tool"
 import { ForkAgentTool, setForkAgentRuntime, setForkAgentParentContext } from "./fork-agent-tool"
@@ -43,8 +43,8 @@ export interface SubagentToolsConfig {
   agentRuntime: RunAgentRuntime
   /** 父会话上下文（用于 fork_agent） */
   parentContext?: ParentContext
-  /** 工具注册表实例 */
-  registry?: ToolRegistry
+  /** 工具注册表实例（必传） */
+  registry: ToolRegistry
 }
 
 /**
@@ -70,8 +70,8 @@ export function registerSubagentTools(config: SubagentToolsConfig): void {
     baseURL: config.agentRuntime.baseURL,
   })
 
-  // 使用传入的注册表实例，或回退到全局兼容实例
-  const registry = config.registry ?? ToolRegistryCompat.getInstance()
+  // 使用传入的注册表实例
+  const registry = config.registry
 
   // 注册核心子代理工具
   registry.register(AskLlmTool)

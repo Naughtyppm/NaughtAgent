@@ -4,7 +4,7 @@
  * 使用官方 Anthropic SDK（原生）
  *
  * 注意：使用原生 SDK 而非 AI SDK，因为 AI SDK 的 tools 格式
- * 与 Anthropic 原生 API 不兼容，会导致 kiro-proxy 返回 500 错误
+ * 与 Anthropic 原生 API 不兼容，会导致代理返回 500 错误
  */
 
 import Anthropic from "@anthropic-ai/sdk"
@@ -23,6 +23,7 @@ import type {
   ImageContent,
   ToolUseContent,
   ToolResultContent,
+  ThinkingContent,
 } from "./types"
 import { resolveModelName, isProxyBaseURL, DEFAULT_MAX_TOKENS, DEFAULT_THINKING_BUDGET } from "../config"
 
@@ -122,9 +123,12 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           return { role: "assistant" as const, content: msg.content }
         }
 
-        const content: (Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam)[] = []
+        const content: (Anthropic.ThinkingBlockParam | Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam)[] = []
         for (const part of msg.content) {
-          if (part.type === "text") {
+          if (part.type === "thinking") {
+            const thinkingPart = part as ThinkingContent
+            content.push({ type: "thinking", thinking: thinkingPart.thinking, signature: thinkingPart.signature })
+          } else if (part.type === "text") {
             content.push({ type: "text", text: (part as TextContent).text })
           } else if (part.type === "tool_use") {
             const toolUse = part as ToolUseContent
@@ -281,7 +285,8 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
         // 获取最终消息
         const finalMessage = await stream.finalMessage()
 
-        // 处理工具调用
+        // 处理工具调用 + 提取 thinking 块（含 signature，用于消息回放）
+        const thinkingBlocks: Array<{ type: "thinking"; thinking: string; signature: string }> = []
         for (const block of finalMessage.content) {
           if (block.type === "tool_use") {
             toolCalls++
@@ -291,6 +296,12 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
               name: block.name,
               args: block.input,
             }
+          } else if (block.type === "thinking" && "signature" in block) {
+            thinkingBlocks.push({
+              type: "thinking",
+              thinking: (block as { type: "thinking"; thinking: string; signature: string }).thinking,
+              signature: (block as { type: "thinking"; thinking: string; signature: string }).signature,
+            })
           }
         }
 
@@ -312,6 +323,7 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
             cacheReadTokens: finalMessage.usage.cache_read_input_tokens ?? undefined,
           },
           stopReason: finalMessage.stop_reason as "end_turn" | "max_tokens" | "tool_use" | "stop_sequence" | undefined,
+          thinkingBlocks: thinkingBlocks.length > 0 ? thinkingBlocks : undefined,
         }
       } catch (err) {
         const agentError = convertError(err)

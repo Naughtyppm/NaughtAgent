@@ -42,6 +42,8 @@ import { ListMcpResourcesTool, ReadMcpResourceTool } from "../tool/mcp-resource"
 import { CronCreateTool, CronDeleteTool, CronListTool } from "../tool/cron"
 import { initKnowledgeSkills, getKnowledgeSkillLoader } from "../skill/knowledge"
 import { initSkills } from "../skill"
+import { clearReadCache } from "../tool/read"
+import { clearFileAccessBudget } from "../tool/file-access-budget"
 import { existsSync } from "fs"
 import { homedir } from "os"
 import * as path from "path"
@@ -57,9 +59,9 @@ import {
   type ConfirmCallback,
   type PermissionType,
 } from "../permission"
-import { microCompact, autoCompact, estimateTokens, COMPACT_SYSTEM_PROMPT, COMPACT_USER_PROMPT_PREFIX, MEMORY_EXTRACT_PROMPT } from "../agent/compact"
+import { microCompact, autoCompact, estimateTokens, COMPACT_SYSTEM_PROMPT, COMPACT_USER_PROMPT_PREFIX, MEMORY_EXTRACT_PROMPT, clearAutoCompactFailures } from "../agent/compact"
 import { DEFAULT_MAX_TOKENS, DEFAULT_THINKING_BUDGET, AUTO_COMPACT_TOKEN_THRESHOLD } from "../config"
-import { createLogger } from "../logging"
+import { createLogger, Logger } from "../logging"
 
 const log = createLogger("runner")
 
@@ -94,7 +96,7 @@ export interface RunnerEventHandlers {
   onToolStart?: (id: string, name: string, input: unknown) => void
   onToolEnd?: (id: string, output: string, isError?: boolean) => void
   onError?: (error: Error) => void
-  onDone?: (usage: { inputTokens: number; outputTokens: number }) => void
+  onDone?: (usage: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number }) => void
   onPermissionRequest?: (request: PermissionRequest) => void
 }
 
@@ -216,6 +218,11 @@ export function createRunner(config: RunnerConfig) {
   const toolRegistry = new ToolRegistry()
   registerBuiltinTools(toolRegistry)
 
+  // 启用文件日志（写入项目下 .naughty/logs/）
+  const logDir = path.join(cwd, '.naughty', 'logs')
+  Logger.enableFileLog(logDir)
+  log.debug('Session started', { cwd, agentType, logFile: Logger.getFileLogPath() })
+
   // Skill 系统初始化（s05: 两层注入）
   initSkills() // 注册 Workflow Skill (commit/pr/review/test)
   initKnowledgeSkillDirs(cwd) // 初始化 Knowledge Skill（全局 + 项目级）
@@ -334,10 +341,34 @@ export function createRunner(config: RunnerConfig) {
 
       // compact 管道通过 onBeforeStep 注入
       const compactOptions = { memoryExtractor, cwd }
+      let lastLoopDetectedStep = 0  // 上次循环检测 compact 的 step（间隔至少 20 步可再触发）
       const onBeforeStep = async (ctx: { session: Session; stepCount: number; provider: LLMProvider }) => {
         microCompact(ctx.session)
         if (estimateTokens(ctx.session) > AUTO_COMPACT_TOKEN_THRESHOLD) {
           await autoCompact(ctx.session, summarizer, compactOptions)
+        }
+        // 循环模式检测：最近 N 条消息中 read 类 tool_use 占比过高时触发 compact
+        // 这能在 token 阈值之前介入，打破"读取-遗忘-再读取"循环
+        // 可多次触发（每次间隔至少 20 步），不再限制只触发一次
+        if (ctx.stepCount > 20 && (ctx.stepCount - lastLoopDetectedStep) >= 20) {
+          const recentMsgs = ctx.session.messages.slice(-20)
+          let readToolCount = 0
+          let totalToolCount = 0
+          for (const msg of recentMsgs) {
+            for (const block of msg.content) {
+              if (block.type === 'tool_use') {
+                totalToolCount++
+                if (block.name === 'read' || block.name === 'glob' || block.name === 'grep') {
+                  readToolCount++
+                }
+              }
+            }
+          }
+          // 如果最近 20 条消息中 80%+ 的工具调用都是 read/glob/grep，判定为循环
+          if (totalToolCount >= 8 && readToolCount / totalToolCount > 0.8) {
+            lastLoopDetectedStep = ctx.stepCount
+            await autoCompact(ctx.session, summarizer, compactOptions)
+          }
         }
       }
 
@@ -366,7 +397,14 @@ export function createRunner(config: RunnerConfig) {
     },
 
     getSession(): Session | null { return session },
-    resetSession(): void { session = null },
+    resetSession(): void {
+      // 清理 session 关联的全局缓存，防止跨 session 泄漏
+      const sessionId = session?.id
+      clearReadCache(sessionId)
+      clearFileAccessBudget()
+      clearAutoCompactFailures(sessionId)
+      session = null
+    },
     getPermissions(): PermissionSet { return permissions },
 
     setModel(newModel: string): void {
@@ -465,12 +503,12 @@ async function initializeSubAgentSystem(cwd: string): Promise<void> {
 /**
  * 初始化 MCP 系统
  *
- * 加载 .naught/mcp.json 配置，连接 MCP 服务器，
+ * 加载 .naughty/mcp.json 配置，连接 MCP 服务器，
  * 发现并注册 MCP 工具到 ToolRegistry。
  * 配置文件不存在时静默跳过。
  */
 async function initializeMcpSystem(cwd: string): Promise<McpManager | null> {
-  const configPath = path.join(cwd, ".naught", "mcp.json")
+  const configPath = path.join(cwd, ".naughty", "mcp.json")
 
   // 配置文件不存在时静默跳过
   if (!existsSync(configPath)) {

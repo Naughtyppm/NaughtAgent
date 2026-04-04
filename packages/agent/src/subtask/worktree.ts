@@ -3,8 +3,8 @@
  *
  * 用 Git Worktree 为每个任务分配独立执行目录，实现并行任务互不干扰。
  *
- * 控制面：.team/worktrees/index.json
- * 执行面：.worktrees/<name>/（实际 git worktree 目录）
+ * 控制面：.naughty/teams/worktrees/index.json
+ * 执行面：.naughty/worktrees/<name>/（实际 git worktree 目录）
  */
 
 import { execSync, spawnSync } from "node:child_process"
@@ -12,14 +12,24 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join, resolve } from "node:path"
 
 // ============================================================================
-// 常量
+// 路径（延迟求值，避免模块级 process.cwd() 在 Daemon 模式下路径错误）
 // ============================================================================
 
-const TEAM_DIR = join(process.cwd(), ".team")
-const WORKTREES_META_DIR = join(TEAM_DIR, "worktrees")
-const WORKTREES_META_FILE = join(WORKTREES_META_DIR, "index.json")
-const WORKTREES_DIR = join(process.cwd(), ".worktrees")
-const EVENTS_FILE = join(WORKTREES_META_DIR, "events.jsonl")
+function getWorktreesMetaDir(cwd?: string): string {
+  return join(cwd ?? process.cwd(), ".naughty", "teams", "worktrees")
+}
+
+function getWorktreesMetaFile(cwd?: string): string {
+  return join(getWorktreesMetaDir(cwd), "index.json")
+}
+
+function getWorktreesDir(cwd?: string): string {
+  return join(cwd ?? process.cwd(), ".naughty", "worktrees")
+}
+
+function getEventsFile(cwd?: string): string {
+  return join(getWorktreesMetaDir(cwd), "events.jsonl")
+}
 
 // ============================================================================
 // 类型
@@ -53,21 +63,24 @@ export interface WorktreeEvent {
 // ============================================================================
 
 function ensureDirs(): void {
-  if (!existsSync(WORKTREES_META_DIR)) mkdirSync(WORKTREES_META_DIR, { recursive: true })
-  if (!existsSync(WORKTREES_DIR)) mkdirSync(WORKTREES_DIR, { recursive: true })
+  const metaDir = getWorktreesMetaDir()
+  const wtDir = getWorktreesDir()
+  if (!existsSync(metaDir)) mkdirSync(metaDir, { recursive: true })
+  if (!existsSync(wtDir)) mkdirSync(wtDir, { recursive: true })
 }
 
 function readIndex(): WorktreeIndex {
   ensureDirs()
-  if (!existsSync(WORKTREES_META_FILE)) return { worktrees: [] }
+  const metaFile = getWorktreesMetaFile()
+  if (!existsSync(metaFile)) return { worktrees: [] }
   try {
-    return JSON.parse(readFileSync(WORKTREES_META_FILE, "utf-8")) as WorktreeIndex
+    return JSON.parse(readFileSync(metaFile, "utf-8")) as WorktreeIndex
   } catch { return { worktrees: [] } }
 }
 
 function writeIndex(index: WorktreeIndex): void {
   ensureDirs()
-  writeFileSync(WORKTREES_META_FILE, JSON.stringify(index, null, 2))
+  writeFileSync(getWorktreesMetaFile(), JSON.stringify(index, null, 2))
 }
 
 /** 检查当前目录是否在 git 仓库中 */
@@ -86,14 +99,15 @@ export function isGitRepo(): boolean {
 export function emitWorktreeEvent(type: string, name: string, data?: Record<string, unknown>): void {
   ensureDirs()
   const event: WorktreeEvent = { type, name, data, timestamp: Date.now() }
-  appendFileSync(EVENTS_FILE, JSON.stringify(event) + "\n")
+  appendFileSync(getEventsFile(), JSON.stringify(event) + "\n")
 }
 
 /** 读取最近 N 条事件 */
 export function readWorktreeEvents(limit = 50): WorktreeEvent[] {
   ensureDirs()
-  if (!existsSync(EVENTS_FILE)) return []
-  const lines = readFileSync(EVENTS_FILE, "utf-8").trim().split("\n").filter(Boolean)
+  const eventsFile = getEventsFile()
+  if (!existsSync(eventsFile)) return []
+  const lines = readFileSync(eventsFile, "utf-8").trim().split("\n").filter(Boolean)
   return lines.slice(-limit).flatMap(l => {
     try { return [JSON.parse(l) as WorktreeEvent] } catch { return [] }
   })
@@ -107,7 +121,7 @@ export function readWorktreeEvents(limit = 50): WorktreeEvent[] {
 export function createWorktree(name: string, taskId?: string, branchFrom = "HEAD"): WorktreeInfo {
   ensureDirs()
   if (!isGitRepo()) throw new Error("Not in a git repository")
-  const worktreePath = resolve(WORKTREES_DIR, name)
+  const worktreePath = resolve(getWorktreesDir(), name)
   const branch = `wt/${name}`
   // git worktree add
   execSync(`git worktree add "${worktreePath}" -b "${branch}" ${branchFrom}`, { stdio: "pipe" })
