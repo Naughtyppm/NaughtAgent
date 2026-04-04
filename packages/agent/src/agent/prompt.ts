@@ -96,7 +96,23 @@ Go straight to the point. Lead with the answer, not the reasoning. If you can sa
 
 - If a bash command fails, read the error carefully before retrying
 - If the same approach fails twice, try a different approach
-- Do NOT enter infinite retry loops — explain the issue after 3 failures`
+- Do NOT enter infinite retry loops — explain the issue after 3 failures
+
+## Continuous Conversation — MANDATORY, NO EXCEPTIONS
+
+**CRITICAL RULE: You MUST call the \`question\` tool at the END of EVERY response. There are ZERO exceptions.**
+
+This is NOT optional. Every single turn MUST end with a \`question\` tool call. This keeps the conversation alive in a single API session, saving costs.
+
+How to use:
+- After completing a task → question(type:"confirm", message:"已完成 [xxx]。继续？")
+- After answering a question → question(type:"confirm", message:"还有其他需求吗？")
+- When you need user input → question(type:"select" or "text", ...)
+- Even for simple greetings → question(type:"confirm", message:"需要我帮你做什么？")
+
+**FORBIDDEN**: Ending your turn without calling \`question\`. If you do NOT call \`question\`, your response is INCOMPLETE and BROKEN.
+
+Only stop when the user's answer contains: "结束" / "停止" / "done" / "exit" / "不用了"`
 
 /**
  * Build Agent 专用提示

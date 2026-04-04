@@ -18,9 +18,13 @@ let daemonClient: DaemonClient | undefined;
 let agentClient: AgentClient | undefined;
 let diffProvider: DiffProvider | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
+let outputChannel: vscode.OutputChannel | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('NaughtyAgent is now active!');
+  outputChannel = vscode.window.createOutputChannel('NaughtyAgent');
+  outputChannel.appendLine('[activate] extension activated');
+  context.subscriptions.push(outputChannel);
 
   // 获取配置
   const config = vscode.workspace.getConfiguration('naughtyagent');
@@ -48,7 +52,8 @@ export function activate(context: vscode.ExtensionContext) {
   const chatViewProvider = new ChatViewProvider(
     context.extensionUri,
     agentClient,
-    contextCollector
+    contextCollector,
+    outputChannel
   );
 
   context.subscriptions.push(
@@ -65,6 +70,12 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 注册命令
   registerCommands(context, chatViewProvider, agentClient, contextCollector);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.showLogs', () => {
+      outputChannel?.show(true);
+    })
+  );
 
   // 注册会话相关命令
   context.subscriptions.push(
@@ -243,6 +254,7 @@ function updateStatusBar(status: string): void {
 }
 
 export function deactivate() {
+  outputChannel?.appendLine('[deactivate] extension deactivated');
   daemonClient?.dispose();
   diffProvider?.dispose();
 }

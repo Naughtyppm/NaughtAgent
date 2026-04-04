@@ -50,6 +50,8 @@ export interface AgentLoopConfig {
   maxConsecutiveErrors?: number
   /** Reactive compact 回调：API 返回 413 (prompt too long) 时触发压缩，返回 true 表示已压缩可重试 */
   onReactiveCompact?: (session: Session) => Promise<boolean>
+  /** 持久模式：LLM 回复完后等待用户输入，而非退出 loop。返回 null 或 "/quit" 退出 */
+  waitForInput?: () => Promise<string | null>
 }
 
 // ─── 工具定义转换 ─────────────────────────────────────
@@ -120,8 +122,32 @@ export function createAgentLoop(config: AgentLoopConfig) {
     // 全局重复阻断计数：当硬阻断触发累计 N 次，强制注入系统提示终止循环
     let globalDuplicateBlockCount = 0
     const CIRCUIT_BREAKER_THRESHOLD = 5  // 累计 5 次硬阻断后触发熔断
+    // question 工具提醒：end_turn 时如果没调用 question，给 1 次提醒机会
+    let questionReminderUsed = false
 
-    while (stepCount < maxSteps) {
+    while (true) {
+      // 最大步数检查（移入循环内部，便于持久模式重置后继续）
+      if (stepCount >= maxSteps) {
+        if (config.waitForInput) {
+          yield { type: "error", error: new AgentError(
+            `已达 ${maxSteps} 步上限，等待用户指令`,
+            ErrorCode.INTERNAL_ERROR, false,
+          ) }
+          yield { type: "await_input" }
+          const nextInput = await config.waitForInput()
+          if (!nextInput || nextInput.trim() === '/quit') break
+          addMessage(session, "user", [{ type: "text", text: nextInput }])
+          stepCount = 0
+          consecutiveErrors = 0
+          maxTokensRecoveryCount = 0
+        } else {
+          yield { type: "error", error: new AgentError(
+            `Agent reached maximum steps limit (${maxSteps})`,
+            ErrorCode.INTERNAL_ERROR, false,
+          ) }
+          break
+        }
+      }
       stepCount++
       logger.debug(`step ${stepCount}`, { messageCount: session.messages.length })
 
@@ -148,13 +174,6 @@ export function createAgentLoop(config: AgentLoopConfig) {
             `3. If you cannot proceed, explain what is blocking you and ask the user for help\n\n` +
             `DO NOT call read, glob, or grep again until you have produced output or asked the user a question.`,
         }])
-        // Assistant prefill 仅 Anthropic 原生 API 支持，Copilot/OpenAI 兼容 API 会报 400
-        if (provider.type === 'anthropic') {
-          addMessage(session, "assistant", [{
-            type: "text",
-            text: "I understand I'm stuck in a loop. Let me summarize what I know and proceed with action.",
-          }])
-        }
         // 重置计数器给 LLM 一次机会（同时清零 toolCallCounts 避免死循环）
         globalDuplicateBlockCount = 0
         toolCallCounts.clear()
@@ -168,7 +187,6 @@ export function createAgentLoop(config: AgentLoopConfig) {
           `[${n.taskId}] ${n.command}\n${n.error ? `Error: ${n.error}` : n.output}`
         ).join('\n---\n')}\n</background-results>`
         addMessage(session, "user", [{ type: "text", text }])
-        addMessage(session, "assistant", [{ type: "text", text: "Noted background results." }])
       }
 
       // 工程层回调（compact、nag 等）
@@ -323,8 +341,39 @@ export function createAgentLoop(config: AgentLoopConfig) {
         logger.warn('max_tokens 恢复次数已用尽，终止', { maxTokensRecoveryCount })
       }
 
-      // 无工具调用 → 结束
-      if (toolCalls.length === 0) break
+      // 无工具调用 → 结束或等待用户输入
+      if (toolCalls.length === 0) {
+        if (config.waitForInput) {
+          // 持久模式：检查 LLM 是否应该调用 question 工具
+          // 如果 question 工具可用但 LLM 跳过了，给 1 次自动提醒
+          const hasQuestionTool = definition.tools.includes('question')
+          if (hasQuestionTool && !questionReminderUsed) {
+            questionReminderUsed = true
+            logger.warn('LLM end_turn without calling question tool, injecting reminder')
+            addMessage(session, "user", [{
+              type: "text",
+              text: "⚠️ You forgot to call the `question` tool. You MUST call `question` before ending your turn. Call it now with type:\"confirm\" to ask the user if they need anything else.",
+            }])
+            continue
+          }
+          // 提醒已用过或没有 question 工具，正常 await_input
+          questionReminderUsed = false // 重置供下一轮用户输入后使用
+          yield { type: "await_input" }
+          const nextInput = await config.waitForInput()
+          if (!nextInput || nextInput.trim() === '/quit') {
+            break
+          }
+          addMessage(session, "user", [{ type: "text", text: nextInput }])
+          // 重置恢复计数器
+          maxTokensRecoveryCount = 0
+          consecutiveErrors = 0
+          continue
+        }
+        break
+      }
+
+      // LLM 调用了工具（包括 question），重置 question 提醒
+      questionReminderUsed = false
 
       // ─── 执行工具 ───
       const toolResults: ContentBlock[] = []
@@ -347,12 +396,15 @@ export function createAgentLoop(config: AgentLoopConfig) {
         }
         // 重复检测 key：对 read 工具只按 filePath 做 key，忽略 offset/limit 变化
         // 对 grep 单文件搜索也按 path 归类，防止不同 pattern 绕过检测
+        // 对 write/append 按 filePath 归类，防止 LLM 反复写同一文件
         // 防止 LLM 通过变换参数绕过重复检测
         let argsKey: string
         if (toolCall.name === 'read' && toolCall.args && typeof toolCall.args === 'object' && 'filePath' in toolCall.args) {
           argsKey = `read:${(toolCall.args as { filePath: string }).filePath}`
         } else if (toolCall.name === 'grep' && toolCall.args && typeof toolCall.args === 'object' && 'path' in toolCall.args) {
           argsKey = `grep:${(toolCall.args as { path: string }).path}`
+        } else if ((toolCall.name === 'write' || toolCall.name === 'append') && toolCall.args && typeof toolCall.args === 'object' && 'filePath' in toolCall.args) {
+          argsKey = `${toolCall.name}:${(toolCall.args as { filePath: string }).filePath}`
         } else {
           argsKey = `${toolCall.name}:${JSON.stringify(toolCall.args)}`
         }
@@ -378,8 +430,12 @@ export function createAgentLoop(config: AgentLoopConfig) {
         }
         if (isError) {
           consecutiveErrors++
-          if (consecutiveErrors >= maxErrors) {
-            result.output += `\n\n🛑 连续 ${consecutiveErrors} 次工具错误，Agent 将停止。`
+          // 权限拒绝特殊处理：注入恢复提示
+          if (result.output.includes('Permission denied')) {
+            result.output += `\n\n💡 提示：此工具被权限系统拒绝。你可以尝试：\n` +
+              `1. 换一种方式完成任务（如用其他工具）\n` +
+              `2. 告知用户需要此权限，请求批准\n` +
+              `3. 跳过此操作继续其他任务`
           }
         } else {
           consecutiveErrors = 0
@@ -485,22 +541,50 @@ export function createAgentLoop(config: AgentLoopConfig) {
         }
       }
 
-      // 连续错误终止
-      if (consecutiveErrors >= maxErrors) {
-        yield { type: "error", error: new AgentError(
-          `Agent stopped: ${consecutiveErrors} consecutive tool errors`,
-          ErrorCode.INTERNAL_ERROR, false,
-        ) }
-        break
+      // ─── question 工具 cancelled 检测 ───
+      // 如果 question 工具返回 cancelled（回调不存在或前端无响应），不能让 LLM 继续自嗨
+      // 而应该切换到 await_input 等待真正的用户输入
+      const allToolCalls = [...concurrentCalls, ...serialCalls]
+      const questionCall = allToolCalls.find(tc => tc.name === 'question')
+      if (questionCall) {
+        // 在 toolResults 中找到对应的 question 结果
+        const questionResultBlock = toolResults.find(tr =>
+          'tool_use_id' in tr && tr.tool_use_id === questionCall.id
+        )
+        if (questionResultBlock && 'content' in questionResultBlock) {
+          const content = String(questionResultBlock.content)
+          if (content.includes('Question cancelled') || content.includes('Question not answered')) {
+            logger.warn('question tool returned cancelled/not-answered, switching to await_input')
+            if (config.waitForInput) {
+              yield { type: "await_input" }
+              const nextInput = await config.waitForInput()
+              if (!nextInput || nextInput.trim() === '/quit') {
+                break
+              }
+              addMessage(session, "user", [{ type: "text", text: nextInput }])
+              maxTokensRecoveryCount = 0
+              consecutiveErrors = 0
+              continue
+            } else {
+              // 没有 waitForInput 时直接结束循环
+              yield { type: "await_input" }
+              break
+            }
+          }
+        }
       }
-    }
 
-    // 最大步数检查
-    if (stepCount >= maxSteps) {
-      yield { type: "error", error: new AgentError(
-        `Agent reached maximum steps limit (${maxSteps})`,
-        ErrorCode.INTERNAL_ERROR, false,
-      ) }
+      // CC 模式：连续错误不终止循环，注入恢复提示让模型自行修正
+      if (consecutiveErrors >= maxErrors && consecutiveErrors % maxErrors === 0) {
+        logger.warn(`consecutive errors reached ${consecutiveErrors}, injecting recovery prompt`, { maxErrors })
+        addMessage(session, "user", [{
+          type: "text",
+          text: `⚠️ You have encountered ${consecutiveErrors} consecutive tool errors. ` +
+            `Review the error messages above and try a DIFFERENT approach. ` +
+            `If tools are not working, explain the situation to the user and ask for guidance. ` +
+            `Do NOT repeat the same failing tool calls.`,
+        }])
+      }
     }
 
     yield { type: "done", usage: totalUsage, stopReason: lastStopReason, writeOpCount }

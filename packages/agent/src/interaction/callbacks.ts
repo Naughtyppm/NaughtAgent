@@ -47,8 +47,12 @@ export function resetInteractionCallbacks(): void {
  */
 export async function invokeQuestionCallback(question: Question): Promise<QuestionResult> {
   if (!callbacks.onQuestion) {
-    // 没有回调时，返回默认值或取消
-    return getDefaultQuestionResult(question)
+    // 没有回调时，明确返回 cancelled，防止 LLM 把默认值当成用户真实回答
+    return {
+      answered: false,
+      value: null,
+      cancelled: true,
+    }
   }
 
   try {

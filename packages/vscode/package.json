@@ -105,6 +105,18 @@
         "title": "显示 Daemon 状态",
         "category": "NaughtyAgent",
         "icon": "$(info)"
+      },
+      {
+        "command": "naughtyagent.debugPing",
+        "title": "调试发送链路",
+        "category": "NaughtyAgent",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "naughtyagent.showLogs",
+        "title": "显示日志",
+        "category": "NaughtyAgent",
+        "icon": "$(output)"
       }
     ],
     "menus": {

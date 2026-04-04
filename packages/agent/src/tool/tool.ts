@@ -21,6 +21,9 @@ export const TOOL_TIMEOUTS: Record<string, number> = {
   bash: 60_000,     // 60 秒
   glob: 10_000,     // 10 秒
   web_fetch: 30_000, // 30 秒
+  // 交互工具 - 用户需要时间阅读和回答
+  question: 300_000,      // 5 分钟
+  todo: 30_000,           // 30 秒
   // 子代理工具 - 需要更长超时
   ask_llm: 60_000,        // 60 秒
   run_agent: 180_000,     // 3 分钟

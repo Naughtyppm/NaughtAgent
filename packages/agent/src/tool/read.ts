@@ -194,8 +194,8 @@ export const ReadTool = Tool.define({
       cached.count++
       cached.lastAccessMs = Date.now()
 
-      // 高频重复读取防护：3+ 次后只返回文件头摘要
-      if (cached.count >= 3) {
+      // 高频重复读取防护：20+ 次后只返回文件头摘要
+      if (cached.count >= 20) {
         const headLines = cached.allLines.slice(0, 10).map((line, i) => {
           const lineNum = (i + 1).toString().padStart(5, " ")
           return `${lineNum}\t${line}`

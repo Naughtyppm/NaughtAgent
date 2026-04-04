@@ -7,13 +7,11 @@
 
 import { createRunner, type RunnerConfig, type RunnerEventHandlers } from "../runner"
 import type { ReplConfig } from "../repl-ink"
-import type { PermissionRequest } from "../../permission"
 import { getAvailableModels } from "../../config/models"
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { StreamRenderer } from "./renderer"
 import { PlainTextInput } from "./interaction"
-import { showPermissionDialog } from "./permission-dialog"
 
 // ============================================================================
 // startPlainTextRepl
@@ -36,9 +34,6 @@ export async function startPlainTextRepl(config: ReplConfig): Promise<void> {
   // 是否正在运行 Agent
   let running = false
 
-  // autoConfirm 引用（支持运行时修改）
-  const autoConfirmRef = { value: config.autoConfirm }
-
   // Runner 配置（默认启用 thinking，对齐 CC）
   const thinkingConfig = config.thinking ?? { enabled: true, budgetTokens: undefined }
   const runnerConfig: RunnerConfig = {
@@ -47,13 +42,6 @@ export async function startPlainTextRepl(config: ReplConfig): Promise<void> {
     model: config.model,
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseURL: process.env.ANTHROPIC_BASE_URL,
-    autoConfirmRef,
-    onConfirm: (request) => showPermissionDialog(request, {
-      onAlwaysAllow: () => {
-        autoConfirmRef.value = true
-        process.stdout.write("\n✓ 已切换为本会话全部放行（最高优先级）\n")
-      },
-    }),
     thinking: thinkingConfig.enabled ? thinkingConfig : undefined,
   }
 
@@ -79,8 +67,8 @@ export async function startPlainTextRepl(config: ReplConfig): Promise<void> {
         running = false
         input.resume()
       },
-      onPermissionRequest: (_request: PermissionRequest) => {
-        // 权限请求在 onConfirm 中处理
+      onPermissionRequest: () => {
+        // 权限已移除，所有操作自动批准
       },
     }
   }
@@ -184,17 +172,8 @@ export async function startPlainTextRepl(config: ReplConfig): Promise<void> {
     input.prompt()
   })
 
-  input.registerCommand("/allowall", (args) => {
-    const normalized = args.trim().toLowerCase()
-    if (normalized === "on" || normalized === "enable") {
-      autoConfirmRef.value = true
-      process.stdout.write("\n✓ 会话级全部放行已开启（最高优先级）\n")
-    } else if (normalized === "off" || normalized === "disable") {
-      autoConfirmRef.value = false
-      process.stdout.write("\n✓ 会话级全部放行已关闭\n")
-    } else {
-      process.stdout.write(`\nallowall: ${autoConfirmRef.value ? "ON" : "OFF"}\n用法: /allowall on | off\n`)
-    }
+  input.registerCommand("/allowall", (_args) => {
+    process.stdout.write("\n权限确认已移除，所有操作自动批准\n")
     input.prompt()
   })
 

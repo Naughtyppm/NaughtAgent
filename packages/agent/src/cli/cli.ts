@@ -68,8 +68,6 @@ import {
 } from "./daemon"
 import { createDaemonClient, type DaemonClientEvents } from "./client"
 import { createDaemonSessionManager } from "../daemon"
-import type { PermissionRequest } from "../permission"
-import * as readline from "readline"
 import { DEFAULT_THINKING_BUDGET, THINKING_BUDGETS, VERSION } from "../config"
 
 /**
@@ -304,24 +302,6 @@ function printVersion(): void {
 }
 
 /**
- * 用户确认提示
- */
-async function promptConfirm(request: PermissionRequest): Promise<boolean> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-
-  return new Promise((resolve) => {
-    const description = request.description || `${request.type}: ${request.resource}`
-    rl.question(`\n⚠️  需要确认: ${description}\n   允许执行? (y/n) `, (answer) => {
-      rl.close()
-      resolve(answer.toLowerCase() === "y" || answer.toLowerCase() === "yes")
-    })
-  })
-}
-
-/**
  * 格式化输出
  */
 function createOutputHandlers(): RunnerEventHandlers {
@@ -522,8 +502,6 @@ async function handleChatDaemon(args: CLIArgs): Promise<void> {
   const client = createDaemonClient({
     cwd: args.cwd,
     agentType: args.agent,
-    autoConfirm: args.autoConfirm,
-    onConfirm: promptConfirm,
     model: args.model,
     thinking: args.thinking ? {
       enabled: true,
@@ -606,8 +584,6 @@ async function handleChatStandalone(args: CLIArgs): Promise<void> {
     model: args.model,
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseURL: process.env.ANTHROPIC_BASE_URL,
-    autoConfirm: args.autoConfirm,
-    onConfirm: promptConfirm,
     thinking: args.thinking ? {
       enabled: true,
       budgetTokens: args.thinkingBudget,

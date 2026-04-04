@@ -17,9 +17,13 @@ export interface AgentClientConfig {
 export interface AgentMessage {
   type:
     | 'text'
+    | 'text_delta'
+    | 'thinking'
+    | 'thinking_end'
     | 'tool_start'
     | 'tool_end'
     | 'permission_request'
+    | 'question_request'
     | 'error'
     | 'done'
     | 'pong';
@@ -35,6 +39,16 @@ export interface AgentMessage {
   description?: string;
   message?: string;  // error message
   usage?: { inputTokens: number; outputTokens: number };
+  delta?: string;
+  questionType?: string;
+  options?: Array<{ value: string; label: string; description?: string }>;
+  default?: unknown;
+}
+
+export interface SendOptions {
+  model?: string;
+  thinking?: { enabled: boolean; budgetTokens?: number };
+  autoConfirm?: boolean;
 }
 
 export interface SessionInfo {
@@ -186,7 +200,17 @@ export class AgentClient {
 
       this.ws.on('message', (data) => {
         try {
-          const message = JSON.parse(data.toString()) as AgentMessage;
+          const raw = JSON.parse(data.toString()) as AgentMessage;
+
+          // 统一 text_delta 事件为可渲染文本内容。
+          const message: AgentMessage =
+            raw.type === 'text_delta'
+              ? {
+                  ...raw,
+                  content: raw.delta || raw.content || '',
+                }
+              : raw;
+
           this.notifyHandlers(message);
         } catch (e) {
           console.error('Failed to parse message:', e);
@@ -242,7 +266,7 @@ export class AgentClient {
   /**
    * 发送消息（WebSocket）
    */
-  async sendMessage(message: string): Promise<void> {
+  async sendMessage(message: string, options?: SendOptions): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       // 尝试重连
       if (this.sessionId) {
@@ -257,6 +281,9 @@ export class AgentClient {
       JSON.stringify({
         type: 'send',
         message: message,
+        model: options?.model,
+        thinking: options?.thinking,
+        autoConfirm: options?.autoConfirm,
       })
     );
   }
@@ -309,8 +336,19 @@ export class AgentClient {
             return;
           }
           try {
-            const message = JSON.parse(data) as AgentMessage;
-            yield message;
+            const raw = JSON.parse(data) as AgentMessage;
+
+            // Daemon SSE 主要返回 text_delta，这里统一映射为 text，便于上层渲染。
+            if (raw.type === 'text_delta') {
+              yield {
+                ...raw,
+                type: 'text',
+                content: raw.delta || raw.content || '',
+              };
+              continue;
+            }
+
+            yield raw;
           } catch (e) {
             console.error('Failed to parse SSE data:', e);
           }
@@ -332,6 +370,24 @@ export class AgentClient {
         type: 'permission_response',
         requestId,
         allowed,
+      })
+    );
+  }
+
+  /**
+   * 响应 Question 工具提问
+   */
+  respondQuestion(requestId: string, value: unknown, cancelled?: boolean): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Not connected');
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: 'question_response',
+        requestId,
+        value,
+        cancelled: !!cancelled,
       })
     );
   }

@@ -318,7 +318,23 @@ When you make non-trivial changes (3+ file edits, backend/API changes, or infras
 1. Run available verification commands (typecheck, tests, build) to confirm correctness
 2. Review your changes against the original requirements — did you miss anything?
 3. Check for regressions — did your changes break something that was working?
-4. Only report completion after verification passes. If verification fails, fix it first.`
+4. Only report completion after verification passes. If verification fails, fix it first.
+
+## Continuous Conversation — MANDATORY, NO EXCEPTIONS
+
+**CRITICAL RULE: You MUST call the \`question\` tool at the END of EVERY response. There are ZERO exceptions.**
+
+This is NOT optional. Every single turn MUST end with a \`question\` tool call. This keeps the conversation alive in a single API session, saving costs.
+
+How to use:
+- After completing a task → question(type:"confirm", message:"已完成 [xxx]。继续？")
+- After answering a question → question(type:"confirm", message:"还有其他需求吗？")
+- When you need user input → question(type:"select" or "text", ...)
+- Even for simple greetings → question(type:"confirm", message:"需要我帮你做什么？")
+
+**FORBIDDEN**: Ending your turn without calling \`question\`. If you do NOT call \`question\`, your response is INCOMPLETE and BROKEN.
+
+Only stop when the user's answer contains: "结束" / "停止" / "done" / "exit" / "不用了"`
 
   // 模式特定提示
   const modePrompts: Record<AgentType, string> = {

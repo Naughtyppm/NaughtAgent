@@ -327,7 +327,6 @@ async function handleFindOrCreateSession(
       cwd: persistedSession.cwd,
       apiKey: config.claudeApiKey,
       baseURL: config.claudeBaseURL,
-      autoConfirm: config.autoConfirm,
     })
 
     activeSession = {
@@ -379,7 +378,6 @@ async function handleCreateSession(
     cwd: persistedSession.cwd,
     apiKey: config.claudeApiKey,
     baseURL: config.claudeBaseURL,
-    autoConfirm: config.autoConfirm,
     backgroundNotifications,
   })
 
@@ -517,7 +515,6 @@ async function handleSendMessage(
       cwd: persistedSession.cwd,
       apiKey: config.claudeApiKey,
       baseURL: config.claudeBaseURL,
-      autoConfirm: config.autoConfirm,
     })
 
     session = {
@@ -760,7 +757,6 @@ function createTaskExecutor(
         cwd: persistedSession.cwd,
         apiKey: config.claudeApiKey,
         baseURL: config.claudeBaseURL,
-        autoConfirm: config.autoConfirm,
       })
 
       session = {

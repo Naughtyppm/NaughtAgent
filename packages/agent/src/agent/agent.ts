@@ -35,6 +35,7 @@ export type AgentEvent =
   | { type: "tool_end"; id: string; result: Tool.Result; isError?: boolean }
   | { type: "error"; error: Error }
   | { type: "done"; usage: TokenUsage; stopReason?: string; writeOpCount?: number }
+  | { type: "await_input" }
 
 /**
  * Agent 定义

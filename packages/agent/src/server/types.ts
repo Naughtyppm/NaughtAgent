@@ -223,6 +223,7 @@ export interface WSSendMessage {
     enabled: boolean
     budgetTokens?: number
   }
+  autoConfirm?: boolean
 }
 
 /**
@@ -249,6 +250,16 @@ export interface WSPermissionResponse {
 }
 
 /**
+ * WebSocket 客户端消息 - 问题回答
+ */
+export interface WSQuestionResponse {
+  type: "question_response"
+  requestId: string
+  value: unknown
+  cancelled?: boolean
+}
+
+/**
  * WebSocket 客户端消息联合类型
  */
 export type WSClientMessage =
@@ -256,6 +267,7 @@ export type WSClientMessage =
   | WSCancelMessage
   | WSPingMessage
   | WSPermissionResponse
+  | WSQuestionResponse
 
 /**
  * WebSocket 服务端消息 - Pong
@@ -265,9 +277,21 @@ export interface WSPongMessage {
 }
 
 /**
+ * WebSocket 服务端消息 - 向前端提问
+ */
+export interface WSQuestionRequest {
+  type: "question_request"
+  requestId: string
+  questionType: "confirm" | "select" | "multiselect" | "text"
+  message: string
+  options?: Array<{ value: string; label: string; description?: string }>
+  default?: unknown
+}
+
+/**
  * WebSocket 服务端消息联合类型
  */
-export type WSServerMessage = StreamEvent | WSPongMessage
+export type WSServerMessage = StreamEvent | WSPongMessage | WSQuestionRequest
 
 // ============================================================================
 // Skill Types

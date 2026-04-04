@@ -12,7 +12,7 @@ import * as path from "path"
 // ─── 配置 ────────────────────────────────────────────
 
 /** 同一文件最大访问次数（跨所有工具累计） */
-const MAX_FILE_ACCESSES = 5
+const MAX_FILE_ACCESSES = 50
 
 /** 访问被耗尽后返回的 stub（告诉 LLM 不要再读了） */
 const BUDGET_EXHAUSTED_STUB =

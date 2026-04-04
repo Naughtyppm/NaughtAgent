@@ -31,6 +31,7 @@ import { GlobTool } from "../tool/glob"
 import { GrepTool } from "../tool/grep"
 import { TodoTool } from "../interaction/todo"
 import { QuestionTool } from "../interaction/question"
+import { setInteractionCallbacks } from "../interaction/callbacks"
 import { LoadSkillTool } from "../tool/load-skill"
 import { CompactTool } from "../tool/compact"
 import { MemoryTool } from "../tool/memory"
@@ -53,11 +54,8 @@ import type { SubTaskProvider, RunAgentRuntime } from "../subtask"
 import { getSubAgentConfigManager, getAgentRegistry } from "../subtask"
 import {
   createDefaultPermissions,
-  checkPermission,
   type PermissionSet,
-  type PermissionRequest,
   type ConfirmCallback,
-  type PermissionType,
 } from "../permission"
 import { microCompact, autoCompact, estimateTokens, COMPACT_SYSTEM_PROMPT, COMPACT_USER_PROMPT_PREFIX, MEMORY_EXTRACT_PROMPT, clearAutoCompactFailures } from "../agent/compact"
 import { DEFAULT_MAX_TOKENS, DEFAULT_THINKING_BUDGET, AUTO_COMPACT_TOKEN_THRESHOLD } from "../config"
@@ -74,12 +72,15 @@ export interface RunnerConfig {
   apiKey?: string
   baseURL?: string
   permissions?: Partial<PermissionSet>
-  onConfirm?: ConfirmCallback
-  autoConfirm?: boolean
-  autoConfirmRef?: { value: boolean }
+
   existingSession?: Session | null
   thinking?: { enabled: boolean; budgetTokens?: number }
   backgroundNotifications?: Array<{ taskId: string; command: string; output: string; error?: string }>
+  maxConsecutiveErrors?: number
+  /** 持久模式：LLM 回复完后等待用户输入，而非退出 loop */
+  waitForInput?: () => Promise<string | null>
+  /** Question 工具回调：前端弹窗获取用户回答 */
+  onQuestion?: (question: { type: string; message: string; options?: Array<{ value: string; label: string; description?: string }>; default?: unknown }) => Promise<{ answered: boolean; value: string | boolean | string[] | null; cancelled: boolean }>
 }
 
 export interface RunOptions {
@@ -97,7 +98,9 @@ export interface RunnerEventHandlers {
   onToolEnd?: (id: string, output: string, isError?: boolean) => void
   onError?: (error: Error) => void
   onDone?: (usage: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number }) => void
-  onPermissionRequest?: (request: PermissionRequest) => void
+  onPermissionRequest?: (request: { type: string; resource: string; description?: string }) => void
+  /** 持久模式：Agent 完成当前回合，等待用户输入 */
+  onAwaitInput?: () => void
 }
 
 // ─── 模型配置 ─────────────────────────────────────────
@@ -128,44 +131,14 @@ function applyModelConfig(
 
 // ─── 权限 ─────────────────────────────────────────────
 
-const TOOL_PERMISSION_MAP: Record<string, PermissionType> = {
-  read: "read", write: "write", edit: "edit",
-  bash: "bash", glob: "glob", grep: "grep",
-}
-
-function getResourceFromInput(toolName: string, input: unknown): string {
-  const obj = input as Record<string, unknown>
-  switch (toolName) {
-    case "read": case "write": case "edit":
-      return String(obj.filePath || obj.file_path || "")
-    case "bash": return String(obj.command || "")
-    case "glob": case "grep": return String(obj.pattern || "")
-    default: return JSON.stringify(input)
-  }
-}
-
 function buildPermissionChecker(
-  permissions: PermissionSet,
-  confirmCallback: ConfirmCallback,
-  handlers: RunnerEventHandlers,
+  _permissions: PermissionSet,
+  _confirmCallback: ConfirmCallback,
+  _handlers: RunnerEventHandlers,
 ): PermissionChecker {
-  return async (toolName: string, input: unknown): Promise<boolean> => {
-    const permType = TOOL_PERMISSION_MAP[toolName]
-    if (!permType) return true // 未映射的工具默认允许
-
-    const request: PermissionRequest = {
-      type: permType,
-      resource: getResourceFromInput(toolName, input),
-      description: `Execute ${toolName}`,
-    }
-
-    const result = checkPermission(request, permissions)
-    if (result.action === "allow") return true
-    if (result.action === "deny") return false
-
-    // 仅需要用户确认时才发送通知（避免 allow/deny 时也弹窗）
-    handlers.onPermissionRequest?.(request)
-    return confirmCallback(request)
+  // 所有工具操作自动批准，不需要权限确认
+  return async (_toolName: string, _input: unknown): Promise<boolean> => {
+    return true
   }
 }
 
@@ -197,6 +170,9 @@ function dispatchEvent(event: AgentEvent, handlers: RunnerEventHandlers): void {
     case "done":
       handlers.onDone?.(event.usage)
       break
+    case "await_input":
+      handlers.onAwaitInput?.()
+      break
   }
 }
 
@@ -208,9 +184,6 @@ export function createRunner(config: RunnerConfig) {
     cwd = process.cwd(),
     model, apiKey, baseURL,
     permissions: customPermissions,
-    onConfirm,
-    autoConfirm = false,
-    autoConfirmRef,
     existingSession,
   } = config
 
@@ -288,12 +261,8 @@ export function createRunner(config: RunnerConfig) {
     ? { rules: [...(customPermissions.rules || []), ...basePermissions.rules], default: customPermissions.default || basePermissions.default }
     : basePermissions
 
-  const confirmCallback: ConfirmCallback = async (request) => {
-    if (autoConfirmRef ? autoConfirmRef.value : autoConfirm) return true
-    const result = checkPermission(request, permissions)
-    if (result.action === "allow") return true
-    if (result.action === "deny") return false
-    return onConfirm ? onConfirm(request) : false
+  const confirmCallback: ConfirmCallback = async (_request) => {
+    return true // 所有操作自动批准
   }
 
   let session: Session | null = existingSession || null
@@ -372,11 +341,22 @@ export function createRunner(config: RunnerConfig) {
         }
       }
 
+      // 注册 Question 工具回调（如果提供了 onQuestion）
+      if (config.onQuestion) {
+        setInteractionCallbacks({
+          onQuestion: async (question) => {
+            return config.onQuestion!(question)
+          },
+        })
+      }
+
       const loop = createAgentLoop({
         definition, session, provider,
         runConfig: { sessionId: session.id, cwd, abort: options.abort },
         toolRegistry,
         permissionChecker: wrappedPermissionChecker,
+        maxConsecutiveErrors: config.maxConsecutiveErrors,
+        waitForInput: config.waitForInput,
         onBeforeStep,
         onReactiveCompact: async (s: Session) => {
           return await autoCompact(s, summarizer, compactOptions)

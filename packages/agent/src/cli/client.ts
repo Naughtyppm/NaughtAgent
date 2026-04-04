@@ -10,7 +10,6 @@ import * as crypto from "crypto"
 import * as net from "net"
 import type { Duplex } from "stream"
 import { getDaemonStatus, ensureDaemon, getDefaultPort } from "./daemon"
-import type { PermissionRequest, PermissionType } from "../permission"
 
 // ============================================================================
 // Types
@@ -23,10 +22,6 @@ export interface DaemonClientConfig {
   cwd: string
   /** Agent 类型 */
   agentType?: "build" | "plan" | "explore"
-  /** 自动确认 */
-  autoConfirm?: boolean
-  /** 权限确认回调 */
-  onConfirm?: (request: PermissionRequest) => Promise<boolean>
   /** 模型 */
   model?: string
   /** Extended Thinking 配置 */
@@ -45,7 +40,7 @@ export interface DaemonClientEvents {
   onToolEnd?: (id: string, output: string, isError?: boolean) => void
   onError?: (error: Error) => void
   onDone?: (usage: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number }) => void
-  onPermissionRequest?: (request: PermissionRequest) => void
+  onPermissionRequest?: (request: { type: string; resource: string; description?: string }) => void
 }
 
 interface WSMessage {
@@ -390,7 +385,7 @@ export function createDaemonClient(config: DaemonClientConfig) {
         break
 
       case "permission_request":
-        handlePermissionRequest(msg, events)
+        // 权限已移除，服务端自动批准，忽略
         break
 
       case "done":
@@ -409,37 +404,6 @@ export function createDaemonClient(config: DaemonClientConfig) {
       case "pong":
         // 忽略
         break
-    }
-  }
-
-  /**
-   * 处理权限请求
-   */
-  async function handlePermissionRequest(
-    msg: WSMessage,
-    events: DaemonClientEvents
-  ): Promise<void> {
-    const request: PermissionRequest = {
-      type: msg.permissionType as PermissionType,
-      resource: msg.resource as string,
-      description: msg.description as string,
-    }
-
-    events.onPermissionRequest?.(request)
-
-    let allowed = config.autoConfirm || false
-
-    if (!config.autoConfirm && config.onConfirm) {
-      allowed = await config.onConfirm(request)
-    }
-
-    // 发送权限响应
-    if (wsSocket && isConnected) {
-      sendFrame(wsSocket, {
-        type: "permission_response",
-        requestId: msg.requestId as string,
-        allowed,
-      })
     }
   }
 

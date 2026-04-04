@@ -16,12 +16,12 @@ import type {
   WSClientMessage,
   WSServerMessage,
   ActiveSession,
-  PendingPermission,
 } from "./types"
 import { createRunner, type RunnerEventHandlers } from "../cli/runner"
 import { parseQuery } from "./middleware"
 import { createDaemonSessionManager } from "../daemon"
 import type { AgentType } from "../agent"
+import { setInteractionCallbacks } from "../interaction/callbacks"
 
 // ============================================================================
 // Types
@@ -244,7 +244,6 @@ class WebSocketConnection {
   private sessionId: string | null
   private cwd: string | null
   private session: ActiveSession | null = null
-  private pendingPermissions = new Map<string, PendingPermission>()
   private isRunning = false
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null
   private lastPongTime = Date.now()
@@ -424,7 +423,9 @@ class WebSocketConnection {
         this.send({ type: "pong" })
         break
       case "permission_response":
-        this.handlePermissionResponse(message.requestId, message.allowed)
+        break
+      case "question_response":
+        this.handleQuestionResponse(message.requestId as string, message.value, message.cancelled as boolean | undefined)
         break
       case "subscribe":
         this.handleSubscribe((message as WSSubscribeMessage).sessionId)
@@ -461,10 +462,79 @@ class WebSocketConnection {
     }
   }
 
+  // 持久模式：等待用户输入的 resolver
+  private pendingInputResolver: ((input: string | null) => void) | null = null
+  // Question 工具：等待用户回答的 resolver
+  private pendingQuestions = new Map<string, {
+    resolve: (result: { answered: boolean; value: string | boolean | string[] | null; cancelled: boolean }) => void
+    timeout: ReturnType<typeof setTimeout>
+  }>()
+
+  /**
+   * 持久模式：等待用户通过 WS 发送下一条消息
+   * 返回用户输入的文本，或 null 表示退出
+   */
+  private waitForInputFromWs(): Promise<string | null> {
+    return new Promise<string | null>((resolve) => {
+      this.pendingInputResolver = resolve
+    })
+  }
+
+  /**
+   * 通过 WS 向前端发送问题，等待用户回答
+   */
+  private questionViaWs(question: { type: string; message: string; options?: Array<{ value: string; label: string; description?: string }>; default?: unknown }): Promise<{ answered: boolean; value: string | boolean | string[] | null; cancelled: boolean }> {
+    const requestId = `q-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingQuestions.delete(requestId)
+        resolve({ answered: false, value: null, cancelled: true })
+      }, 300000) // 5 分钟超时
+
+      this.pendingQuestions.set(requestId, { resolve, timeout })
+
+      this.send({
+        type: "question_request",
+        requestId,
+        questionType: question.type as "confirm" | "select" | "multiselect" | "text",
+        message: question.message,
+        options: question.options,
+        default: question.default,
+      })
+    })
+  }
+
+  /**
+   * 处理前端的问题回答
+   */
+  private handleQuestionResponse(requestId: string, value: unknown, cancelled?: boolean): void {
+    const pending = this.pendingQuestions.get(requestId)
+    if (pending) {
+      clearTimeout(pending.timeout)
+      this.pendingQuestions.delete(requestId)
+      pending.resolve({
+        answered: !cancelled,
+        value: cancelled ? null : (value as string | boolean | string[] | null),
+        cancelled: !!cancelled,
+      })
+    }
+  }
+
   /**
    * 处理发送消息
    */
   private async handleSend(message: string, model?: string, thinking?: { enabled: boolean; budgetTokens?: number }): Promise<void> {
+
+    // 如果 loop 正在等待用户输入，直接 resolve
+    if (this.pendingInputResolver) {
+      const resolver = this.pendingInputResolver
+      this.pendingInputResolver = null
+      this.isRunning = true  // loop 恢复运行
+      resolver(message)
+      return
+    }
+
     if (this.isRunning) {
       this.sendError("Already running a task")
       return
@@ -490,6 +560,13 @@ class WebSocketConnection {
     this.isRunning = true
     const runner = this.session.runner as ReturnType<typeof createRunner>
     const currentSessionId = this.session.id
+
+    // 确保 WS 连接的 question 回调已注册
+    // 当 session 来自 HTTP API 创建时，runner 内部没有 onQuestion 回调
+    // 必须在这里显式注册，保证 question 工具能通过 WS 发送到前端
+    setInteractionCallbacks({
+      onQuestion: (q) => this.questionViaWs(q),
+    })
 
     const handlers: RunnerEventHandlers = {
       onTextDelta: (delta) => {
@@ -535,38 +612,14 @@ class WebSocketConnection {
         const msg: WSServerMessage = { type: "error", message: error.message }
         this.send(msg)
         this.callbacks.broadcast(currentSessionId, msg)
+      },
+      onAwaitInput: () => {
+        // 通知客户端当前回合完毕，可以发送新消息
+        this.send({ type: "done", usage: { inputTokens: 0, outputTokens: 0 } })
         this.isRunning = false
       },
-      onPermissionRequest: async (request) => {
-        if (this.config.autoConfirm) {
-          return true
-        }
-        // 发送权限请求到客户端并等待响应
-        const requestId = generateId()
-
-        return new Promise<boolean>((resolve) => {
-          // 设置超时（60秒）
-          const timeout = setTimeout(() => {
-            this.pendingPermissions.delete(requestId)
-            resolve(false) // 超时默认拒绝
-          }, 60000)
-
-          // 保存待处理的权限请求
-          this.pendingPermissions.set(requestId, {
-            requestId,
-            resolve,
-            timeout,
-          })
-
-          // 发送权限请求
-          this.send({
-            type: "permission_request",
-            requestId,
-            permissionType: request.type,
-            resource: request.resource,
-            description: request.description || `${request.type}: ${request.resource}`,
-          })
-        })
+      onPermissionRequest: () => {
+        // 权限已移除，所有操作自动批准
       },
     }
 
@@ -577,6 +630,7 @@ class WebSocketConnection {
       this.send({ type: "error", message: msg })
     } finally {
       this.isRunning = false
+      this.pendingInputResolver = null
     }
   }
 
@@ -584,22 +638,16 @@ class WebSocketConnection {
    * 处理取消
    */
   private handleCancel(): void {
+    // 如果正在等待用户输入，resolve null 退出循环
+    if (this.pendingInputResolver) {
+      const resolver = this.pendingInputResolver
+      this.pendingInputResolver = null
+      resolver(null)
+    }
     if (this.session?.abortController) {
       this.session.abortController.abort()
     }
     this.isRunning = false
-  }
-
-  /**
-   * 处理权限响应
-   */
-  private handlePermissionResponse(requestId: string, allowed: boolean): void {
-    const pending = this.pendingPermissions.get(requestId)
-    if (pending) {
-      clearTimeout(pending.timeout)
-      pending.resolve(allowed)
-      this.pendingPermissions.delete(requestId)
-    }
   }
 
   /**
@@ -616,7 +664,8 @@ class WebSocketConnection {
           model,
           apiKey: this.config.claudeApiKey,
           baseURL: this.config.claudeBaseURL,
-          autoConfirm: this.config.autoConfirm,
+          waitForInput: () => this.waitForInputFromWs(),
+          onQuestion: (q) => this.questionViaWs(q),
         })
 
         const session: ActiveSession = {
@@ -645,7 +694,8 @@ class WebSocketConnection {
         model,
         apiKey: this.config.claudeApiKey,
         baseURL: this.config.claudeBaseURL,
-        autoConfirm: this.config.autoConfirm,
+        waitForInput: () => this.waitForInputFromWs(),
+        onQuestion: (q) => this.questionViaWs(q),
       })
 
       const session: ActiveSession = {
@@ -680,7 +730,8 @@ class WebSocketConnection {
       model,
       apiKey: this.config.claudeApiKey,
       baseURL: this.config.claudeBaseURL,
-      autoConfirm: this.config.autoConfirm,
+      waitForInput: () => this.waitForInputFromWs(),
+      onQuestion: (q) => this.questionViaWs(q),
     })
 
     const session: ActiveSession = {
@@ -772,11 +823,12 @@ class WebSocketConnection {
       this.heartbeatInterval = null
     }
     this.isRunning = false
-    for (const pending of this.pendingPermissions.values()) {
+    // 清理待回答的问题
+    for (const pending of this.pendingQuestions.values()) {
       clearTimeout(pending.timeout)
-      pending.resolve(false)
+      pending.resolve({ answered: false, value: null, cancelled: true })
     }
-    this.pendingPermissions.clear()
+    this.pendingQuestions.clear()
   }
 }
 

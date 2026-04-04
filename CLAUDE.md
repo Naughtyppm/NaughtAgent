@@ -76,6 +76,30 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，自主可控。
 5. **stop_reason 必须处理**：max_tokens 截断时告知用户
 6. **每次改动必须推版本号**：修改代码后必须 bump `packages/agent/package.json` 的 version（patch +1），同步更新 CLAUDE.md changelog。版本号是区分构建产物的唯一可靠手段，不推版本会导致新旧代码混淆、bug 无法定位
 
+### Daemon 开发规则（踩坑总结）
+
+> ⚠️ **血泪教训，必须遵守：**
+
+1. **代码修改后必须 build + stop + start**：daemon 是独立进程，修改源码后必须依次执行：`pnpm build`→ `daemon stop`→ `daemon start`。只 build 不重启 = 旧代码继续跑
+2. **不要用 `daemon start` 覆盖启动**：如果 daemon 已经在跑，`daemon start` 会报"already running"并退出 (exit code 1)，必须先 stop
+3. **`run-vscode-e2e.bat` 可能用缓存**：bat 脚本的 `start /b` 后台启动可能在 build 未完全写入 dist 时就启动了 daemon。如果行为异常，手动 `daemon stop` + `daemon start` 是最可靠的
+4. **question 工具自嗨防护**：
+   - `callbacks.ts`：回调缺失时返回 `{cancelled: true}` 而非默认值
+   - `loop.ts`：question 返回 cancelled 时切到 `await_input`
+   - `tool.ts`：question 超时设 5 分钟（用户需要阅读和思考时间）
+
+### VS Code Webview 开发规则（踩坑总结）
+
+> ⚠️ **多次踩坑教训，强制遵守：**
+
+1. **禁止内联 `<script>`**：VS Code webview CSP 安全模型不支持 inline script 执行（即使设了 nonce 或 unsafe-inline 也无效）。所有 JS 必须放在外部 `.js` 文件中，通过 `<script nonce="${nonce}" src="${scriptUri}">` 加载。
+2. **外部脚本模式**：遵循官方 webview-view-sample 模式：
+   - 脚本放 `media/*.js`
+   - CSP 设 `script-src 'nonce-${nonce}'`
+   - `localResourceRoots` 包含 `extensionUri`
+   - 用 `webview.asWebviewUri()` 生成 script src
+3. **不要在 HTML 模板字符串中写 JS 逻辑**：模板字符串中的正则（backtick、`\*`、`\n`等）会与 TypeScript 转义冲突，导致构建后行为不一致。外部 .js 文件无此问题。
+
 ### 不可妥协的底线
 
 - `pnpm typecheck` 零错误 —— 每个 Phase 结束时
