@@ -71,6 +71,32 @@ export function activate(context: vscode.ExtensionContext) {
   // 注册命令
   registerCommands(context, chatViewProvider, agentClient, contextCollector);
 
+  // 多窗口 Chat — 在编辑器区域打开独立 Chat 页签
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.openChatInEditor', () => {
+      const panel = vscode.window.createWebviewPanel(
+        'naughtyagent.chatPanel',
+        'NaughtyAgent Chat',
+        vscode.ViewColumn.Beside,
+        { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [context.extensionUri] }
+      );
+
+      // 每个 panel 使用独立的 AgentClient 连接
+      const panelAgentClient = new AgentClient(clientConfig);
+      const panelChatProvider = new ChatViewProvider(
+        context.extensionUri,
+        panelAgentClient,
+        contextCollector,
+        outputChannel
+      );
+      panelChatProvider.resolveWebviewPanel(panel);
+
+      panel.onDidDispose(() => {
+        panelAgentClient.dispose();
+      });
+    })
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand('naughtyagent.showLogs', () => {
       outputChannel?.show(true);
@@ -181,6 +207,20 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 初始化连接
   initializeDaemon();
+
+  // 监听 .reload-signal 文件（Agent 自迭代触发重载）
+  const reloadWatcher = vscode.workspace.createFileSystemWatcher('**/.reload-signal');
+  const handleReloadSignal = async (uri: vscode.Uri) => {
+    outputChannel?.appendLine(`[reload] signal detected: ${uri.fsPath}`);
+    // 删除信号文件
+    try { await vscode.workspace.fs.delete(uri); } catch { /* ignore */ }
+    // 读取信号文件内容判断是否自动重载
+    // 直接自动重载（无人值守模式），让 Agent 自迭代更流畅
+    vscode.commands.executeCommand('workbench.action.reloadWindow');
+  };
+  reloadWatcher.onDidCreate(handleReloadSignal);
+  reloadWatcher.onDidChange(handleReloadSignal);
+  context.subscriptions.push(reloadWatcher);
 
   // 清理资源
   context.subscriptions.push(

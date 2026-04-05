@@ -24,6 +24,8 @@ export interface AgentMessage {
     | 'tool_end'
     | 'permission_request'
     | 'question_request'
+    | 'snapshot_request'
+    | 'todo_updated'
     | 'error'
     | 'done'
     | 'pong';
@@ -43,12 +45,14 @@ export interface AgentMessage {
   questionType?: string;
   options?: Array<{ value: string; label: string; description?: string }>;
   default?: unknown;
+  todoList?: Array<{ id: string; title: string; status: string }>;
 }
 
 export interface SendOptions {
   model?: string;
   thinking?: { enabled: boolean; budgetTokens?: number };
   autoConfirm?: boolean;
+  attachments?: Array<{ type: string; data: string; mimeType: string }>;
 }
 
 export interface SessionInfo {
@@ -277,15 +281,17 @@ export class AgentClient {
     }
 
     // 使用正确的消息格式
-    this.ws!.send(
-      JSON.stringify({
-        type: 'send',
-        message: message,
-        model: options?.model,
-        thinking: options?.thinking,
-        autoConfirm: options?.autoConfirm,
-      })
-    );
+    const payload: Record<string, unknown> = {
+      type: 'send',
+      message: message,
+      model: options?.model,
+      thinking: options?.thinking,
+      autoConfirm: options?.autoConfirm,
+    };
+    if (options?.attachments && options.attachments.length > 0) {
+      payload.attachments = options.attachments;
+    }
+    this.ws!.send(JSON.stringify(payload));
   }
 
   /**
@@ -379,7 +385,8 @@ export class AgentClient {
    */
   respondQuestion(requestId: string, value: unknown, cancelled?: boolean): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('Not connected');
+      console.warn('respondQuestion called but not connected, ignoring');
+      return;
     }
 
     this.ws.send(
@@ -388,6 +395,24 @@ export class AgentClient {
         requestId,
         value,
         cancelled: !!cancelled,
+      })
+    );
+  }
+
+  /**
+   * 响应 Snapshot 请求（发送 DOM 快照回 Daemon）
+   */
+  respondSnapshot(requestId: string, snapshot: Record<string, unknown>): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn('respondSnapshot called but not connected, ignoring');
+      return;
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: 'snapshot_response',
+        requestId,
+        snapshot,
       })
     );
   }

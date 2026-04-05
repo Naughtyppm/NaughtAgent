@@ -2,7 +2,7 @@
   "name": "@naughtyagent/vscode",
   "displayName": "NaughtyAgent",
   "description": "AI 编程助手 - 类似 Claude Code 的 VS Code 插件",
-  "version": "0.1.0",
+  "version": "0.10.0",
   "publisher": "naughtyagent",
   "engines": {
     "vscode": "^1.85.0"
@@ -117,6 +117,12 @@
         "title": "显示日志",
         "category": "NaughtyAgent",
         "icon": "$(output)"
+      },
+      {
+        "command": "naughtyagent.openChatInEditor",
+        "title": "在编辑器中打开 Chat",
+        "category": "NaughtyAgent",
+        "icon": "$(window)"
       }
     ],
     "menus": {

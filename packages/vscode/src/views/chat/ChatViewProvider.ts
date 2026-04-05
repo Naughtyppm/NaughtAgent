@@ -21,7 +21,11 @@ interface WebviewInboundMessage {
     | 'newSession'
     | 'updateThinking'
     | 'updateRuntime'
-    | 'questionResponse';
+    | 'questionResponse'
+    | 'openFile'
+    | 'fileSearch'
+    | 'webviewError'
+    | 'snapshotResult';
   text?: string;
   enabled?: boolean;
   budget?: number;
@@ -30,6 +34,26 @@ interface WebviewInboundMessage {
   requestId?: string;
   value?: unknown;
   cancelled?: boolean;
+  attachments?: Array<{ type: string; data: string; mimeType: string }>;
+  filePath?: string;
+  query?: string;
+  error?: string;
+  source?: string;
+  line?: number;
+  col?: number;
+  snapshot?: Record<string, unknown>;
+}
+
+interface SessionUsage {
+  totalInput: number;
+  totalOutput: number;
+  requestCount: number;
+}
+
+interface TodoItem {
+  id: string;
+  title: string;
+  status: 'pending' | 'in_progress' | 'done';
 }
 
 interface WebviewOutboundMessage {
@@ -42,6 +66,8 @@ interface WebviewOutboundMessage {
   model: string;
   runStatus: string;
   sessionId?: string;
+  usage?: SessionUsage;
+  todoList?: TodoItem[];
   pendingQuestion?: {
     requestId: string;
     questionType: string;
@@ -70,6 +96,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     options?: Array<{ value: string; label: string; description?: string }>;
     default?: unknown;
   } | null = null;
+  private sessionUsage: SessionUsage = { totalInput: 0, totalOutput: 0, requestCount: 0 };
+  private todoList: TodoItem[] = [];
+  private webviewErrors: string[] = [];
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -93,7 +122,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this.getHtml(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(async (message: WebviewInboundMessage) => {
-      try {
+      await this.handleWebviewMessage(message);
+    });
+  }
+
+  /**
+   * 在编辑器区域的 WebviewPanel 中打开 Chat（多窗口支持）
+   */
+  resolveWebviewPanel(panel: vscode.WebviewPanel): void {
+    const webview = panel.webview;
+
+    webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this.extensionUri],
+    };
+
+    webview.html = this.getHtml(webview);
+
+    // 使用一个独立引用来 postMessage（panel 没有 this.view）
+    const panelRef = { webview };
+    const origPostState = this.postState.bind(this);
+
+    // 覆盖 postState 使其发送到 panel
+    this.view = { webview } as unknown as vscode.WebviewView;
+
+    webview.onDidReceiveMessage(async (message: WebviewInboundMessage) => {
+      await this.handleWebviewMessage(message);
+    });
+  }
+
+  private async handleWebviewMessage(message: WebviewInboundMessage): Promise<void> {
+    try {
       this.log(`webview message: ${message.type}`);
       if (message.type === 'ready') {
         const config = vscode.workspace.getConfiguration('naughtyagent');
@@ -134,7 +193,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       if (message.type === 'send' && typeof message.text === 'string') {
         this.log(`send requested: ${message.text.slice(0, 80)}`);
-        await this.sendMessage(message.text);
+        await this.sendMessage(message.text, message.attachments);
         return;
       }
 
@@ -171,6 +230,43 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.postState();
       }
 
+
+      if (message.type === 'openFile' && message.filePath) {
+        try {
+          const uri = vscode.Uri.file(message.filePath);
+          await vscode.window.showTextDocument(uri, { preview: true });
+        } catch (e) {
+          this.log('openFile error: ' + String(e));
+        }
+        return;
+      }
+
+      if (message.type === 'fileSearch' && typeof message.query === 'string') {
+        try {
+          const query = message.query || '**/*';
+          const pattern = query.includes('*') ? query : '**/*' + query + '*';
+          const uris = await vscode.workspace.findFiles(pattern, '**/node_modules/**', 20);
+          const files = uris.map(u => ({
+            name: u.path.split('/').pop() || u.fsPath,
+            path: u.fsPath,
+          }));
+          this.view?.webview.postMessage({ type: 'fileSearchResults', files });
+        } catch (e) {
+          this.log('fileSearch error: ' + String(e));
+          this.view?.webview.postMessage({ type: 'fileSearchResults', files: [] });
+        }
+        return;
+      }
+
+      if (message.type === 'webviewError') {
+        const errMsg = `[Webview] ${message.error || 'Unknown error'}${message.line ? ` (line ${message.line})` : ''}`;
+        this.log(errMsg);
+        this.webviewErrors.push(errMsg);
+        // 最多保留 20 条避免累积过多
+        if (this.webviewErrors.length > 20) this.webviewErrors.shift();
+        return;
+      }
+
       if (message.type === 'questionResponse') {
         const requestId = message.requestId as string;
         const value = message.value;
@@ -179,19 +275,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.agentClient.respondQuestion(requestId, value, cancelled);
         this.postState();
       }
-      } catch (error) {
-        this.log(`onDidReceiveMessage error: ${error instanceof Error ? error.message : String(error)}`);
-        this.pending = false;
-        this.runStatus = 'error';
-        this.messages.push({
-          role: 'error',
-          content: `处理消息失败: ${error instanceof Error ? error.message : String(error)}`,
-          timestamp: Date.now(),
-          kind: 'status',
-        });
-        this.postState();
+
+      if (message.type === 'snapshotResult') {
+        const requestId = message.requestId as string;
+        const snapshot = message.snapshot as Record<string, unknown>;
+        this.log(`snapshotResult received: ${requestId}`);
+        this.agentClient.respondSnapshot(requestId, snapshot);
       }
-    });
+    } catch (error) {
+      this.log(`handleWebviewMessage error: ${error instanceof Error ? error.message : String(error)}`);
+      this.pending = false;
+      this.runStatus = 'error';
+      this.messages.push({
+        role: 'error',
+        content: `处理消息失败: ${error instanceof Error ? error.message : String(error)}`,
+        timestamp: Date.now(),
+        kind: 'status',
+      });
+      this.postState();
+    }
   }
 
   async newChat(): Promise<void> {
@@ -199,6 +301,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.agentClient.disconnect();
     await this.agentClient.closeSession();
     this.runStatus = 'idle';
+    this.sessionUsage = { totalInput: 0, totalOutput: 0, requestCount: 0 };
+    this.todoList = [];
     this.postState();
   }
 
@@ -207,7 +311,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.postState();
   }
 
-  async sendMessage(text: string): Promise<void> {
+  async sendMessage(text: string, attachments?: Array<{ type: string; data: string; mimeType: string }>): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed || this.pending) {
       this.log(`send ignored: empty=${!trimmed} pending=${this.pending}`);
@@ -270,6 +374,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             ? { enabled: true, budgetTokens: this.thinkingBudget }
             : undefined,
           autoConfirm: true,
+          attachments,
         });
 
         await this.waitForRunCompletion();
@@ -321,16 +426,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.log('ws connected');
   }
 
-  private waitForRunCompletion(timeoutMs = 600000): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        dispose();
-        reject(new Error('等待 Agent 响应超时'));
-      }, timeoutMs);
-
+  private waitForRunCompletion(): Promise<void> {
+    return new Promise((resolve) => {
       const dispose = this.agentClient.onMessage((event) => {
         if (event.type === 'done') {
-          clearTimeout(timer);
           dispose();
           resolve();
         }
@@ -347,11 +446,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     const contextPrompt = this.contextCollector.buildContextPrompt(context);
-    if (!contextPrompt.trim()) {
+
+    // 注入 Webview 运行时错误（如果有）
+    let errorSection = '';
+    if (this.webviewErrors.length > 0) {
+      errorSection = `\n\n<webview-errors>\n以下是 Webview 前端运行时捕获的错误，请在修改代码时修复：\n${this.webviewErrors.join('\n')}\n</webview-errors>`;
+      this.webviewErrors.length = 0; // 消费后清空
+    }
+
+    if (!contextPrompt.trim() && !errorSection) {
       return userText;
     }
 
-    return `${contextPrompt}\n\n用户问题:\n${userText}`;
+    return `${contextPrompt}${errorSection}\n\n用户问题:\n${userText}`;
   }
 
   private async handleAgentMessage(
@@ -470,8 +577,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case 'done':
         this.runStatus = 'idle';
+        this.log(`done event, usage=${JSON.stringify(event.usage)}`);
+        if (event.usage) {
+          this.sessionUsage.totalInput += event.usage.inputTokens || 0;
+          this.sessionUsage.totalOutput += event.usage.outputTokens || 0;
+          this.sessionUsage.requestCount += 1;
+        }
+        this.log(`sessionUsage after done: ${JSON.stringify(this.sessionUsage)}`);
+        this.postState();
+        break;
+      case 'todo_updated' as AgentMessage['type']:
+        if (event.todoList) {
+          this.todoList = (event.todoList as TodoItem[]);
+        }
+        this.postState();
+        break;
       case 'pong':
       default:
+        // 处理 snapshot_request（daemon 请求 webview 快照）
+        if ((event as any).type === 'snapshot_request' && (event as any).requestId) {
+          const requestId = (event as any).requestId as string;
+          this.log(`snapshot_request received: ${requestId}`);
+          // 发送到 Webview，让 chat.js 捕获 DOM 快照
+          this.view?.webview.postMessage({ type: 'captureSnapshot', requestId });
+        }
         break;
     }
   }
@@ -492,6 +621,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       model: this.model,
       runStatus: this.runStatus,
       sessionId: this.agentClient.getSessionId() || undefined,
+      usage: this.sessionUsage,
+      todoList: this.todoList.length > 0 ? this.todoList : undefined,
       pendingQuestion: this.pendingQuestion,
     };
 
@@ -522,27 +653,54 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NaughtyAgent Chat</title>
   <style>
     :root {
-      --bg: #111826;
-      --panel: #182233;
-      --line: #2f3f58;
-      --text: #e9f0ff;
-      --muted: #9fb2d1;
-      --accent: #3ecf8e;
-      --user: #244a7a;
-      --assistant: #1f2b42;
-      --error: #5d2222;
+      --bg: #0a0e1a;
+      --panel: #0d1225;
+      --line: rgba(100,140,220,0.15);
+      --text: #e0e8ff;
+      --muted: #7b8fbb;
+      --accent: #6c8cff;
+      --accent-fg: #fff;
+      --user-bg: rgba(60,80,160,0.18);
+      --assistant-bg: rgba(10,16,35,0.7);
+      --error-bg: rgba(120,30,30,0.4);
+      --code-bg: rgba(40,50,90,0.3);
+      --input-bg: rgba(12,18,36,0.9);
+      --input-border: rgba(80,110,200,0.3);
+      --link: #7ba4ff;
+      --focus-border: #5580dd;
+      --warning: #d4a74c;
+      --star-1: #ffffff;
+      --star-2: #c8d8ff;
+      --star-3: #8ba4e0;
+      --nebula-1: rgba(60,40,140,0.08);
+      --nebula-2: rgba(30,60,160,0.06);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       padding: 0;
       font-family: "Segoe UI", "PingFang SC", sans-serif;
-      background: radial-gradient(circle at 15% 10%, #1f3656 0%, #111826 50%);
+      background: var(--bg);
+      background-image:
+        radial-gradient(1px 1px at 10% 15%, var(--star-1) 0.5px, transparent 1px),
+        radial-gradient(1px 1px at 25% 35%, var(--star-2) 0.5px, transparent 1px),
+        radial-gradient(1px 1px at 40% 8%, var(--star-1) 0.3px, transparent 1px),
+        radial-gradient(1px 1px at 55% 52%, var(--star-3) 0.5px, transparent 1px),
+        radial-gradient(1px 1px at 70% 22%, var(--star-2) 0.3px, transparent 1px),
+        radial-gradient(1px 1px at 85% 68%, var(--star-1) 0.5px, transparent 1px),
+        radial-gradient(1px 1px at 15% 78%, var(--star-3) 0.3px, transparent 1px),
+        radial-gradient(1px 1px at 95% 42%, var(--star-2) 0.5px, transparent 1px),
+        radial-gradient(1px 1px at 35% 92%, var(--star-1) 0.3px, transparent 1px),
+        radial-gradient(1px 1px at 60% 88%, var(--star-3) 0.5px, transparent 1px),
+        radial-gradient(1px 1px at 5% 55%, var(--star-2) 0.3px, transparent 1px),
+        radial-gradient(1px 1px at 78% 95%, var(--star-1) 0.5px, transparent 1px),
+        radial-gradient(80px 80px at 20% 30%, var(--nebula-1), transparent),
+        radial-gradient(120px 120px at 75% 65%, var(--nebula-2), transparent);
       color: var(--text);
       height: 100vh;
       display: flex;
@@ -552,13 +710,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       padding: 10px 12px;
       border-bottom: 1px solid var(--line);
       font-weight: 600;
-      background: rgba(0, 0, 0, 0.25);
+      background: linear-gradient(135deg, var(--panel) 0%, rgba(30,40,80,0.6) 100%);
+      backdrop-filter: blur(4px);
     }
     .subheader {
       padding: 6px 12px;
       border-bottom: 1px solid var(--line);
       color: var(--muted);
       font-size: 12px;
+      background: rgba(10,14,26,0.5);
     }
     .messages {
       flex: 1;
@@ -574,9 +734,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       white-space: pre-wrap;
       line-height: 1.4;
     }
-    .msg.user { background: var(--user); border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
-    .msg.assistant { background: var(--assistant); border-radius: 10px; padding: 10px 12px; }
-    .msg.error { background: var(--error); border-radius: 10px; padding: 10px 12px; }
+    .msg.user { background: var(--user-bg); border-radius: 10px; padding: 10px 12px; margin-top: 8px; border: 1px solid rgba(80,120,220,0.15); }
+    .msg.assistant { background: var(--assistant-bg); border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(2px); border: 1px solid rgba(60,80,160,0.1); }
+    .msg.error { background: var(--error-bg); border-radius: 10px; padding: 10px 12px; border: 1px solid rgba(180,40,40,0.3); }
     .msg.system { background: transparent; padding: 2px 10px; }
     .msg.thinking {
       background: transparent;
@@ -585,7 +745,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       color: var(--muted);
     }
     .msg.tool { background: transparent; padding: 2px 10px; font-size: 13px; }
-    .msg.status { color: #c9a84c; padding: 2px 10px; }
+    .msg.status { color: var(--warning); padding: 2px 10px; }
     .meta {
       color: var(--muted);
       font-size: 11px;
@@ -616,8 +776,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       max-height: 300px;
       overflow-y: auto;
     }
+    .tool-input-box {
+      padding: 4px 8px;
+      margin: 2px 0;
+      background: rgba(40,50,90,0.2);
+      border-left: 2px solid var(--accent);
+      border-radius: 0 4px 4px 0;
+      font-size: 12px;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+    .tool-param-key {
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .tool-param-val {
+      color: var(--text);
+      opacity: 0.85;
+    }
+    .tool-output-box {
+      padding: 4px 8px;
+      margin: 2px 0;
+      background: rgba(30,60,40,0.15);
+      border-left: 2px solid rgba(60,180,100,0.5);
+      border-radius: 0 4px 4px 0;
+      font-size: 12px;
+      line-height: 1.5;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
     code {
-      background: rgba(255,255,255,0.08);
+      background: var(--code-bg);
       padding: 1px 5px;
       border-radius: 4px;
       font-size: 0.92em;
@@ -625,7 +814,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .footer {
       border-top: 1px solid var(--line);
       padding: 10px;
-      background: rgba(0, 0, 0, 0.25);
+      background: linear-gradient(0deg, var(--panel) 0%, rgba(13,18,37,0.8) 100%);
+      backdrop-filter: blur(4px);
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -635,11 +825,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       min-height: 84px;
       resize: vertical;
       border-radius: 8px;
-      border: 1px solid var(--line);
-      background: var(--panel);
+      border: 1px solid var(--input-border);
+      background: var(--input-bg);
       color: var(--text);
       padding: 10px;
       outline: none;
+      transition: border-color 0.2s;
+    }
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 8px rgba(108,140,255,0.15);
     }
     .actions {
       display: flex;
@@ -662,18 +857,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       padding: 2px 6px;
     }
     button {
-      border: 1px solid var(--line);
-      background: var(--panel);
+      border: 1px solid rgba(80,110,200,0.25);
+      background: rgba(20,30,60,0.7);
       color: var(--text);
       padding: 6px 12px;
       border-radius: 8px;
       cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:hover:not(:disabled) {
+      background: rgba(40,55,100,0.6);
+      border-color: var(--accent);
     }
     button.primary {
-      background: var(--accent);
-      color: #032514;
-      border: 1px solid #1aa96f;
+      background: linear-gradient(135deg, var(--accent) 0%, #5070dd 100%);
+      color: var(--accent-fg);
+      border: 1px solid var(--accent);
       font-weight: 700;
+      box-shadow: 0 2px 8px rgba(108,140,255,0.2);
+    }
+    button.primary:hover:not(:disabled) {
+      box-shadow: 0 3px 12px rgba(108,140,255,0.35);
     }
     button:disabled {
       opacity: 0.6;
@@ -712,8 +916,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     .question-btn-primary {
       background: var(--accent);
-      color: #032514;
-      border: 1px solid #1aa96f;
+      color: var(--accent-fg);
+      border: 1px solid var(--accent);
       font-weight: 700;
     }
     .question-options {
@@ -733,7 +937,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     .question-option:hover {
       border-color: var(--accent);
-      background: rgba(26, 169, 111, 0.1);
+      background: var(--code-bg);
+    }
+    .question-free-input {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      align-items: center;
+    }
+    .question-input-inline {
+      flex: 1;
+      border: 1px solid var(--line);
+      background: var(--input-bg);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+    }
+    .question-input-inline:focus {
+      border-color: var(--accent);
     }
     .question-input {
       width: 100%;
@@ -741,20 +964,175 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       resize: vertical;
       border-radius: 6px;
       border: 1px solid var(--line);
-      background: var(--bg);
+      background: var(--input-bg);
       color: var(--text);
       padding: 8px;
       font-size: 13px;
       outline: none;
     }
+    .todo-panel {
+      border-top: 1px solid var(--line);
+      padding: 8px 12px;
+      background: var(--panel);
+      font-size: 12px;
+    }
+    .todo-panel-header {
+      color: var(--muted);
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    .todo-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 0;
+      color: var(--text);
+    }
+    .todo-item.done { color: var(--muted); text-decoration: line-through; }
+    .todo-item.in_progress { color: var(--accent); }
+    .todo-icon { font-size: 11px; }
+    .usage-bar {
+      display: flex;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .attachment-bar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 4px 0;
+      min-height: 0;
+    }
+    .attachment-bar:not(:empty) {
+      padding: 6px 0;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 4px;
+    }
+    .attachment-item {
+      position: relative;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      overflow: hidden;
+      width: 56px;
+      height: 56px;
+      background: var(--code-bg);
+    }
+    .attachment-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .attachment-remove {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      background: var(--error-bg);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      font-size: 10px;
+      cursor: pointer;
+      line-height: 16px;
+      text-align: center;
+      padding: 0;
+    }
+    .drop-zone-active textarea {
+      border-color: var(--accent);
+      background: var(--code-bg);
+    }
+
+    .header { position: relative; }
+    .progress-bar {
+      position: absolute; bottom: 0; left: 0; height: 2px;
+      background: var(--accent); width: 0; opacity: 0; transition: opacity 0.3s;
+    }
+    .progress-bar.active { opacity: 1; animation: progress-slide 2s ease-in-out infinite; }
+    @keyframes progress-slide {
+      0% { width: 0; left: 0; } 50% { width: 45%; left: 30%; } 100% { width: 0; left: 100%; }
+    }
+    .code-block-wrapper {
+      position: relative; margin: 8px 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--line);
+    }
+    .code-block-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 10px; background: var(--panel); font-size: 11px; color: var(--muted);
+    }
+    .code-block-copy {
+      background: transparent; border: 1px solid var(--line); color: var(--muted);
+      padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.15s;
+    }
+    .code-block-copy:hover { color: var(--text); border-color: var(--accent); }
+    .code-block-copy.copied { color: var(--accent); border-color: var(--accent); }
+    pre.code-block {
+      margin: 0; padding: 10px 12px; background: var(--code-bg); overflow-x: auto; font-size: 12.5px; line-height: 1.5;
+      font-family: var(--vscode-editor-font-family, "Cascadia Code", Consolas, monospace);
+    }
+    pre.code-block code { background: transparent; padding: 0; font-size: inherit; }
+    .msg h2, .msg h3, .msg h4 { margin: 10px 0 6px; }
+    .msg h2 { font-size: 1.2em; } .msg h3 { font-size: 1.1em; }
+    .msg h4 { font-size: 1.0em; color: var(--muted); }
+    .msg ul, .msg ol { margin: 4px 0; padding-left: 24px; }
+    .msg li { margin: 2px 0; line-height: 1.5; }
+    .msg hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+    .msg table { border-collapse: collapse; margin: 8px 0; width: 100%; font-size: 12.5px; }
+    .msg th, .msg td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; }
+    .msg th { background: var(--panel); font-weight: 600; }
+    .msg a.md-link { color: var(--link); text-decoration: none; }
+    .msg a.md-link:hover { text-decoration: underline; }
+    .msg blockquote { border-left: 3px solid var(--accent); margin: 6px 0; padding: 4px 12px; color: var(--muted); background: var(--code-bg); border-radius: 0 4px 4px 0; }
+    .tool-file-link { color: var(--link); cursor: pointer; text-decoration: underline; font-size: 12px; margin-left: 4px; padding: 1px 4px; border-radius: 3px; background: rgba(60,80,160,0.12); }
+    .tool-file-link:hover { opacity: 0.8; background: rgba(60,80,160,0.25); }
+    .typing-cursor::after { content: '▮'; color: var(--accent); animation: blink-cursor 1s step-end infinite; }
+    @keyframes blink-cursor { 50% { opacity: 0; } }
+    @keyframes twinkle { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+      z-index: 0;
+      background-image:
+        radial-gradient(1px 1px at 12% 45%, var(--star-1) 0.5px, transparent 1px),
+        radial-gradient(1px 1px at 62% 18%, var(--star-2) 0.5px, transparent 1px),
+        radial-gradient(1px 1px at 88% 72%, var(--star-3) 0.5px, transparent 1px),
+        radial-gradient(1px 1px at 32% 85%, var(--star-1) 0.3px, transparent 1px),
+        radial-gradient(1px 1px at 48% 62%, var(--star-2) 0.3px, transparent 1px);
+      animation: twinkle 4s ease-in-out infinite;
+    }
+    body > * { position: relative; z-index: 1; }
+    .popup-panel {
+      position: absolute; bottom: 100%; left: 10px; right: 10px; background: var(--panel);
+      border: 1px solid var(--line); border-radius: 6px; max-height: 220px; overflow-y: auto;
+      z-index: 10; display: none; box-shadow: 0 -4px 12px rgba(0,0,0,0.25);
+    }
+    .popup-panel.visible { display: block; }
+    .popup-item { padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; border-bottom: 1px solid var(--line); }
+    .popup-item:last-child { border-bottom: none; }
+    .popup-item:hover, .popup-item.active { background: var(--code-bg); }
+    .popup-item-label { font-weight: 500; }
+    .popup-item-desc { color: var(--muted); font-size: 11px; }
+    .popup-item-icon { font-size: 14px; width: 18px; text-align: center; }
+    .footer { position: relative; }
   </style>
 </head>
 <body>
   <div class="header">NaughtyAgent</div>
-  <div id="subheader" class="subheader">等待脚本初始化...</div>
+  <div id="subheader" class="subheader">
+    <span id="subheader-info">等待脚本初始化...</span>
+    <span id="usage-bar" class="usage-bar"></span>
+  </div>
   <div id="messages" class="messages"></div>
+  <div id="todoPanel" class="todo-panel" style="display:none;"></div>
   <div class="footer">
-    <textarea id="input" placeholder="输入问题，支持 @file 相对路径"></textarea>
+    <div id="popupPanel" class="popup-panel"></div>
+      <div id="attachmentBar" class="attachment-bar"></div>
+    <textarea id="input" placeholder="输入问题，支持 @file 相对路径。可拖拽/粘贴图片。"></textarea>
     <div class="options">
       <span>模式</span>
       <select id="agentType">
