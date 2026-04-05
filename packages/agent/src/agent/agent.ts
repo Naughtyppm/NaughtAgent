@@ -35,7 +35,7 @@ export type AgentEvent =
   | { type: "tool_end"; id: string; result: Tool.Result; isError?: boolean }
   | { type: "error"; error: Error }
   | { type: "done"; usage: TokenUsage; stopReason?: string; writeOpCount?: number }
-  | { type: "await_input" }
+  | { type: "await_input"; usage?: TokenUsage }
 
 /**
  * Agent 定义
@@ -109,6 +109,9 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
       "scan_tasks", "claim_task", "complete_task", "create_team_task", "list_team_tasks",
       // Worktree 隔离工具（s12 Worktree Task Isolation）
       "worktree_create", "worktree_run", "worktree_closeout", "worktree_list", "worktree_status", "worktree_events",
+      // VSCode 扩展自迭代
+      "vscode_reload",
+      "webview_snapshot",
     ],
     maxSteps: DEFAULT_MAX_STEPS,
   },

@@ -224,6 +224,7 @@ export interface WSSendMessage {
     budgetTokens?: number
   }
   autoConfirm?: boolean
+  attachments?: Array<{ type: string; data: string; mimeType: string }>
 }
 
 /**
@@ -268,6 +269,7 @@ export type WSClientMessage =
   | WSPingMessage
   | WSPermissionResponse
   | WSQuestionResponse
+  | WSSnapshotResponse
 
 /**
  * WebSocket 服务端消息 - Pong
@@ -291,7 +293,24 @@ export interface WSQuestionRequest {
 /**
  * WebSocket 服务端消息联合类型
  */
-export type WSServerMessage = StreamEvent | WSPongMessage | WSQuestionRequest
+export type WSServerMessage = StreamEvent | WSPongMessage | WSQuestionRequest | WSSnapshotRequest
+
+/**
+ * WebSocket 服务端消息 - 请求 Webview 快照
+ */
+export interface WSSnapshotRequest {
+  type: "snapshot_request"
+  requestId: string
+}
+
+/**
+ * WebSocket 客户端消息 - Webview 快照结果
+ */
+export interface WSSnapshotResponse {
+  type: "snapshot_response"
+  requestId: string
+  snapshot: Record<string, unknown>
+}
 
 // ============================================================================
 // Skill Types

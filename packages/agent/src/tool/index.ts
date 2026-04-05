@@ -48,6 +48,8 @@ export { MemoryTool } from "./memory"
 export { NotebookEditTool } from "./notebook-edit"
 export { WebFetchTool } from "./web-fetch"
 export { EnterPlanModeTool, ExitPlanModeTool, isPlanMode } from "./plan-mode"
+export { VSCodeReloadTool } from "./vscode-reload"
+export { WebviewSnapshotTool, registerSnapshotRequestor, unregisterSnapshotRequestor } from "./webview-snapshot"
 
 // 文件访问预算
 export {

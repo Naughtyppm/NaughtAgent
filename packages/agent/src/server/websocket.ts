@@ -22,6 +22,7 @@ import { parseQuery } from "./middleware"
 import { createDaemonSessionManager } from "../daemon"
 import type { AgentType } from "../agent"
 import { setInteractionCallbacks } from "../interaction/callbacks"
+import { registerSnapshotRequestor, unregisterSnapshotRequestor } from "../tool/webview-snapshot"
 
 // ============================================================================
 // Types
@@ -414,7 +415,7 @@ class WebSocketConnection {
 
     switch (message.type) {
       case "send":
-        await this.handleSend(message.message, message.model as string | undefined, message.thinking as { enabled: boolean; budgetTokens?: number } | undefined)
+        await this.handleSend(message.message, message.model as string | undefined, message.thinking as { enabled: boolean; budgetTokens?: number } | undefined, message.attachments)
         break
       case "cancel":
         this.handleCancel()
@@ -427,6 +428,13 @@ class WebSocketConnection {
       case "question_response":
         this.handleQuestionResponse(message.requestId as string, message.value, message.cancelled as boolean | undefined)
         break
+      case "snapshot_response": {
+        const snap = (message as unknown as { snapshot?: Record<string, unknown> }).snapshot
+        if (snap && message.requestId) {
+          this.handleSnapshotResponse(message.requestId as string, snap)
+        }
+        break
+      }
       case "subscribe":
         this.handleSubscribe((message as WSSubscribeMessage).sessionId)
         break
@@ -467,6 +475,11 @@ class WebSocketConnection {
   // Question 工具：等待用户回答的 resolver
   private pendingQuestions = new Map<string, {
     resolve: (result: { answered: boolean; value: string | boolean | string[] | null; cancelled: boolean }) => void
+    timeout: ReturnType<typeof setTimeout>
+  }>()
+  // Webview 快照：等待结果的 resolver
+  private pendingSnapshots = new Map<string, {
+    resolve: (snapshot: Record<string, unknown>) => void
     timeout: ReturnType<typeof setTimeout>
   }>()
 
@@ -522,9 +535,33 @@ class WebSocketConnection {
   }
 
   /**
+   * 请求 Webview 快照（供 Agent 工具调用）
+   */
+  public requestSnapshot(timeoutMs = 10000): Promise<Record<string, unknown>> {
+    return new Promise((resolve) => {
+      const requestId = `snap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      const timeout = setTimeout(() => {
+        this.pendingSnapshots.delete(requestId)
+        resolve({ error: "Snapshot request timed out — no Webview connected" })
+      }, timeoutMs)
+      this.pendingSnapshots.set(requestId, { resolve, timeout })
+      this.send({ type: "snapshot_request", requestId })
+    })
+  }
+
+  private handleSnapshotResponse(requestId: string, snapshot: Record<string, unknown>): void {
+    const pending = this.pendingSnapshots.get(requestId)
+    if (pending) {
+      clearTimeout(pending.timeout)
+      this.pendingSnapshots.delete(requestId)
+      pending.resolve(snapshot)
+    }
+  }
+
+  /**
    * 处理发送消息
    */
-  private async handleSend(message: string, model?: string, thinking?: { enabled: boolean; budgetTokens?: number }): Promise<void> {
+  private async handleSend(message: string, model?: string, thinking?: { enabled: boolean; budgetTokens?: number }, attachments?: Array<{ type: string; data: string; mimeType: string }>): Promise<void> {
 
     // 如果 loop 正在等待用户输入，直接 resolve
     if (this.pendingInputResolver) {
@@ -544,6 +581,8 @@ class WebSocketConnection {
     if (!this.session) {
       this.session = await this.createOrGetSession(model)
     }
+    // 每次 handleSend 都确保快照请求器已注册（幂等，覆盖断线重连场景）
+    registerSnapshotRequestor(this.session.id, () => this.requestSnapshot())
 
     // 动态设置 model 配置
     if (model) {
@@ -567,6 +606,9 @@ class WebSocketConnection {
     setInteractionCallbacks({
       onQuestion: (q) => this.questionViaWs(q),
     })
+
+    // 追踪已报告的 usage，用于计算增量（避免 await_input + done 双重计算）
+    const reportedUsage = { inputTokens: 0, outputTokens: 0 }
 
     const handlers: RunnerEventHandlers = {
       onTextDelta: (delta) => {
@@ -595,7 +637,12 @@ class WebSocketConnection {
         this.callbacks.broadcast(currentSessionId, msg)
       },
       onDone: (usage) => {
-        const msg: WSServerMessage = { type: "done", usage }
+        // 发增量 usage（扣除已通过 await_input 报告的部分）
+        const deltaUsage = {
+          inputTokens: Math.max(0, (usage?.inputTokens || 0) - reportedUsage.inputTokens),
+          outputTokens: Math.max(0, (usage?.outputTokens || 0) - reportedUsage.outputTokens),
+        }
+        const msg: WSServerMessage = { type: "done", usage: deltaUsage }
         this.send(msg)
         this.callbacks.broadcast(currentSessionId, msg)
         this.isRunning = false
@@ -613,9 +660,17 @@ class WebSocketConnection {
         this.send(msg)
         this.callbacks.broadcast(currentSessionId, msg)
       },
-      onAwaitInput: () => {
-        // 通知客户端当前回合完毕，可以发送新消息
-        this.send({ type: "done", usage: { inputTokens: 0, outputTokens: 0 } })
+      onAwaitInput: (usage) => {
+        // 发增量 usage（扣除之前已报告的部分）
+        const totalInput = usage?.inputTokens || 0
+        const totalOutput = usage?.outputTokens || 0
+        const deltaUsage = {
+          inputTokens: Math.max(0, totalInput - reportedUsage.inputTokens),
+          outputTokens: Math.max(0, totalOutput - reportedUsage.outputTokens),
+        }
+        reportedUsage.inputTokens = totalInput
+        reportedUsage.outputTokens = totalOutput
+        this.send({ type: "done", usage: deltaUsage })
         this.isRunning = false
       },
       onPermissionRequest: () => {
@@ -624,7 +679,7 @@ class WebSocketConnection {
     }
 
     try {
-      await runner.run(message, handlers)
+      await runner.run(message, handlers, { attachments })
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Unknown error"
       this.send({ type: "error", message: msg })
@@ -829,6 +884,15 @@ class WebSocketConnection {
       pending.resolve({ answered: false, value: null, cancelled: true })
     }
     this.pendingQuestions.clear()
+    // 清理快照请求器
+    for (const pending of this.pendingSnapshots.values()) {
+      clearTimeout(pending.timeout)
+      pending.resolve({ error: "Connection closed" })
+    }
+    this.pendingSnapshots.clear()
+    if (this.session) {
+      unregisterSnapshotRequestor(this.session.id)
+    }
   }
 }
 

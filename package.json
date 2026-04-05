@@ -1,6 +1,6 @@
 {
   "name": "naughtyagent",
-  "version": "0.9.10",
+  "version": "0.10.0",
   "private": true,
   "description": "NaughtyAgent - AI 编程助手",
   "scripts": {

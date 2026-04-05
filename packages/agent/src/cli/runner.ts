@@ -14,7 +14,7 @@ import {
   type AgentType,
   type AgentEvent,
 } from "../agent"
-import { createSession, type Session } from "../session"
+import { createSession, type Session, type ContentBlock, type ImageBlock } from "../session"
 import {
   createProvider,
   createProviderFromEnv,
@@ -41,6 +41,8 @@ import { TaskOutputTool, TaskStopTool } from "../tool/background-task"
 import { EnterPlanModeTool, ExitPlanModeTool, isPlanMode } from "../tool/plan-mode"
 import { ListMcpResourcesTool, ReadMcpResourceTool } from "../tool/mcp-resource"
 import { CronCreateTool, CronDeleteTool, CronListTool } from "../tool/cron"
+import { VSCodeReloadTool } from "../tool/vscode-reload"
+import { WebviewSnapshotTool } from "../tool/webview-snapshot"
 import { initKnowledgeSkills, getKnowledgeSkillLoader } from "../skill/knowledge"
 import { initSkills } from "../skill"
 import { clearReadCache } from "../tool/read"
@@ -85,6 +87,7 @@ export interface RunnerConfig {
 
 export interface RunOptions {
   abort?: AbortSignal
+  attachments?: Array<{ type: string; data: string; mimeType: string }>
 }
 
 export interface RunnerEventHandlers {
@@ -100,7 +103,7 @@ export interface RunnerEventHandlers {
   onDone?: (usage: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number }) => void
   onPermissionRequest?: (request: { type: string; resource: string; description?: string }) => void
   /** 持久模式：Agent 完成当前回合，等待用户输入 */
-  onAwaitInput?: () => void
+  onAwaitInput?: (usage?: { inputTokens: number; outputTokens: number }) => void
 }
 
 // ─── 模型配置 ─────────────────────────────────────────
@@ -171,7 +174,7 @@ function dispatchEvent(event: AgentEvent, handlers: RunnerEventHandlers): void {
       handlers.onDone?.(event.usage)
       break
     case "await_input":
-      handlers.onAwaitInput?.()
+      handlers.onAwaitInput?.(event.usage)
       break
   }
 }
@@ -273,6 +276,23 @@ export function createRunner(config: RunnerConfig) {
       await mcpReady
       if (!session) session = createSession({ cwd, agentType })
 
+      // 构建消息内容块（支持多模态附件）
+      const contentBlocks: ContentBlock[] = [{ type: "text", text: input }]
+      if (options.attachments?.length) {
+        for (const att of options.attachments) {
+          if (att.type === "image") {
+            contentBlocks.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: att.mimeType as ImageBlock["source"]["media_type"],
+                data: att.data,
+              },
+            } as ImageBlock)
+          }
+        }
+      }
+
       // 构建权限检查器（在 loop 层拦截，不是事后通知）
       const permissionChecker = buildPermissionChecker(permissions, confirmCallback, handlers)
 
@@ -366,7 +386,7 @@ export function createRunner(config: RunnerConfig) {
       })
 
       try {
-        for await (const event of loop.run(input)) {
+        for await (const event of loop.run(contentBlocks)) {
           if (options.abort?.aborted) break
           dispatchEvent(event, handlers)
         }
@@ -438,6 +458,10 @@ function registerBuiltinTools(registry: ToolRegistry): void {
   registry.register(CronCreateTool)
   registry.register(CronDeleteTool)
   registry.register(CronListTool)
+  // VSCode 扩展编译重载工具
+  registry.register(VSCodeReloadTool)
+  // Webview 快照工具（自我迭代：查看 UI 状态）
+  registry.register(WebviewSnapshotTool)
 }
 
 /**

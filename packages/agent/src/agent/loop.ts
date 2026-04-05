@@ -97,9 +97,12 @@ export function createAgentLoop(config: AgentLoopConfig) {
     runConfig.abort.addEventListener("abort", () => abortController.abort(), { once: true })
   }
 
-  async function* run(input: string): AsyncGenerator<AgentEvent> {
+  async function* run(input: string | ContentBlock[]): AsyncGenerator<AgentEvent> {
     // 添加用户消息
-    addMessage(session, "user", [{ type: "text", text: input }])
+    const content: ContentBlock[] = typeof input === "string"
+      ? [{ type: "text", text: input }]
+      : input
+    addMessage(session, "user", content)
 
     const systemPrompt = buildSystemPrompt(definition, { cwd: runConfig.cwd, model: definition.model?.model })
     const tools = getToolDefinitions(definition.tools, registry, { cwd: runConfig.cwd, depth: config.depth })
@@ -133,7 +136,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
             `已达 ${maxSteps} 步上限，等待用户指令`,
             ErrorCode.INTERNAL_ERROR, false,
           ) }
-          yield { type: "await_input" }
+          yield { type: "await_input", usage: totalUsage }
           const nextInput = await config.waitForInput()
           if (!nextInput || nextInput.trim() === '/quit') break
           addMessage(session, "user", [{ type: "text", text: nextInput }])
@@ -358,7 +361,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
           }
           // 提醒已用过或没有 question 工具，正常 await_input
           questionReminderUsed = false // 重置供下一轮用户输入后使用
-          yield { type: "await_input" }
+          yield { type: "await_input", usage: totalUsage }
           const nextInput = await config.waitForInput()
           if (!nextInput || nextInput.trim() === '/quit') {
             break
@@ -556,7 +559,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
           if (content.includes('Question cancelled') || content.includes('Question not answered')) {
             logger.warn('question tool returned cancelled/not-answered, switching to await_input')
             if (config.waitForInput) {
-              yield { type: "await_input" }
+              yield { type: "await_input", usage: totalUsage }
               const nextInput = await config.waitForInput()
               if (!nextInput || nextInput.trim() === '/quit') {
                 break
@@ -567,7 +570,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
               continue
             } else {
               // 没有 waitForInput 时直接结束循环
-              yield { type: "await_input" }
+              yield { type: "await_input", usage: totalUsage }
               break
             }
           }
