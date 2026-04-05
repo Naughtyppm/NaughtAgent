@@ -68,8 +68,8 @@ export type ReasoningEffort = keyof typeof THINKING_BUDGETS
 export const DEFAULT_TEMPERATURE = 0
 
 // ─── Agent Loop ────────────────────────────────────────
-/** 默认最大步骤数（200 步安全网，CC 约 200 步。靠 compact 续命而非无限循环） */
-export const DEFAULT_MAX_STEPS = 200
+/** 默认最大步骤数（20000 步，持久模式下需要足够长的运行空间，靠 compact 续命） */
+export const DEFAULT_MAX_STEPS = 20000
 /** 连续错误阈值（超过则终止） */
 export const MAX_CONSECUTIVE_ERRORS = 3
 /** 自动压缩的 token 阈值（参照 CC: ~167K for 200K window，NA 上下文窗口约 200K） */

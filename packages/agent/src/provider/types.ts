@@ -189,6 +189,8 @@ export interface ChatParams {
   system?: string | SystemBlock[]
   tools?: ToolDefinition[]
   abortSignal?: AbortSignal
+  /** 会话 ID：传给 copilot-api 的 metadata.user_id，固定后避免重复扣费 */
+  sessionId?: string
 }
 
 /**

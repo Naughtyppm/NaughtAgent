@@ -223,6 +223,10 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           system: params.system,
           messages: convertMessages(params.messages),
           tools: convertTools(params.tools),
+          // 传 session_id 给 copilot-api，固定 x-interaction-id 避免重复扣费
+          ...(params.sessionId && isProxyBaseURL(config.baseURL) ? {
+            metadata: { user_id: JSON.stringify({ session_id: params.sessionId }) }
+          } : {}),
         }
 
         // Extended Thinking 配置
@@ -239,17 +243,24 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           requestParams.temperature = params.model.temperature
         }
 
-        const stream = await withRetry(async () => {
-          return client.messages.stream(requestParams, {
-            signal: params.abortSignal,
-          })
-        })
+        let streamAttempt = 0
+        const maxStreamAttempts = 3
+        let stream: Awaited<ReturnType<typeof client.messages.stream>>
 
-        let textChunks = 0
-        let toolCalls = 0
-        let isInThinking = false
+        while (true) {
+          streamAttempt++
+          try {
+            stream = await withRetry(async () => {
+              return client.messages.stream(requestParams, {
+                signal: params.abortSignal,
+              })
+            })
 
-        for await (const event of stream) {
+            let textChunks = 0
+            let toolCalls = 0
+            let isInThinking = false
+
+            for await (const event of stream) {
           if (event.type === "content_block_start") {
             const block = event.content_block
             if (block.type === "thinking") {
@@ -325,6 +336,22 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           stopReason: finalMessage.stop_reason as "end_turn" | "max_tokens" | "tool_use" | "stop_sequence" | undefined,
           thinkingBlocks: thinkingBlocks.length > 0 ? thinkingBlocks : undefined,
         }
+        break // 成功完成，退出 retry 循环
+          } catch (streamErr) {
+            // 特定的流错误可以重试（如 proxy 断连）
+            const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr)
+            const isStreamAborted = errMsg.includes('stream ended without producing') ||
+                                     errMsg.includes('ECONNRESET') ||
+                                     errMsg.includes('socket hang up')
+            if (isStreamAborted && streamAttempt < maxStreamAttempts) {
+              logger.warn(`流式传输中断，重试 (${streamAttempt}/${maxStreamAttempts}): ${errMsg}`)
+              const delay = Math.min(1000 * Math.pow(2, streamAttempt - 1), 5000)
+              await new Promise(r => setTimeout(r, delay))
+              continue // 重试
+            }
+            throw streamErr // 不可重试，抛给外层 catch
+          }
+        } // end while
       } catch (err) {
         const agentError = convertError(err)
         logger.error('流式调用失败', {
@@ -360,6 +387,10 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           system: params.system,
           messages: convertedMessages,
           tools: convertedTools,
+          // 传 session_id 给 copilot-api，固定 x-interaction-id 避免重复扣费
+          ...(params.sessionId && isProxyBaseURL(config.baseURL) ? {
+            metadata: { user_id: JSON.stringify({ session_id: params.sessionId }) }
+          } : {}),
         }
 
         // Extended Thinking 配置

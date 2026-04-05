@@ -25,9 +25,9 @@ export const TOOL_TIMEOUTS: Record<string, number> = {
   question: 300_000,      // 5 分钟
   todo: 30_000,           // 30 秒
   // 子代理工具 - 需要更长超时
-  ask_llm: 60_000,        // 60 秒
-  run_agent: 180_000,     // 3 分钟
-  fork_agent: 180_000,    // 3 分钟
+  ask_llm: 120_000,       // 2 分钟
+  run_agent: 600_000,     // 10 分钟
+  fork_agent: 600_000,    // 10 分钟
 }
 
 /**

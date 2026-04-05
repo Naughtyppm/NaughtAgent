@@ -215,6 +215,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
           system: systemPrompt,
           tools: tools.length > 0 ? tools : undefined,
           abortSignal: abortController.signal,
+          sessionId: runConfig.sessionId,
         })) {
           if (abortController.signal.aborted) break
 

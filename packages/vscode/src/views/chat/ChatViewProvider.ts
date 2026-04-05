@@ -99,6 +99,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private sessionUsage: SessionUsage = { totalInput: 0, totalOutput: 0, requestCount: 0 };
   private todoList: TodoItem[] = [];
   private webviewErrors: string[] = [];
+  private currentUnsubscribe: (() => void) | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -123,6 +124,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async (message: WebviewInboundMessage) => {
       await this.handleWebviewMessage(message);
+    });
+
+    // 当 webview 重新可见时，重发完整状态（恢复 pendingQuestion 等）
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this.log('webview became visible, re-posting state');
+        this.postState();
+      }
     });
   }
 
@@ -272,6 +281,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const value = message.value;
         const cancelled = message.cancelled as boolean | undefined;
         this.pendingQuestion = null;
+        // 恢复 running 状态 — question 回答后 Agent 会继续工作
+        this.pending = true;
+        this.runStatus = 'running';
         this.agentClient.respondQuestion(requestId, value, cancelled);
         this.postState();
       }
@@ -297,10 +309,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   async newChat(): Promise<void> {
+    if (this.currentUnsubscribe) {
+      this.currentUnsubscribe();
+      this.currentUnsubscribe = null;
+    }
     this.messages.length = 0;
     this.agentClient.disconnect();
     await this.agentClient.closeSession();
     this.runStatus = 'idle';
+    this.pendingQuestion = null;
     this.sessionUsage = { totalInput: 0, totalOutput: 0, requestCount: 0 };
     this.todoList = [];
     this.postState();
@@ -363,7 +380,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       const runState: { thinkingMessage?: ChatMessage; activeTextMessage?: ChatMessage; hadToolSinceText?: boolean } = {};
 
-      const unsubscribe = this.agentClient.onMessage(async (event) => {
+      // 注册消息处理器 — 不在 done 后立即 unsubscribe
+      // 因为 question_request 可能在 done 之后才到达（WS 消息顺序不保证）
+      if (this.currentUnsubscribe) {
+        this.currentUnsubscribe();
+      }
+      this.currentUnsubscribe = this.agentClient.onMessage(async (event) => {
         this.log(`ws event: ${event.type}`);
         await this.handleAgentMessage(event, assistantMessage, runState);
       });
@@ -379,12 +401,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         await this.waitForRunCompletion();
         this.log('run completed');
-      } finally {
-        unsubscribe();
+      } catch (e) {
+        throw e;
       }
+      // 不在这里 unsubscribe — handler 保持活跃直到下一次 sendMessage 或 newChat
 
       if (!assistantMessage.content.trim() && !runState.activeTextMessage) {
         assistantMessage.content = '未收到有效回复。';
+      }
+      // 清理空的 assistant 占位消息（如果文本被追加到了后面的新消息中）
+      if (!assistantMessage.content.trim() && runState.activeTextMessage) {
+        const idx = this.messages.indexOf(assistantMessage);
+        if (idx !== -1) {
+          this.messages.splice(idx, 1);
+        }
       }
     } catch (error) {
       this.log(`send error: ${error instanceof Error ? error.message : String(error)}`);
@@ -430,9 +460,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     return new Promise((resolve) => {
       const dispose = this.agentClient.onMessage((event) => {
         if (event.type === 'done') {
+          // 如果有 pendingQuestion，说明 Agent 在等用户回答
+          // 此时 done 是中间状态（来自 onAwaitInput），不应结束
+          if (this.pendingQuestion) {
+            this.log('done event ignored: pendingQuestion active');
+            return;
+          }
           dispose();
           resolve();
         }
+        // question_request 到达时不 resolve — 需要等用户回答后继续
         // error 事件不再 reject — 持久循环模式下中间错误是正常的
       });
     });
@@ -470,7 +507,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'text':
       case 'text_delta':
         // 如果工具执行后有新文本，创建新的 assistant message 放在底部
-        if (runState.hadToolSinceText) {
+        // 或者如果原始 assistantMessage 仍为空且已有 thinking/tool 消息在其后面
+        // 则也创建新消息（避免文本被插入到思考/工具块上方不可见的位置）
+        if (runState.hadToolSinceText ||
+            (!runState.activeTextMessage && !assistantMessage.content && this.messages.length > this.messages.indexOf(assistantMessage) + 1)) {
           const newMsg: ChatMessage = {
             role: 'assistant',
             content: '',
@@ -573,6 +613,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           options: event.options,
           default: event.default,
         };
+        // question 到达时确保 running 状态（可能在 done 之后到达）
+        this.pending = true;
+        this.runStatus = 'running';
         this.postState();
         break;
       case 'done':

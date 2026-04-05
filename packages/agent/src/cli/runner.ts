@@ -220,7 +220,7 @@ export function createRunner(config: RunnerConfig) {
     : createProviderFromEnv()
 
   // 子代理适配
-  const subAgentModel = (model && model !== "auto") ? model : "claude-sonnet-4"
+  let subAgentModel = (model && model !== "auto") ? model : "claude-sonnet-4"
   const subTaskProvider: SubTaskProvider = {
     async chat(options) {
       if (options.abort?.aborted) throw new Error("Task was aborted")
@@ -409,6 +409,11 @@ export function createRunner(config: RunnerConfig) {
 
     setModel(newModel: string): void {
       applyModelConfig(definition, newModel)
+      // 同步更新子 agent 模型
+      if (newModel && newModel !== "auto") {
+        subAgentModel = newModel
+        agentRuntime.model = newModel
+      }
     },
 
     setThinking(thinking: { enabled: boolean; budgetTokens?: number }): void {
