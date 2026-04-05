@@ -29,6 +29,8 @@ coverage/
 
 # 临时文件
 nul
+Log.txt
+*--任务目标.md
 
 # NaughtAgent 运行时数据
 .naughty/
@@ -37,6 +39,10 @@ nul
 .team/
 .worktrees/
 .learnings/
+.transcripts/
+
+# VSIX 产物
+*.vsix
 
 # Python
 __pycache__/
