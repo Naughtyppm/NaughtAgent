@@ -43,6 +43,8 @@ export interface ForkAgentRuntime {
   baseURL?: string
   /** 固定模型（不能是 "auto"） */
   model?: string
+  /** 父 Agent 的 sessionId（用于 copilot-api 计费归属同一 interaction） */
+  sessionId?: string
   /** 事件监听器 - 用于向 UI 传递子 Agent 执行状态 */
   onEvent?: SubAgentEventListener
   /** 工具注册表实例（传递给子 Agent，确保子 Agent 能使用 read/write/edit 等基础工具） */
@@ -221,7 +223,7 @@ export async function runForkAgent(
       session: childSession,
       provider,
       runConfig: {
-        sessionId: childSession.id,
+        sessionId: runtime.sessionId || childSession.id,
         cwd,
         abort: config.abort,
       },
@@ -244,7 +246,7 @@ export async function runForkAgent(
       definition: filteredDefinition,
       session: childSession,
       provider,
-      runConfig: { sessionId: childSession.id, cwd, abort: config.abort },
+      runConfig: { sessionId: runtime.sessionId || childSession.id, cwd, abort: config.abort },
       depth: config.depth ?? 0,
       sharedContextId: config.sharedContextId,
       toolRegistry: runtime.toolRegistry ?? new ToolRegistry(),
@@ -253,9 +255,28 @@ export async function runForkAgent(
     // 工具执行计时
     const toolStartTimes = new Map<string, number>()
     let shouldRetry = false
-    const loopInput = attempt === 0
+
+    // 构建子 Agent 的输入消息（注入 subagent marker）
+    const promptText = attempt === 0
       ? config.prompt
       : `[Context compressed due to token overflow. Continue:] ${config.prompt}`
+
+    const loopInput: import("../session").ContentBlock[] = []
+
+    // 注入 copilot-api subagent marker（仅 proxy 模式）
+    if (runtime.baseURL && runtime.sessionId) {
+      const marker = JSON.stringify({
+        session_id: runtime.sessionId,
+        agent_id: subAgentId,
+        agent_type: config.agentType || "build",
+      })
+      loopInput.push({
+        type: "text",
+        text: `<system-reminder>__SUBAGENT_MARKER__${marker}</system-reminder>`,
+      })
+    }
+
+    loopInput.push({ type: "text", text: promptText })
 
     // 9. 运行 Agent Loop
     for await (const event of retryLoop.run(loopInput)) {

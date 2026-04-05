@@ -233,6 +233,7 @@ export function createRunner(config: RunnerConfig) {
       const response = await provider.chat({
         model: { provider: "auto", model: effectiveModel },
         messages, system: systemMessage?.content, abortSignal: options.abort,
+        sessionId: agentRuntime.sessionId,
       })
       return { content: response.text, usage: response.usage }
     },
@@ -275,6 +276,9 @@ export function createRunner(config: RunnerConfig) {
       await subAgentSystemReady
       await mcpReady
       if (!session) session = createSession({ cwd, agentType })
+
+      // 将主 Agent sessionId 传递给子 Agent runtime，确保 copilot-api 计费归属同一 interaction
+      agentRuntime.sessionId = session.id
 
       // 构建消息内容块（支持多模态附件）
       const contentBlocks: ContentBlock[] = [{ type: "text", text: input }]

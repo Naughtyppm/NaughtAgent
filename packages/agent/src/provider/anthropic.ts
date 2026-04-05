@@ -65,84 +65,103 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
   }
 
   /**
+   * 转换单条消息内容为 Anthropic 格式（不含合并逻辑）
+   */
+  function convertSingleMessage(msg: Message): Anthropic.MessageParam {
+    if (msg.role === "user") {
+      if (typeof msg.content === "string") {
+        return { role: "user" as const, content: [{ type: "text" as const, text: msg.content }] }
+      }
+      const content: Anthropic.ContentBlockParam[] = []
+      for (const part of msg.content) {
+        if (part.type === "text") {
+          content.push({ type: "text", text: (part as TextContent).text })
+        } else if (part.type === "image") {
+          const imgPart = part as ImageContent
+          content.push({
+            type: "image",
+            source: imgPart.source as Anthropic.Base64ImageSource,
+          })
+        } else if (part.type === "tool_result") {
+          const toolResult = part as ToolResultContent
+          let resultContent: string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>
+          if (typeof toolResult.content === "string") {
+            resultContent = toolResult.content
+          } else {
+            resultContent = toolResult.content
+              .filter((c): c is TextContent | ImageContent =>
+                c.type === "text" || c.type === "image"
+              )
+              .map((c) => {
+                if (c.type === "text") {
+                  return { type: "text" as const, text: c.text }
+                } else {
+                  return {
+                    type: "image" as const,
+                    source: c.source as Anthropic.Base64ImageSource,
+                  }
+                }
+              })
+          }
+          content.push({
+            type: "tool_result",
+            tool_use_id: toolResult.tool_use_id,
+            content: resultContent,
+            is_error: toolResult.is_error,
+          })
+        }
+      }
+      return { role: "user" as const, content }
+    } else {
+      if (typeof msg.content === "string") {
+        return { role: "assistant" as const, content: msg.content }
+      }
+      const content: (Anthropic.ThinkingBlockParam | Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam)[] = []
+      for (const part of msg.content) {
+        if (part.type === "thinking") {
+          const thinkingPart = part as ThinkingContent
+          content.push({ type: "thinking", thinking: thinkingPart.thinking, signature: thinkingPart.signature })
+        } else if (part.type === "text") {
+          content.push({ type: "text", text: (part as TextContent).text })
+        } else if (part.type === "tool_use") {
+          const toolUse = part as ToolUseContent
+          content.push({
+            type: "tool_use",
+            id: toolUse.id,
+            name: toolUse.name,
+            input: toolUse.input as Record<string, unknown>,
+          })
+        }
+      }
+      return { role: "assistant" as const, content }
+    }
+  }
+
+  /**
    * 转换消息为 Anthropic 原生格式
+   * 合并连续同角色消息（Anthropic API 要求 user/assistant 严格交替）
    */
   function convertMessages(messages: Message[]): Anthropic.MessageParam[] {
-    const converted = messages.map((msg) => {
-      if (msg.role === "user") {
-        // 用户消息
-        if (typeof msg.content === "string") {
-          return { role: "user" as const, content: msg.content }
-        }
-
-        // 数组格式
-        const content: Anthropic.ContentBlockParam[] = []
-        for (const part of msg.content) {
-          if (part.type === "text") {
-            content.push({ type: "text", text: (part as TextContent).text })
-          } else if (part.type === "image") {
-            const imgPart = part as ImageContent
-            content.push({
-              type: "image",
-              source: imgPart.source as Anthropic.Base64ImageSource,
-            })
-          } else if (part.type === "tool_result") {
-            const toolResult = part as ToolResultContent
-            // 转换 tool_result content
-            let resultContent: string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>
-            if (typeof toolResult.content === "string") {
-              resultContent = toolResult.content
-            } else {
-              resultContent = toolResult.content
-                .filter((c): c is TextContent | ImageContent =>
-                  c.type === "text" || c.type === "image"
-                )
-                .map((c) => {
-                  if (c.type === "text") {
-                    return { type: "text" as const, text: c.text }
-                  } else {
-                    return {
-                      type: "image" as const,
-                      source: c.source as Anthropic.Base64ImageSource,
-                    }
-                  }
-                })
-            }
-            content.push({
-              type: "tool_result",
-              tool_use_id: toolResult.tool_use_id,
-              content: resultContent,
-              is_error: toolResult.is_error,
-            })
-          }
-        }
-        return { role: "user" as const, content }
+    // ── 第一步：转换 + 合并连续同角色消息 ──
+    // loop.ts 中 circuit breaker、background notifications 等会注入 text-only user 消息，
+    // 紧跟在上一轮的 tool_result user 消息后面，形成连续 user 消息。
+    // Anthropic API 要求 user/assistant 交替，这里统一合并。
+    const converted: Anthropic.MessageParam[] = []
+    for (const msg of messages) {
+      const cur = convertSingleMessage(msg)
+      const prev = converted.length > 0 ? converted[converted.length - 1] : null
+      if (prev && prev.role === cur.role) {
+        // 合并连续同角色消息的 content
+        const prevContent = Array.isArray(prev.content) ? prev.content : [{ type: "text" as const, text: prev.content }]
+        const curContent = Array.isArray(cur.content) ? cur.content : [{ type: "text" as const, text: cur.content }]
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(prevContent as any[]).push(...(curContent as any[]))
+        prev.content = prevContent
+        logger.debug(`merged consecutive ${cur.role} messages`)
       } else {
-        // 助手消息
-        if (typeof msg.content === "string") {
-          return { role: "assistant" as const, content: msg.content }
-        }
-
-        const content: (Anthropic.ThinkingBlockParam | Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam)[] = []
-        for (const part of msg.content) {
-          if (part.type === "thinking") {
-            const thinkingPart = part as ThinkingContent
-            content.push({ type: "thinking", thinking: thinkingPart.thinking, signature: thinkingPart.signature })
-          } else if (part.type === "text") {
-            content.push({ type: "text", text: (part as TextContent).text })
-          } else if (part.type === "tool_use") {
-            const toolUse = part as ToolUseContent
-            content.push({
-              type: "tool_use",
-              id: toolUse.id,
-              name: toolUse.name,
-              input: toolUse.input as Record<string, unknown>,
-            })
-          }
-        }
-        return { role: "assistant" as const, content }
+        converted.push(cur)
       }
-    })
+    }
 
     // 在最后一条 user 消息的最后一个 content block 上添加 cache_control
     for (let i = converted.length - 1; i >= 0; i--) {
@@ -228,6 +247,13 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
             metadata: { user_id: JSON.stringify({ session_id: params.sessionId }) }
           } : {}),
         }
+
+        logger.info('stream request', {
+          sessionId: params.sessionId,
+          isProxy: isProxyBaseURL(config.baseURL),
+          hasMetadata: !!requestParams.metadata,
+          metadataUserId: requestParams.metadata?.user_id,
+        })
 
         // Extended Thinking 配置
         if (thinkingEnabled) {
