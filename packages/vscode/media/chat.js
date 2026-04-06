@@ -281,41 +281,61 @@
   }
 
   // ── Question panel ──
+  // 统一交互：所有类型都显示 选项按钮 + 自由输入框
   function renderQuestion(q) {
     var qDiv=document.createElement('div'); qDiv.className='question-panel';
     qDiv.innerHTML='<div class="question-message">'+escapeHtml(q.message)+'</div>';
+
+    // 选项区域（confirm/select/multiselect 都渲染为按钮）
     if (q.questionType==='confirm') {
-      var btns=document.createElement('div'); btns.className='question-actions';
-      var by=document.createElement('button'); by.className='question-btn question-btn-primary'; by.textContent='是';
-      by.onclick=function(){vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:true});};
-      var bn=document.createElement('button'); bn.className='question-btn'; bn.textContent='否';
-      bn.onclick=function(){vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:false});};
-      btns.appendChild(by); btns.appendChild(bn); qDiv.appendChild(btns);
-    } else if (q.questionType==='select' && q.options) {
       var od=document.createElement('div'); od.className='question-options';
-      q.options.forEach(function(opt){
-        var btn=document.createElement('button'); btn.className='question-option'; btn.textContent=opt.label;
-        if(opt.description) btn.title=opt.description;
-        btn.onclick=function(){vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:opt.value});};
-        od.appendChild(btn);
-      });
-      qDiv.appendChild(od);
-      var fr=document.createElement('div'); fr.className='question-free-input';
-      var fi=document.createElement('input'); fi.type='text'; fi.className='question-input-inline'; fi.placeholder='或输入自定义回答...';
-      var fs=document.createElement('button'); fs.className='question-btn question-btn-primary'; fs.textContent='发送';
-      fs.onclick=function(){var v=fi.value.trim();if(v)vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:v});};
-      fi.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=fi.value.trim();if(v)vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:v});}});
-      fr.appendChild(fi); fr.appendChild(fs); qDiv.appendChild(fr);
-    } else {
-      var qi=document.createElement('textarea'); qi.className='question-input'; qi.placeholder='输入回答...';
-      if(q.default)qi.value=String(q.default);
-      var qa=document.createElement('div'); qa.className='question-actions';
-      var qs=document.createElement('button'); qs.className='question-btn question-btn-primary'; qs.textContent='发送';
-      qs.onclick=function(){vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:qi.value});};
-      var qc=document.createElement('button'); qc.className='question-btn'; qc.textContent='跳过';
-      qc.onclick=function(){vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:null,cancelled:true});};
-      qa.appendChild(qs); qa.appendChild(qc); qDiv.appendChild(qi); qDiv.appendChild(qa);
+      var by=document.createElement('button'); by.className='question-option question-option-primary'; by.textContent='是';
+      by.onclick=function(){vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:true});};
+      var bn=document.createElement('button'); bn.className='question-option'; bn.textContent='否';
+      bn.onclick=function(){vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:false});};
+      od.appendChild(by); od.appendChild(bn); qDiv.appendChild(od);
+    } else if ((q.questionType==='select' || q.questionType==='multiselect') && q.options) {
+      var od=document.createElement('div'); od.className='question-options';
+      if (q.questionType==='multiselect') {
+        // 多选：复选框模式
+        var selected=new Set();
+        q.options.forEach(function(opt){
+          var btn=document.createElement('button'); btn.className='question-option'; btn.textContent=opt.label;
+          if(opt.description) btn.title=opt.description;
+          btn.onclick=function(){
+            if(selected.has(opt.value)){selected.delete(opt.value);btn.classList.remove('question-option-selected');}
+            else{selected.add(opt.value);btn.classList.add('question-option-selected');}
+          };
+          od.appendChild(btn);
+        });
+        qDiv.appendChild(od);
+        // 多选确认按钮
+        var msBtns=document.createElement('div'); msBtns.className='question-actions';
+        var msOk=document.createElement('button'); msOk.className='question-btn question-btn-primary'; msOk.textContent='确认选择';
+        msOk.onclick=function(){vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:Array.from(selected)});};
+        msBtns.appendChild(msOk); qDiv.appendChild(msBtns);
+      } else {
+        // 单选：点击即提交
+        q.options.forEach(function(opt){
+          var btn=document.createElement('button'); btn.className='question-option'; btn.textContent=opt.label;
+          if(opt.description) btn.title=opt.description;
+          btn.onclick=function(){vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:opt.value});};
+          od.appendChild(btn);
+        });
+        qDiv.appendChild(od);
+      }
     }
+
+    // 自由输入区域（所有类型都有）
+    var fr=document.createElement('div'); fr.className='question-free-input';
+    var fi=document.createElement('input'); fi.type='text'; fi.className='question-input-inline';
+    fi.placeholder='或输入自定义回答...';
+    if(q.default && q.questionType==='text') fi.value=String(q.default);
+    var fs=document.createElement('button'); fs.className='question-btn question-btn-primary'; fs.textContent='发送';
+    fs.onclick=function(){var v=fi.value.trim();if(v)vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:v});};
+    fi.addEventListener('keydown',function(e){if(e.key==='Enter'){var v=fi.value.trim();if(v)vscode.postMessage({type:'questionResponse',requestId:q.requestId,value:v});}});
+    fr.appendChild(fi); fr.appendChild(fs); qDiv.appendChild(fr);
+
     messagesEl.appendChild(qDiv);
   }
   // ── TodoList ──

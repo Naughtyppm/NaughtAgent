@@ -33,6 +33,8 @@ import { TodoTool } from "../interaction/todo"
 import { QuestionTool } from "../interaction/question"
 import { setInteractionCallbacks } from "../interaction/callbacks"
 import { LoadSkillTool } from "../tool/load-skill"
+import { CreateSkillTool } from "../tool/create-skill"
+import { EmitEventTool } from "../tool/emit-event"
 import { CompactTool } from "../tool/compact"
 import { MemoryTool } from "../tool/memory"
 import { NotebookEditTool } from "../tool/notebook-edit"
@@ -44,6 +46,7 @@ import { CronCreateTool, CronDeleteTool, CronListTool } from "../tool/cron"
 import { VSCodeReloadTool } from "../tool/vscode-reload"
 import { WebviewSnapshotTool } from "../tool/webview-snapshot"
 import { initKnowledgeSkills, getKnowledgeSkillLoader } from "../skill/knowledge"
+import { initSkillHookRegistry } from "../skill/skill-hooks"
 import { initSkills } from "../skill"
 import { clearReadCache } from "../tool/read"
 import { clearFileAccessBudget } from "../tool/file-access-budget"
@@ -201,7 +204,8 @@ export function createRunner(config: RunnerConfig) {
 
   // Skill 系统初始化（s05: 两层注入）
   initSkills() // 注册 Workflow Skill (commit/pr/review/test)
-  initKnowledgeSkillDirs(cwd) // 初始化 Knowledge Skill（全局 + 项目级）
+  initKnowledgeSkillDirs(cwd) // 初始化 Knowledge Skill（全局 + 项目级 + CC全局）
+  initSkillHooks() // 初始化 Skill Hook 注册表（事件总线）
 
   // 子 Agent 初始化
   const subAgentSystemReady = initializeSubAgentSystem(cwd)
@@ -446,6 +450,10 @@ function registerBuiltinTools(registry: ToolRegistry): void {
   registry.register(QuestionTool)
   // Knowledge Skill 加载器（s05: Layer 2 按需加载）
   registry.register(LoadSkillTool)
+  // Knowledge Skill 创建器（CC 兼容，支持 hooks/emits）
+  registry.register(CreateSkillTool)
+  // 事件发射工具（CC 事件总线兼容）
+  registry.register(EmitEventTool)
   // 上下文压缩工具（s06: Layer 3 LLM 主动触发）
   registry.register(CompactTool)
   // 持久记忆工具（跨会话记忆）
@@ -480,18 +488,50 @@ function registerBuiltinTools(registry: ToolRegistry): void {
 function initKnowledgeSkillDirs(cwd: string): void {
   const projectDir = path.join(cwd, ".naughty", "skills")
   const globalDir = path.join(homedir(), ".naughtyagent", "skills")
+  // CC Skills 兼容：加载 ~/.claude/skills/ 目录（最低优先级）
+  const ccSkillsDir = path.join(homedir(), ".claude", "skills")
 
   // 项目级先加载（优先级高）
   if (existsSync(projectDir)) {
     initKnowledgeSkills(projectDir)
   }
-  // 全局级追加加载（不覆盖同名 skill）
-  if (existsSync(globalDir)) {
+
+  // 追加加载辅助函数（确保 loader 存在后追加目录）
+  const appendDir = (dir: string) => {
+    if (!existsSync(dir)) return
     const loader = getKnowledgeSkillLoader()
     if (loader) {
-      loader.addDirectory(globalDir)
+      loader.addDirectory(dir)
     } else {
-      initKnowledgeSkills(globalDir)
+      initKnowledgeSkills(dir)
+    }
+  }
+
+  // NA 全局级追加加载（不覆盖同名 skill）
+  appendDir(globalDir)
+  // CC 全局级追加加载（最低优先级，不覆盖同名 skill）
+  appendDir(ccSkillsDir)
+}
+
+/**
+ * 初始化 Skill Hook 注册表
+ * 从 SkillLoader 的 frontmatter hooks 声明 + hook 文件批量注册
+ */
+function initSkillHooks(): void {
+  const registry = initSkillHookRegistry()
+
+  // 从 frontmatter 声明注册
+  registry.registerFromSkillLoader()
+
+  // 从各 skill 目录的 hooks/ 子目录注册
+  const loader = getKnowledgeSkillLoader()
+  if (loader) {
+    for (const name of loader.listNames()) {
+      const skill = loader.getSkill(name)
+      if (skill) {
+        const skillDir = path.dirname(skill.path)
+        registry.registerFromHookFiles(skillDir, name)
+      }
     }
   }
 }

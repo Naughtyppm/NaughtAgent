@@ -983,6 +983,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       border-color: var(--accent);
       background: var(--code-bg);
     }
+    .question-option-primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: var(--accent-fg);
+      font-weight: 700;
+    }
+    .question-option-primary:hover {
+      opacity: 0.9;
+    }
+    .question-option-selected {
+      border-color: var(--accent);
+      background: var(--code-bg);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
     .question-free-input {
       display: flex;
       gap: 6px;

@@ -280,7 +280,22 @@ export function buildSystemPrompt(
 
     const skillLoader = getKnowledgeSkillLoader()
     if (skillLoader && skillLoader.size > 0) {
-      dynamicParts.push(`\nSkills available (use load_skill to access):\n${skillLoader.getDescriptions()}`)
+      dynamicParts.push(`\nSkills available (use load_skill to access, create_skill to create):\n${skillLoader.getDescriptions()}`)
+
+      // 事件总线：注入 hooks/emits 声明（CC 兼容）
+      const hooksDesc = skillLoader.getHooksDescriptions()
+      const emitsDesc = skillLoader.getEmitsDescriptions()
+      if (hooksDesc || emitsDesc) {
+        let eventBusSection = "\n## Event Bus (Skills auto-trigger)\n"
+        eventBusSection += "Skills declare event subscriptions. When you detect a matching condition, load and execute the subscriber skill.\n"
+        if (hooksDesc) {
+          eventBusSection += "\nEvent subscribers (hooks):\n" + hooksDesc
+        }
+        if (emitsDesc) {
+          eventBusSection += "\nEvent emitters:\n" + emitsDesc
+        }
+        dynamicParts.push(eventBusSection)
+      }
     }
 
     if (definition.tools.length > 0) {
