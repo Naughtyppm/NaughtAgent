@@ -130,9 +130,9 @@ export const DEFAULT_OPTIMIZATION_CONFIG: OptimizationConfig = {
   },
   truncation: {
     enabled: true,
-    maxLength: 10000,
-    headLength: 4000,
-    tailLength: 2000,
+    maxLength: 30000,
+    headLength: 12000,
+    tailLength: 8000,
   },
   contentCache: {
     enabled: true,

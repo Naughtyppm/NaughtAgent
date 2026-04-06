@@ -17,7 +17,7 @@ Usage:
 
 const DEFAULT_MAX_RESULTS = GREP_MAX_MATCHES
 const MAX_FILE_SIZE = 1024 * 1024 // 1MB
-const MAX_LINE_LENGTH = 500
+const MAX_LINE_LENGTH = 1000
 
 const DEFAULT_IGNORES = [
   "**/node_modules/**",

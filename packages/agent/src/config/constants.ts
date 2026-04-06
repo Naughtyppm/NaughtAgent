@@ -83,10 +83,10 @@ export const COMPACT_MEMORY_INPUT_LIMIT = 40_000
 /** Bash 工具最大输出字节 */
 export const BASH_MAX_OUTPUT_LENGTH = 100_000
 /** Read 工具单行最大字符 */
-export const READ_MAX_LINE_LENGTH = 2_000
+export const READ_MAX_LINE_LENGTH = 5_000
 /** Write 工具单次最大行数 */
-export const WRITE_MAX_LINES = 80
+export const WRITE_MAX_LINES = 150
 /** Glob 最大结果数 */
 export const GLOB_MAX_RESULTS = 500
 /** Grep 最大匹配数 */
-export const GREP_MAX_MATCHES = 100
+export const GREP_MAX_MATCHES = 200
