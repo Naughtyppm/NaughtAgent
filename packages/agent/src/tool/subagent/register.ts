@@ -64,10 +64,13 @@ export function registerSubagentTools(config: SubagentToolsConfig): void {
   }
 
   // 配置 Task 工具运行时
+  // 注意：agentRuntime 是引用，sessionId 会在 runner.run() 时动态设置
+  // 所以这里传递 agentRuntime 引用而不是静态复制
   setTaskRuntime({
     provider: config.provider,
     apiKey: config.agentRuntime.apiKey,
     baseURL: config.agentRuntime.baseURL,
+    get sessionId() { return config.agentRuntime.sessionId },
   })
 
   // 使用传入的注册表实例

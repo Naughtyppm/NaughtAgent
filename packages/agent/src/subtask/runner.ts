@@ -32,6 +32,8 @@ export interface SubTaskRuntime {
   apiKey?: string
   /** API Base URL */
   baseURL?: string
+  /** 父会话 ID（确保 copilot-api 计费归属同一 interaction） */
+  sessionId?: string
   /** 父会话上下文（fork_agent 模式需要） */
   parentContext?: ParentContext
 }
@@ -104,6 +106,7 @@ export async function runSubTask(
       const agentRuntime: RunAgentRuntime = {
         apiKey: runtime.apiKey,
         baseURL: runtime.baseURL,
+        sessionId: runtime.sessionId,
       }
       return runRunAgent(config as RunAgentConfig, agentRuntime)
 
@@ -121,6 +124,7 @@ export async function runSubTask(
         parentContext: runtime.parentContext,
         apiKey: runtime.apiKey,
         baseURL: runtime.baseURL,
+        sessionId: runtime.sessionId,
       }
       return runForkAgent(config as ForkAgentConfig, forkRuntime)
 

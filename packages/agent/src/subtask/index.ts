@@ -85,6 +85,8 @@ export {
 export {
   setGlobalSubAgentEventListener,
   getGlobalSubAgentEventListener,
+  addGlobalSubAgentEventListener,
+  removeGlobalSubAgentEventListener,
 } from "./global-listener"
 
 // ============================================================================
