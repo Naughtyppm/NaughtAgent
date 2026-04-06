@@ -242,17 +242,42 @@ export class SkillLoader {
 
   /**
    * Layer 1: 给 system prompt 用的摘要（每个 skill 一行）
+   *
+   * CC-style token 预算管理：3 阶段截断
+   * Phase 1: 完整描述
+   * Phase 2: 截断描述（前 MAX_DESC_CHARS 字符）
+   * Phase 3: 仅名称（超预算时最后手段）
    */
-  getDescriptions(): string {
+  getDescriptions(maxChars?: number): string {
     if (this.skills.size === 0) return "(no skills available)"
 
-    const lines: string[] = []
+    const MAX_DESC_CHARS = 250 // 单个 skill 描述最大字符数
+    const budget = maxChars || 8000 // 默认 ~1% context window
+
+    // Phase 1: 尝试完整描述
+    const fullLines: string[] = []
     for (const [name, skill] of this.skills) {
-      let line = `  - ${name}: ${skill.meta.description}`
+      let line = `  - **${name}**: ${skill.meta.description}`
       if (skill.meta.tags) line += ` [${skill.meta.tags}]`
-      lines.push(line)
+      fullLines.push(line)
     }
-    return lines.join("\n")
+    const fullText = fullLines.join("\n")
+    if (fullText.length <= budget) return fullText
+
+    // Phase 2: 截断过长描述
+    const truncLines: string[] = []
+    for (const [name, skill] of this.skills) {
+      const desc = skill.meta.description.length > MAX_DESC_CHARS
+        ? skill.meta.description.slice(0, MAX_DESC_CHARS) + "..."
+        : skill.meta.description
+      truncLines.push(`  - **${name}**: ${desc}`)
+    }
+    const truncText = truncLines.join("\n")
+    if (truncText.length <= budget) return truncText
+
+    // Phase 3: 仅名称
+    const names = Array.from(this.skills.keys())
+    return `  ${names.join(", ")} (${names.length} skills — use load_skill to see details)`
   }
 
   /**

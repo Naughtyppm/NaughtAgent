@@ -281,15 +281,27 @@ export function buildSystemPrompt(
     const skillLoader = getKnowledgeSkillLoader()
     if (skillLoader && skillLoader.size > 0) {
       let skillSection = "\n## Skills\n\n"
-      skillSection += "**Skills-First Principle**: Before starting a complex task, check if a relevant skill exists. " +
-        "Use `load_skill` to load its full instructions, then **follow its workflow strictly** — don't just glance at the format.\n\n"
-      skillSection += "**When to check skills**:\n" +
-        "- Creating files/code in a specialized domain → check for domain skill\n" +
-        "- Writing long output (>100 lines) → load `long-output` if available\n" +
-        "- Debugging/fixing errors → load `experience-distiller` if available\n" +
-        "- Creating a new skill → load `skill-creator` first and follow its full flow\n\n"
-      skillSection += "Available skills (use `load_skill` to access, `create_skill` to create):\n"
-      skillSection += skillLoader.getDescriptions()
+
+      // CC-style BLOCKING REQUIREMENT — 强制触发，不是建议
+      skillSection += "**BLOCKING REQUIREMENT**: When you identify that a task matches a skill's description below, " +
+        "you MUST invoke `load_skill` for that skill BEFORE generating any other response about the task. " +
+        "After loading, follow the skill's workflow STRICTLY — do not paraphrase or skip steps.\n\n"
+
+      skillSection += "**Skill matching rules** (check EVERY task against this list):\n"
+      skillSection += "1. Read the task → scan the skill list below for a match\n"
+      skillSection += "2. If a skill matches → `load_skill(name)` FIRST, then follow its instructions\n"
+      skillSection += "3. If no skill matches → proceed normally\n"
+      skillSection += "4. If multiple skills match → load the most specific one first\n\n"
+
+      skillSection += "**Common triggers** (non-exhaustive):\n"
+      skillSection += "- Long output (>100 lines) → `long-output`\n"
+      skillSection += "- Post-debugging insights → `experience-distiller`\n"
+      skillSection += "- Creating a new skill → `skill-creator`\n"
+      skillSection += "- Specialized domain work → check domain-specific skills\n\n"
+
+      // Token-budgeted skill listing
+      skillSection += "Available skills:\n"
+      skillSection += skillLoader.getDescriptions(context?.maxSkillListingChars)
       dynamicParts.push(skillSection)
 
       // 事件总线：注入 hooks/emits 声明（CC 兼容）
@@ -425,6 +437,8 @@ export interface SystemPromptContext {
   additional?: string
   /** 当前模型名（如 claude-opus-4, claude-sonnet-4）*/
   model?: string
+  /** Skills 列表的最大字符预算（默认 8000，约 1% context window）*/
+  maxSkillListingChars?: number
 }
 
 /**
