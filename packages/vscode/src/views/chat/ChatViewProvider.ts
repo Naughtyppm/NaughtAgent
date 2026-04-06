@@ -749,6 +749,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       height: 100vh;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
     .header {
       padding: 10px 12px;
@@ -756,6 +757,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       font-weight: 600;
       background: linear-gradient(135deg, var(--panel) 0%, rgba(30,40,80,0.6) 100%);
       backdrop-filter: blur(4px);
+      flex-shrink: 0;
     }
     .subheader {
       padding: 6px 12px;
@@ -763,9 +765,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       color: var(--muted);
       font-size: 12px;
       background: rgba(10,14,26,0.5);
+      flex-shrink: 0;
     }
     .messages {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       padding: 12px;
       display: flex;
@@ -863,6 +867,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       display: flex;
       flex-direction: column;
       gap: 8px;
+      flex-shrink: 0;
     }
     textarea {
       width: 100%;
@@ -1033,6 +1038,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       padding: 8px 12px;
       background: var(--panel);
       font-size: 12px;
+      flex-shrink: 0;
     }
     .todo-panel-header {
       color: var(--muted);
@@ -1148,22 +1154,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .tool-file-link:hover { opacity: 0.8; background: rgba(60,80,160,0.25); }
     .typing-cursor::after { content: '▮'; color: var(--accent); animation: blink-cursor 1s step-end infinite; }
     @keyframes blink-cursor { 50% { opacity: 0; } }
-    @keyframes twinkle { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
-    body::before {
-      content: '';
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      pointer-events: none;
-      z-index: 0;
-      background-image:
-        radial-gradient(1px 1px at 12% 45%, var(--star-1) 0.5px, transparent 1px),
-        radial-gradient(1px 1px at 62% 18%, var(--star-2) 0.5px, transparent 1px),
-        radial-gradient(1px 1px at 88% 72%, var(--star-3) 0.5px, transparent 1px),
-        radial-gradient(1px 1px at 32% 85%, var(--star-1) 0.3px, transparent 1px),
-        radial-gradient(1px 1px at 48% 62%, var(--star-2) 0.3px, transparent 1px);
-      animation: twinkle 4s ease-in-out infinite;
-    }
-    body > * { position: relative; z-index: 1; }
+    @keyframes twinkle { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
     .popup-panel {
       position: absolute; bottom: 100%; left: 10px; right: 10px; background: var(--panel);
       border: 1px solid var(--line); border-radius: 6px; max-height: 220px; overflow-y: auto;

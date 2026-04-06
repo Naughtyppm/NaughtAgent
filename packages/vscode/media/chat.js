@@ -28,6 +28,13 @@
   var inputHistory = [], inputHistoryIndex = -1, prevMessageCount = 0;
   var attachments = [];
   var popupActive = false, popupItems = [], popupSelectedIdx = 0, popupType = '';
+  var userScrolledUp = false;
+
+  // ── Auto-scroll: detect when user scrolls away from bottom ──
+  messagesEl.addEventListener('scroll', function() {
+    var atBottom = messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 60;
+    userScrolledUp = !atBottom;
+  });
 
   // ── Helpers ──
   function escapeHtml(t) {
@@ -221,7 +228,7 @@
   // ── Main render ──
   function render() {
     var msgs = state.messages;
-    var shouldScroll = messagesEl.scrollTop+messagesEl.clientHeight >= messagesEl.scrollHeight-30;
+    var shouldScroll = !userScrolledUp;
     if (msgs.length === 0) {
       messagesEl.innerHTML = '<div class="empty">开始你的第一条消息</div>';
       prevMessageCount = 0;
