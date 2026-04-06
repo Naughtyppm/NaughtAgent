@@ -378,7 +378,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const prompt = await this.buildPrompt(trimmed);
       this.log(`prompt prepared len=${prompt.length}`);
 
-      const runState: { thinkingMessage?: ChatMessage; activeTextMessage?: ChatMessage; hadToolSinceText?: boolean } = {};
+      const runState: { thinkingMessage?: ChatMessage; activeTextMessage?: ChatMessage } = {};
 
       // 注册消息处理器 — 不在 done 后立即 unsubscribe
       // 因为 question_request 可能在 done 之后才到达（WS 消息顺序不保证）
@@ -501,29 +501,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private async handleAgentMessage(
     event: AgentMessage,
     assistantMessage: ChatMessage,
-    runState: { thinkingMessage?: ChatMessage; activeTextMessage?: ChatMessage; hadToolSinceText?: boolean }
+    runState: { thinkingMessage?: ChatMessage; activeTextMessage?: ChatMessage }
   ): Promise<void> {
     switch (event.type) {
       case 'text':
       case 'text_delta':
-        // 如果工具执行后有新文本，创建新的 assistant message 放在底部
-        // 或者如果原始 assistantMessage 仍为空且已有 thinking/tool 消息在其后面
-        // 则也创建新消息（避免文本被插入到思考/工具块上方不可见的位置）
-        if (runState.hadToolSinceText ||
-            (!runState.activeTextMessage && !assistantMessage.content && this.messages.length > this.messages.indexOf(assistantMessage) + 1)) {
-          const newMsg: ChatMessage = {
-            role: 'assistant',
-            content: '',
-            timestamp: Date.now(),
-          };
-          this.messages.push(newMsg);
-          runState.activeTextMessage = newMsg;
-          runState.hadToolSinceText = false;
-          runState.thinkingMessage = undefined; // 重置 thinking 状态
+        {
+          // 确定当前文本目标消息
+          const currentTarget = runState.activeTextMessage || assistantMessage;
+          const targetIdx = this.messages.indexOf(currentTarget);
+          // 如果目标消息不在列表末尾（后面有 thinking/tool/question 等），
+          // 则在底部创建新消息，确保文本紧跟最新内容，用户能看到
+          if (targetIdx !== -1 && targetIdx < this.messages.length - 1) {
+            const newMsg: ChatMessage = {
+              role: 'assistant',
+              content: '',
+              timestamp: Date.now(),
+            };
+            this.messages.push(newMsg);
+            runState.activeTextMessage = newMsg;
+            runState.thinkingMessage = undefined;
+          }
+          const target = runState.activeTextMessage || assistantMessage;
+          target.content += event.content || '';
+          this.postState();
         }
-        const target = runState.activeTextMessage || assistantMessage;
-        target.content += event.content || '';
-        this.postState();
         break;
       case 'thinking':
         if (!runState.thinkingMessage) {
@@ -546,7 +548,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case 'tool_start':
         {
-          runState.hadToolSinceText = true;
           const inputSummary = this.summarizeUnknown(event.input, 180);
           const toolMsg: ChatMessage = {
             role: 'system',
