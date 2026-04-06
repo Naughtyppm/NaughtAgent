@@ -52,6 +52,8 @@ export interface AgentLoopConfig {
   onReactiveCompact?: (session: Session) => Promise<boolean>
   /** 持久模式：LLM 回复完后等待用户输入，而非退出 loop。返回 null 或 "/quit" 退出 */
   waitForInput?: () => Promise<string | null>
+  /** 工具流式输出回调（side-channel，不走 generator yield） */
+  onToolOutputStream?: (id: string, chunk: string) => void
 }
 
 // ─── 工具定义转换 ─────────────────────────────────────
@@ -263,6 +265,7 @@ Call parallel_agents with all tasks as concurrent agents. This is a hard require
                   sharedContextId: config.sharedContextId,
                   permissionChecker: config.permissionChecker,
                   meta: config.toolMeta,
+                  ...(config.onToolOutputStream ? { onOutputChunk: (chunk: string) => config.onToolOutputStream!(event.id, chunk) } : {}),
                 }
                 earlyExecutions.set(event.id, registry.execute(event.name, event.args, earlyCtx).catch(err => ({
                   title: event.name,
@@ -397,7 +400,7 @@ Call parallel_agents with all tasks as concurrent agents. This is a hard require
 
       // ─── 执行工具 ───
       const toolResults: ContentBlock[] = []
-      const ctx: ExecutionContext = {
+      const baseCtx: ExecutionContext = {
         sessionID: runConfig.sessionId,
         cwd: runConfig.cwd,
         abort: abortController.signal,
@@ -406,6 +409,12 @@ Call parallel_agents with all tasks as concurrent agents. This is a hard require
         permissionChecker: config.permissionChecker,
         meta: config.toolMeta,
       }
+
+      /** 为特定工具调用创建带流式回调的 ctx */
+      const ctxForTool = (toolId: string): ExecutionContext =>
+        config.onToolOutputStream
+          ? { ...baseCtx, onOutputChunk: (chunk: string) => config.onToolOutputStream!(toolId, chunk) }
+          : baseCtx
 
       // 工具调用后处理（截断、重复检测、错误追踪）
       const postProcess = (toolCall: { id: string; name: string; args: unknown }, result: { output: string; isError?: boolean; title: string; metadata?: Record<string, unknown> }) => {
@@ -500,7 +509,7 @@ Call parallel_agents with all tasks as concurrent agents. This is a hard require
             if (early) return early
             // 未提前启动的，现在启动
             try {
-              return await registry.execute(tc.name, tc.args, ctx)
+              return await registry.execute(tc.name, tc.args, ctxForTool(tc.id))
             } catch (err) {
               return {
                 title: tc.name,
@@ -532,7 +541,7 @@ Call parallel_agents with all tasks as concurrent agents. This is a hard require
 
         let result: { output: string; isError?: boolean; title: string; metadata?: Record<string, unknown> }
         try {
-          result = await registry.execute(toolCall.name, toolCall.args, ctx)
+          result = await registry.execute(toolCall.name, toolCall.args, ctxForTool(toolCall.id))
         } catch (err) {
           result = {
             title: toolCall.name,

@@ -195,6 +195,15 @@ export interface ThinkingEndEvent {
 }
 
 /**
+ * 流式事件 - 工具输出流（实时中间输出）
+ */
+export interface ToolOutputStreamEvent {
+  type: "tool_output_stream"
+  id: string
+  chunk: string
+}
+
+/**
  * 流式事件联合类型
  */
 export type StreamEvent =
@@ -202,6 +211,7 @@ export type StreamEvent =
   | TextDeltaEvent
   | ToolStartEvent
   | ToolEndEvent
+  | ToolOutputStreamEvent
   | ErrorEvent
   | DoneEvent
   | PermissionRequestEvent

@@ -187,11 +187,15 @@ export const BashTool = Tool.define({
 
       // 收集输出
       proc.stdout?.on("data", (chunk) => {
-        output += chunk.toString()
+        const text = chunk.toString()
+        output += text
+        ctx.onOutputChunk?.(text)
       })
 
       proc.stderr?.on("data", (chunk) => {
-        output += chunk.toString()
+        const text = chunk.toString()
+        output += text
+        ctx.onOutputChunk?.(text)
       })
 
       proc.on("close", (code) => {

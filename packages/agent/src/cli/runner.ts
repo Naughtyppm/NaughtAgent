@@ -102,6 +102,8 @@ export interface RunnerEventHandlers {
   onThinkingEnd?: () => void
   onToolStart?: (id: string, name: string, input: unknown) => void
   onToolEnd?: (id: string, output: string, isError?: boolean) => void
+  /** 工具流式输出（side-channel，不经过 generator） */
+  onToolOutputStream?: (id: string, chunk: string) => void
   onError?: (error: Error) => void
   onDone?: (usage: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number }) => void
   onPermissionRequest?: (request: { type: string; resource: string; description?: string }) => void
@@ -392,6 +394,7 @@ export function createRunner(config: RunnerConfig) {
         },
         toolMeta,
         backgroundNotifications: config.backgroundNotifications,
+        onToolOutputStream: handlers.onToolOutputStream,
       })
 
       try {

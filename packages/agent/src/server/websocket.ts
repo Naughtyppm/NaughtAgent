@@ -638,6 +638,11 @@ class WebSocketConnection {
         this.send(msg)
         this.callbacks.broadcast(currentSessionId, msg)
       },
+      onToolOutputStream: (id, chunk) => {
+        const msg: WSServerMessage = { type: "tool_output_stream", id, chunk }
+        this.send(msg)
+        this.callbacks.broadcast(currentSessionId, msg)
+      },
       onDone: (usage) => {
         // 发增量 usage（扣除已通过 await_input 报告的部分）
         const deltaUsage = {

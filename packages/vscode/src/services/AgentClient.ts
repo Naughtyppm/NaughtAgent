@@ -22,6 +22,7 @@ export interface AgentMessage {
     | 'thinking_end'
     | 'tool_start'
     | 'tool_end'
+    | 'tool_output_stream'
     | 'permission_request'
     | 'question_request'
     | 'snapshot_request'
@@ -44,6 +45,7 @@ export interface AgentMessage {
   message?: string;  // error message
   usage?: { inputTokens: number; outputTokens: number };
   delta?: string;
+  chunk?: string;  // tool_output_stream chunk
   questionType?: string;
   options?: Array<{ value: string; label: string; description?: string }>;
   default?: unknown;

@@ -139,6 +139,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'tool_end':
         this.log(`tool_end: ${event.name || event.id || 'unknown'} ${event.isError ? '❌' : '✅'} output=${this.summarizeUnknown(event.output || '', 100)}`);
         break;
+      case 'tool_output_stream':
+        // 不对每个 chunk 都 log（太频繁），只在 debug 时有意义
+        break;
       case 'error':
         this.log(`error: ${event.message || event.content || 'unknown error'}`);
         break;
@@ -637,6 +640,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
               timestamp: Date.now(),
               kind: 'tool',
             });
+          }
+        }
+        this.postState();
+        break;
+      case 'tool_output_stream':
+        {
+          const msgIdx = event.id ? this.activeTools.get(event.id) : undefined;
+          if (msgIdx !== undefined && msgIdx < this.messages.length) {
+            const existing = this.messages[msgIdx];
+            // 首次收到流式输出时，添加 "输出:" 前缀
+            if (!existing.content.includes('\n输出:')) {
+              existing.content += `\n输出: ${event.chunk || ''}`;
+            } else {
+              existing.content += event.chunk || '';
+            }
+            // 截断过长的流式输出（防止 UI 爆掉）
+            const maxStreamLen = 3000;
+            const outputStart = existing.content.indexOf('\n输出:');
+            if (outputStart >= 0 && existing.content.length - outputStart > maxStreamLen) {
+              existing.content = existing.content.substring(0, outputStart + maxStreamLen) + '\n... (输出截断)';
+            }
           }
         }
         this.postState();

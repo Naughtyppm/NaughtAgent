@@ -107,6 +107,8 @@ export namespace Tool {
     sharedContextId?: string
     /** 扩展元数据（工具可按需使用） */
     meta?: Record<string, unknown>
+    /** 流式输出回调：工具执行期间发送中间输出 chunk */
+    onOutputChunk?: (chunk: string) => void
   }
 
   /**
