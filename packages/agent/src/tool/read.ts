@@ -3,6 +3,7 @@ import * as path from "path"
 import { z } from "zod"
 import { Tool } from "./tool"
 import { resolvePath } from "./safe-path"
+import { isBinaryFile } from "./file-utils"
 import { READ_MAX_LINE_LENGTH } from "../config"
 import { checkFileAccessBudget } from "./file-access-budget"
 
@@ -71,43 +72,7 @@ export function resetReadCacheCount(_sessionId?: string): void {
   }
 }
 
-/**
- * 检测是否为二进制文件
- */
-async function isBinaryFile(filePath: string): Promise<boolean> {
-  const ext = path.extname(filePath).toLowerCase()
-  const binaryExtensions = [
-    ".zip", ".tar", ".gz", ".exe", ".dll", ".so",
-    ".class", ".jar", ".7z", ".bin", ".dat",
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-    ".mp3", ".mp4", ".avi", ".mov", ".wav",
-  ]
-  if (binaryExtensions.includes(ext)) {
-    return true
-  }
-
-  // 读取前 4KB 检测
-  const handle = await fs.open(filePath, "r")
-  try {
-    const buffer = Buffer.alloc(4096)
-    const { bytesRead } = await handle.read(buffer, 0, 4096, 0)
-    if (bytesRead === 0) return false
-
-    // 检测 NULL 字节或高比例非打印字符
-    let nonPrintable = 0
-    for (let i = 0; i < bytesRead; i++) {
-      const byte = buffer[i]
-      if (byte === 0) return true
-      if (byte < 9 || (byte > 13 && byte < 32)) {
-        nonPrintable++
-      }
-    }
-    return nonPrintable / bytesRead > 0.3
-  } finally {
-    await handle.close()
-  }
-}
+// isBinaryFile 来自 file-utils.ts
 
 export const ReadTool = Tool.define({
   id: "read",

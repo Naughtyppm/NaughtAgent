@@ -4,6 +4,7 @@ import fg from "fast-glob"
 import { z } from "zod"
 import { Tool } from "./tool"
 import { resolvePath } from "./safe-path"
+import { isBinaryFile } from "./file-utils"
 import { GREP_MAX_MATCHES } from "../config"
 import { checkFileAccessBudget } from "./file-access-budget"
 
@@ -81,41 +82,7 @@ interface Match {
   isContext?: boolean
 }
 
-/**
- * 检测是否为二进制文件（简单检测）
- */
-async function isBinaryFile(filePath: string): Promise<boolean> {
-  const ext = path.extname(filePath).toLowerCase()
-  const binaryExtensions = [
-    ".zip", ".tar", ".gz", ".exe", ".dll", ".so",
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico",
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-    ".mp3", ".mp4", ".avi", ".mov", ".wav",
-    ".bin", ".dat", ".class", ".jar", ".7z",
-  ]
-  if (binaryExtensions.includes(ext)) {
-    return true
-  }
-
-  // 读取前 512 字节检测
-  try {
-    const handle = await fs.open(filePath, "r")
-    try {
-      const buffer = Buffer.alloc(512)
-      const { bytesRead } = await handle.read(buffer, 0, 512, 0)
-      if (bytesRead === 0) return false
-
-      for (let i = 0; i < bytesRead; i++) {
-        if (buffer[i] === 0) return true
-      }
-      return false
-    } finally {
-      await handle.close()
-    }
-  } catch {
-    return false
-  }
-}
+// isBinaryFile 来自 file-utils.ts
 
 /**
  * 搜索单个文件

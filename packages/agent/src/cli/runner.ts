@@ -316,7 +316,8 @@ export function createRunner(config: RunnerConfig) {
       }
 
       // toolMeta 对象（PlanMode 工具会修改 meta.planMode）
-      const toolMeta: Record<string, unknown> = { session, summarizer, mcpManager }
+      // compact 工具通过 meta 获取 autoCompact/estimateTokens，避免 tool→agent 直接依赖
+      const toolMeta: Record<string, unknown> = { session, summarizer, mcpManager, autoCompact, estimateTokens }
 
       // 计划模式写入拦截（包装 permissionChecker）
       const PLAN_MODE_BLOCKED_TOOLS = new Set(["write", "edit", "append", "bash", "notebook_edit"])
