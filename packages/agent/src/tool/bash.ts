@@ -55,10 +55,10 @@ function isFileReadCommand(command: string): boolean {
  */
 function getShell(): { shell: string; args: string[] } {
   if (process.platform === "win32") {
-    // Windows: 优先使用 PowerShell
+    // Windows: 优先使用 PowerShell，强制 UTF-8 输出编码
     return {
       shell: "powershell.exe",
-      args: ["-NoProfile", "-Command"],
+      args: ["-NoProfile", "-Command", "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"],
     }
   }
   // Unix: 使用 bash 或 sh
