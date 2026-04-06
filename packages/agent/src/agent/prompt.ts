@@ -389,7 +389,7 @@ const TOOL_GUIDE: Record<string, { desc: string; when: string; avoid?: string }>
   append:  { desc: "追加内容到文件末尾", when: "添加日志/配置项" },
   bash:    { desc: "执行 shell 命令", when: "git/npm/build 等系统命令", avoid: "禁止用于读写文件（用 read/edit/write 代替）" },
   glob:    { desc: "按模式搜索文件名", when: "找文件（替代 find/ls）", avoid: "勿用 bash find/ls 搜索文件" },
-  grep:    { desc: "搜索文件内容", when: "搜索代码/关键词（替代 grep/rg）", avoid: "勿用 bash grep/rg 搜索内容" },
+  grep:    { desc: "搜索文件内容（支持分页续取）", when: "搜索代码/关键词。结果超限时返回 searchId，用 grep(searchId=xxx, offset=N) 续取后续页", avoid: "勿用 bash grep/rg" },
   // 交互
   todo:      { desc: "任务跟踪清单", when: "多步任务时记录进度（同时只有 1 个 in_progress）" },
   question:  { desc: "向用户提问", when: "需要确认或选择时" },
