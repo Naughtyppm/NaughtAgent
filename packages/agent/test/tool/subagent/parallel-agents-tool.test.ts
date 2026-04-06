@@ -132,7 +132,7 @@ describe("ParallelAgentsTool", () => {
         output: "task done",
         usage: { inputTokens: 100, outputTokens: 50 },
         duration: 500,
-        steps: [{ toolId: "read", input: {}, output: "ok" }],
+        steps: [{ name: "read", type: "tool" as const, input: {}, output: "ok", duration: 50, success: true }],
       })
 
       const result = await ParallelAgentsTool.execute(
