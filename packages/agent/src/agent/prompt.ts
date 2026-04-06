@@ -49,7 +49,7 @@ Do NOT use \`bash\` to run commands when a dedicated tool exists. Using dedicate
 You can call multiple tools in a single response. If they are independent, make all calls in parallel. If some depend on previous results, call them sequentially.
 
 Do NOT use sub-agent tools for tasks you can do yourself. Only use sub-agents for genuinely parallel independent work.
-When user explicitly requests parallel execution (e.g., "同时", "并行", "Agent Team"), ALWAYS use parallel_agents instead of sequential run_agent calls.
+IMPORTANT: When user's message contains keywords like "同时", "并行", "一起", "Agent Team", or lists multiple independent analysis/review tasks (e.g., "分析这三件事", "同时检查A、B、C"), you MUST use parallel_agents to run them concurrently. Do NOT create individual todo items and use sequential run_agent calls — that defeats the purpose of parallelism.
 
 When working with tool results, write down any important information you might need later, as the original tool result may be cleared from context later.
 
@@ -399,8 +399,8 @@ const TOOL_GUIDE: Record<string, { desc: string; when: string; avoid?: string }>
   load_skill: { desc: "加载 Skill 详细内容", when: "需要技能或模板的完整指导时" },
   memory:     { desc: "跨会话持久记忆", when: "保存重要信息（项目偏好、关键决策、调试经验）到磁盘，下次会话自动加载" },
   // 子代理（仅在需要并行独立工作时使用）
-  run_agent:       { desc: "启动子代理执行任务", when: "需要独立并行的子任务", avoid: "能自己做的事别委托子代理" },
-  parallel_agents: { desc: "并行执行多个子代理（同时运行，不串行）", when: "≥2 个独立子任务。用户要求'同时'/'并行'/'agent team' 时必须使用此工具，而不是多次 run_agent" },
+  run_agent:       { desc: "启动子代理执行任务", when: "单个独立子任务需要委托时", avoid: "能自己做的事别委托子代理。有多个独立任务时必须用 parallel_agents，不要多次调用 run_agent" },
+  parallel_agents: { desc: "并行执行多个子代理（同时运行，不串行）", when: "≥2 个独立子任务、用户说'同时'/'并行'/'一起'/'agent team'、或列出多个分析/审查任务时，必须用此工具" },
 }
 
 function buildToolGuide(tools: string[]): string {
