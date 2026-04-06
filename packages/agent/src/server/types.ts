@@ -207,6 +207,32 @@ export type StreamEvent =
   | PermissionRequestEvent
   | ThinkingEvent
   | ThinkingEndEvent
+  | SubAgentStartEvent
+  | SubAgentEndEvent
+
+/**
+ * 子 Agent 开始事件（parallel_agents 子任务进度）
+ */
+export interface SubAgentStartEvent {
+  type: "subagent_start"
+  parentId: string
+  childId: string
+  childName: string
+  prompt?: string
+}
+
+/**
+ * 子 Agent 结束事件
+ */
+export interface SubAgentEndEvent {
+  type: "subagent_end"
+  parentId: string
+  childId: string
+  childName: string
+  success: boolean
+  output?: string
+  error?: string
+}
 
 // ============================================================================
 // WebSocket Types

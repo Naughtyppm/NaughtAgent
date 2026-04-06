@@ -23,6 +23,8 @@ import { createDaemonSessionManager } from "../daemon"
 import type { AgentType } from "../agent"
 import { setInteractionCallbacks } from "../interaction/callbacks"
 import { registerSnapshotRequestor, unregisterSnapshotRequestor } from "../tool/webview-snapshot"
+import { addGlobalSubAgentEventListener } from "../subtask"
+import type { SubAgentEvent } from "../subtask/events"
 
 // ============================================================================
 // Types
@@ -678,12 +680,40 @@ class WebSocketConnection {
       },
     }
 
+    // 注册 SubAgent 事件转发（parallel_agents 子任务进度）
+    const unregisterSubAgent = addGlobalSubAgentEventListener((event: SubAgentEvent) => {
+      if (event.type === "child_start") {
+        const msg: WSServerMessage = {
+          type: "subagent_start",
+          parentId: event.id,
+          childId: event.childId,
+          childName: event.childName,
+          prompt: event.prompt,
+        }
+        this.send(msg)
+        this.callbacks.broadcast(currentSessionId, msg)
+      } else if (event.type === "child_end") {
+        const msg: WSServerMessage = {
+          type: "subagent_end",
+          parentId: event.id,
+          childId: event.childId,
+          childName: event.childName,
+          success: event.success,
+          output: event.output ? event.output.slice(0, 500) : undefined,
+          error: event.error,
+        }
+        this.send(msg)
+        this.callbacks.broadcast(currentSessionId, msg)
+      }
+    })
+
     try {
       await runner.run(message, handlers, { attachments })
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Unknown error"
       this.send({ type: "error", message: msg })
     } finally {
+      unregisterSubAgent()
       this.isRunning = false
       this.pendingInputResolver = null
     }

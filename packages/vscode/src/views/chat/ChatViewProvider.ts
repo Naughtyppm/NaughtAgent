@@ -149,6 +149,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'question_request':
         this.log(`question_request: type=${event.questionType} msg="${(event.message || '').substring(0, 80)}"`);
         break;
+      case 'subagent_start':
+        this.log(`subagent_start: [${event.childName}] id=${event.childId}`);
+        break;
+      case 'subagent_end':
+        this.log(`subagent_end: [${event.childName}] ${event.success ? '✅' : '❌'} ${event.error || ''}`);
+        break;
       case 'pong':
         break; // 静默
       default:
@@ -628,6 +634,40 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             this.messages.push({
               role: 'system',
               content: `🛠️ 工具结束: ${event.id || 'unknown'}${event.isError ? ' ❌' : ' ✅'}${outputSummary ? `\n输出: ${outputSummary}` : ''}`,
+              timestamp: Date.now(),
+              kind: 'tool',
+            });
+          }
+        }
+        this.postState();
+        break;
+      case 'subagent_start':
+        {
+          const agentMsg: ChatMessage = {
+            role: 'system',
+            content: `⚡ 子Agent启动: ${event.childName || 'unknown'}`,
+            timestamp: Date.now(),
+            kind: 'tool',
+          };
+          this.messages.push(agentMsg);
+          if (event.childId) {
+            this.activeTools.set(event.childId, this.messages.length - 1);
+          }
+        }
+        this.postState();
+        break;
+      case 'subagent_end':
+        {
+          const msgIdx = event.childId ? this.activeTools.get(event.childId) : undefined;
+          const status = event.success ? ' ✅' : ' ❌';
+          const errorInfo = event.error ? ` (${event.error.slice(0, 100)})` : '';
+          if (msgIdx !== undefined && msgIdx < this.messages.length) {
+            this.messages[msgIdx].content += status + errorInfo;
+            if (event.childId) this.activeTools.delete(event.childId);
+          } else {
+            this.messages.push({
+              role: 'system',
+              content: `⚡ 子Agent结束: ${event.childName || 'unknown'}${status}${errorInfo}`,
               timestamp: Date.now(),
               kind: 'tool',
             });

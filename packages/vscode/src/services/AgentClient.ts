@@ -26,6 +26,8 @@ export interface AgentMessage {
     | 'question_request'
     | 'snapshot_request'
     | 'todo_updated'
+    | 'subagent_start'
+    | 'subagent_end'
     | 'error'
     | 'done'
     | 'pong';
@@ -46,6 +48,13 @@ export interface AgentMessage {
   options?: Array<{ value: string; label: string; description?: string }>;
   default?: unknown;
   todoList?: Array<{ id: string; title: string; status: string }>;
+  // SubAgent 事件字段
+  parentId?: string;
+  childId?: string;
+  childName?: string;
+  prompt?: string;
+  success?: boolean;
+  error?: string;
 }
 
 export interface SendOptions {
