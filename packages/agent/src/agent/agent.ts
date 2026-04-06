@@ -101,8 +101,8 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
       "list_mcp_resources", "read_mcp_resource",
       // Cron 定时任务
       "cron_create", "cron_delete", "cron_list",
-      // 子代理工具（核心 3 原语 + 统一入口）
-      "ask_llm", "run_agent", "fork_agent", "task",
+      // 子代理工具（核心 3 原语 + 统一入口 + 并行）
+      "ask_llm", "run_agent", "fork_agent", "task", "parallel_agents",
       // 团队协作工具（s10 Team Protocols）
       "request_shutdown", "respond_shutdown", "submit_plan", "review_plan", "list_pending_plans",
       // 自主任务工具（s11 Autonomous Agents）

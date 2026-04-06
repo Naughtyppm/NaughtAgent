@@ -104,7 +104,23 @@ export function createAgentLoop(config: AgentLoopConfig) {
       : input
     addMessage(session, "user", content)
 
-    const systemPrompt = buildSystemPrompt(definition, { cwd: runConfig.cwd, model: definition.model?.model })
+    let systemPrompt = buildSystemPrompt(definition, { cwd: runConfig.cwd, model: definition.model?.model })
+
+    // 并行关键词检测：用户消息包含明确并行意图时，注入强制指令
+    const userText = typeof input === "string" ? input : input.map(b => b.type === "text" ? b.text : "").join("")
+    if (/同时|并行|一起|agent\s*team|parallel/i.test(userText)) {
+      systemPrompt = [
+        ...systemPrompt,
+        {
+          type: "text" as const,
+          text: `<CRITICAL_OVERRIDE>
+The user's message contains parallel execution intent. You MUST use the parallel_agents tool for this request.
+Do NOT analyze tasks yourself sequentially. Do NOT create todo items and use run_agent one by one.
+Call parallel_agents with all tasks as concurrent agents. This is a hard requirement.
+</CRITICAL_OVERRIDE>`,
+        },
+      ]
+    }
     const tools = getToolDefinitions(definition.tools, registry, { cwd: runConfig.cwd, depth: config.depth })
     const modelConfig = definition.model || DEFAULT_MODEL
 
