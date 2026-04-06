@@ -248,10 +248,6 @@ export async function runRunWorkflow(
   }
 }
 
-/**
- * @deprecated 使用 runRunWorkflow
- */
-export const runWorkflowTask = runRunWorkflow
 
 /**
  * 执行单个步骤

@@ -49,10 +49,6 @@ export interface RunAgentRuntime {
   toolRegistry?: ToolRegistry
 }
 
-/**
- * @deprecated 使用 RunAgentRuntime
- */
-export type AgentModeRuntime = RunAgentRuntime
 
 /**
  * 执行 run_agent 模式子任务
@@ -335,7 +331,3 @@ export async function runRunAgent(
   }
 }
 
-/**
- * @deprecated 使用 runRunAgent
- */
-export const runAgentTask = runRunAgent

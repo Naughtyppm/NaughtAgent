@@ -96,7 +96,3 @@ export async function runAskLlm(
   }
 }
 
-/**
- * @deprecated 使用 runAskLlm
- */
-export const runAPITask = runAskLlm

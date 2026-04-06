@@ -399,7 +399,6 @@ const TOOL_GUIDE: Record<string, { desc: string; when: string; avoid?: string }>
   memory:     { desc: "跨会话持久记忆", when: "保存重要信息（项目偏好、关键决策、调试经验）到磁盘，下次会话自动加载" },
   // 子代理（仅在需要并行独立工作时使用）
   run_agent:       { desc: "启动子代理执行任务", when: "需要独立并行的子任务", avoid: "能自己做的事别委托子代理" },
-  dispatch_agent:  { desc: "智能路由到专家代理", when: "需要特定领域专家" },
   parallel_agents: { desc: "并行执行多个子代理", when: "≥2 个独立子任务并行" },
 }
 
