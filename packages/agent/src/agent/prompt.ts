@@ -280,7 +280,17 @@ export function buildSystemPrompt(
 
     const skillLoader = getKnowledgeSkillLoader()
     if (skillLoader && skillLoader.size > 0) {
-      dynamicParts.push(`\nSkills available (use load_skill to access, create_skill to create):\n${skillLoader.getDescriptions()}`)
+      let skillSection = "\n## Skills\n\n"
+      skillSection += "**Skills-First Principle**: Before starting a complex task, check if a relevant skill exists. " +
+        "Use `load_skill` to load its full instructions, then **follow its workflow strictly** — don't just glance at the format.\n\n"
+      skillSection += "**When to check skills**:\n" +
+        "- Creating files/code in a specialized domain → check for domain skill\n" +
+        "- Writing long output (>100 lines) → load `long-output` if available\n" +
+        "- Debugging/fixing errors → load `experience-distiller` if available\n" +
+        "- Creating a new skill → load `skill-creator` first and follow its full flow\n\n"
+      skillSection += "Available skills (use `load_skill` to access, `create_skill` to create):\n"
+      skillSection += skillLoader.getDescriptions()
+      dynamicParts.push(skillSection)
 
       // 事件总线：注入 hooks/emits 声明（CC 兼容）
       const hooksDesc = skillLoader.getHooksDescriptions()
