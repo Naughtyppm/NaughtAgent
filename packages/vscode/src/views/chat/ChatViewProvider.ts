@@ -112,6 +112,51 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.output?.appendLine(`[chat] ${message}`);
   }
 
+  private textDeltaCharCount = 0;
+
+  private logEvent(event: AgentMessage): void {
+    switch (event.type) {
+      case 'text_delta':
+        // 降频：每 200 字符打印一次，避免刷屏
+        this.textDeltaCharCount += (event.content || event.delta || '').length;
+        if (this.textDeltaCharCount >= 200) {
+          this.log(`text_delta: +${this.textDeltaCharCount} chars`);
+          this.textDeltaCharCount = 0;
+        }
+        break;
+      case 'text':
+        this.log(`text: "${(event.content || '').substring(0, 80)}${(event.content || '').length > 80 ? '...' : ''}"`);
+        break;
+      case 'thinking':
+        this.log(`thinking: +${(event.content || '').length} chars`);
+        break;
+      case 'thinking_end':
+        this.log('thinking_end');
+        break;
+      case 'tool_start':
+        this.log(`tool_start: ${event.name || 'unknown'} (id=${event.id || '?'}) input=${this.summarizeUnknown(event.input, 100)}`);
+        break;
+      case 'tool_end':
+        this.log(`tool_end: ${event.name || event.id || 'unknown'} ${event.isError ? '❌' : '✅'} output=${this.summarizeUnknown(event.output || '', 100)}`);
+        break;
+      case 'error':
+        this.log(`error: ${event.message || event.content || 'unknown error'}`);
+        break;
+      case 'done':
+        this.log(`done: usage=${JSON.stringify(event.usage || {})}`);
+        this.textDeltaCharCount = 0;
+        break;
+      case 'question_request':
+        this.log(`question_request: type=${event.questionType} msg="${(event.message || '').substring(0, 80)}"`);
+        break;
+      case 'pong':
+        break; // 静默
+      default:
+        this.log(`ws event: ${event.type}`);
+        break;
+    }
+  }
+
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
 
@@ -386,7 +431,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.currentUnsubscribe();
       }
       this.currentUnsubscribe = this.agentClient.onMessage(async (event) => {
-        this.log(`ws event: ${event.type}`);
+        // 有意义的日志，而不是简单的 event.type
+        this.logEvent(event);
         await this.handleAgentMessage(event, assistantMessage, runState);
       });
       try {
