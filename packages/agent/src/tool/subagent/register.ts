@@ -9,6 +9,7 @@ import { AskLlmTool, setAskLlmProvider } from "./ask-llm-tool"
 import { RunAgentTool, setRunAgentRuntime } from "./run-agent-tool"
 import { ForkAgentTool, setForkAgentRuntime, setForkAgentParentContext } from "./fork-agent-tool"
 import { TaskTool, setTaskRuntime } from "../../subtask/task-tool"
+import { ParallelAgentsTool, setParallelAgentsRuntime } from "./parallel-agents-tool"
 import {
   RequestShutdownTool,
   RespondShutdownTool,
@@ -57,6 +58,7 @@ export function registerSubagentTools(config: SubagentToolsConfig): void {
   // 配置 Agent 运行时
   setRunAgentRuntime(config.agentRuntime)
   setForkAgentRuntime(config.agentRuntime)
+  setParallelAgentsRuntime(config.agentRuntime)
 
   // 配置父上下文
   if (config.parentContext) {
@@ -81,6 +83,7 @@ export function registerSubagentTools(config: SubagentToolsConfig): void {
   registry.register(RunAgentTool)
   registry.register(ForkAgentTool)
   registry.register(TaskTool)
+  registry.register(ParallelAgentsTool)
 
   // 协议工具（s10 Team Protocols）
   registry.register(RequestShutdownTool)
@@ -118,6 +121,7 @@ export const SUBAGENT_TOOL_IDS = [
   "run_agent",
   "fork_agent",
   "task",
+  "parallel_agents",
   // 协议工具（s10 Team Protocols）
   "request_shutdown",
   "respond_shutdown",

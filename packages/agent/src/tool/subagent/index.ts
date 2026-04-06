@@ -11,6 +11,7 @@ export { AskLlmTool } from "./ask-llm-tool"
 export { RunAgentTool, setSubAgentEventListener, getSubAgentEventListener } from "./run-agent-tool"
 export { ForkAgentTool } from "./fork-agent-tool"
 export { TaskTool } from "../../subtask/task-tool"
+export { ParallelAgentsTool } from "./parallel-agents-tool"
 export {
   RequestShutdownTool,
   RespondShutdownTool,

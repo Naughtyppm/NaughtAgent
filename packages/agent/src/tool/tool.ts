@@ -28,6 +28,8 @@ export const TOOL_TIMEOUTS: Record<string, number> = {
   ask_llm: 120_000,       // 2 分钟
   run_agent: 600_000,     // 10 分钟
   fork_agent: 600_000,    // 10 分钟
+  task: 600_000,          // 10 分钟（内部可能调 run_agent/fork_agent）
+  parallel_agents: 900_000, // 15 分钟（并行多个子 Agent）
 }
 
 /**
