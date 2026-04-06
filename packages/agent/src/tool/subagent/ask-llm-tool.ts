@@ -44,6 +44,7 @@ export const AskLlmTool = Tool.define({
       return {
         title: "ask_llm",
         output: "Error: SubTask provider not configured. Call setAskLlmProvider first.",
+        isError: true,
         metadata: { error: true },
       }
     }
@@ -97,6 +98,7 @@ export const AskLlmTool = Tool.define({
         return {
           title: "ask_llm",
           output: `Error: ${result.error}`,
+          isError: true,
           metadata: { error: true, duration },
         }
       }
@@ -110,6 +112,7 @@ export const AskLlmTool = Tool.define({
       return {
         title: "ask_llm",
         output: `Error: ${errorMsg}`,
+        isError: true,
         metadata: { error: true },
       }
     }

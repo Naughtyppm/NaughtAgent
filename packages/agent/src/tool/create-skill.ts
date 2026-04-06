@@ -62,6 +62,7 @@ export const CreateSkillTool = Tool.define({
       return {
         title: "create_skill",
         output: "Error: Knowledge skill system not initialized.",
+        isError: true,
       }
     }
 
@@ -70,6 +71,7 @@ export const CreateSkillTool = Tool.define({
       return {
         title: "create_skill",
         output: `Error: Invalid skill name '${params.name}'. Use alphanumeric characters, hyphens, and underscores only (max 64 chars).`,
+        isError: true,
       }
     }
 
@@ -78,6 +80,7 @@ export const CreateSkillTool = Tool.define({
       return {
         title: "create_skill",
         output: `Error: Skill '${params.name}' already exists. Use a different name or update the existing skill manually.`,
+        isError: true,
       }
     }
 

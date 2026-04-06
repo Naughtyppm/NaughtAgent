@@ -37,6 +37,7 @@ This will replace the conversation history with a concise summary.`,
       return {
         title: "compact",
         output: "Error: Compact not available in this context (no session/summarizer/compact functions).",
+        isError: true,
       }
     }
 

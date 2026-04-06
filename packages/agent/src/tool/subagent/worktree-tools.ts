@@ -31,14 +31,14 @@ export const worktreeCreateTool = Tool.define({
   }),
   async execute(params) {
     if (!isGitRepo()) {
-      return { title: "worktree_create", output: "Error: Not in a git repository.", metadata: { error: true } }
+      return { title: "worktree_create", output: "Error: Not in a git repository.", isError: true, metadata: { error: true } }
     }
     try {
       const wt = createWorktree(params.name, params.task_id, params.branch_from)
       return { title: "worktree_create", output: JSON.stringify(wt, null, 2), metadata: { name: wt.name, path: wt.path } }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      return { title: "worktree_create", output: `Error: ${msg}`, metadata: { error: true } }
+      return { title: "worktree_create", output: `Error: ${msg}`, isError: true, metadata: { error: true } }
     }
   },
 })
@@ -60,7 +60,7 @@ export const worktreeRunTool = Tool.define({
       return { title: "worktree_run", output: output || "(no output)", metadata: { name: params.name } }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      return { title: "worktree_run", output: `Error: ${msg}`, metadata: { error: true } }
+      return { title: "worktree_run", output: `Error: ${msg}`, isError: true, metadata: { error: true } }
     }
   },
 })
@@ -82,7 +82,7 @@ export const worktreeCloseoutTool = Tool.define({
       return { title: "worktree_closeout", output: JSON.stringify(wt, null, 2), metadata: { name: params.name, action: params.action } }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
-      return { title: "worktree_closeout", output: `Error: ${msg}`, metadata: { error: true } }
+      return { title: "worktree_closeout", output: `Error: ${msg}`, isError: true, metadata: { error: true } }
     }
   },
 })

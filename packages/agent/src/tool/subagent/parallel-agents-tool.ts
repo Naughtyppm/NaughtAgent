@@ -81,6 +81,7 @@ export const ParallelAgentsTool = Tool.define({
       return {
         title: "parallel_agents",
         output: `Error: 子代理嵌套深度已达上限 (${MAX_SUBAGENT_DEPTH})。当前深度: ${currentDepth}。请使用 question 工具询问用户是否需要调整策略。`,
+        isError: true,
         metadata: { error: true },
       }
     }
@@ -89,6 +90,7 @@ export const ParallelAgentsTool = Tool.define({
       return {
         title: "parallel_agents",
         output: "Error: ParallelAgents runtime not configured.",
+        isError: true,
         metadata: { error: true },
       }
     }
