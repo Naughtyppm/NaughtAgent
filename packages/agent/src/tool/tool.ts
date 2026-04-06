@@ -587,7 +587,8 @@ export namespace Tool {
   export class TimeoutError extends AgentError {
     constructor(toolId: string, timeout: number) {
       super(
-        `Tool '${toolId}' execution timed out after ${timeout}ms`,
+        `Tool '${toolId}' execution timed out after ${timeout}ms. ` +
+        `You should ask the user (via question tool) if they want to retry with a longer timeout or different approach.`,
         ErrorCode.TIMEOUT,
         true,
         { toolId, timeout }

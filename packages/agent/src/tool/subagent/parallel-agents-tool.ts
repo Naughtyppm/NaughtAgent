@@ -80,7 +80,7 @@ export const ParallelAgentsTool = Tool.define({
     if (currentDepth >= MAX_SUBAGENT_DEPTH) {
       return {
         title: "parallel_agents",
-        output: `Error: 子代理嵌套深度已达上限 (${MAX_SUBAGENT_DEPTH})。当前深度: ${currentDepth}。`,
+        output: `Error: 子代理嵌套深度已达上限 (${MAX_SUBAGENT_DEPTH})。当前深度: ${currentDepth}。请使用 question 工具询问用户是否需要调整策略。`,
         metadata: { error: true },
       }
     }
