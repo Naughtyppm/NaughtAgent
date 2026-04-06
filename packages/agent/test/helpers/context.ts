@@ -56,6 +56,7 @@ export function createTestContext(options: Partial<Tool.Context> = {}): Tool.Con
     sessionID: options.sessionID ?? 'test-session',
     cwd: options.cwd ?? process.cwd(),
     abort: options.abort ?? controller.signal,
+    ...( options.meta ? { meta: options.meta } : {} ),
   }
 }
 
