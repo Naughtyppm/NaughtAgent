@@ -51,6 +51,7 @@ import {
  */
 export function createRoutes(config: ServerConfig) {
   const sessions = new Map<string, ActiveSession>()
+  const MAX_ACTIVE_SESSIONS = 50
   const daemonSessions = createDaemonSessionManager()
 
   daemonSessions.initialize().catch((err) => {
@@ -65,6 +66,9 @@ export function createRoutes(config: ServerConfig) {
   })
 
   scheduler.start()
+
+  // 定期淘汰超限内存 session（每 5 分钟检查）
+  const evictInterval = setInterval(evictOldestSessions, 5 * 60 * 1000)
 
   /**
    * 处理请求
@@ -173,6 +177,21 @@ export function createRoutes(config: ServerConfig) {
   }
 
   /**
+   * 淘汰最旧的内存 session（当超过上限时）
+   */
+  function evictOldestSessions(): void {
+    if (sessions.size <= MAX_ACTIVE_SESSIONS) return
+    const sorted = [...sessions.entries()].sort(
+      (a, b) => a[1].createdAt.getTime() - b[1].createdAt.getTime()
+    )
+    const toEvict = sorted.slice(0, sessions.size - MAX_ACTIVE_SESSIONS)
+    for (const [id, session] of toEvict) {
+      session.abortController?.abort()
+      sessions.delete(id)
+    }
+  }
+
+  /**
    * 清理所有会话
    */
   function clearSessions(): void {
@@ -180,6 +199,7 @@ export function createRoutes(config: ServerConfig) {
       session.abortController?.abort()
     }
     sessions.clear()
+    clearInterval(evictInterval)
   }
 
   /**

@@ -72,6 +72,8 @@ export const DEFAULT_TEMPERATURE = 0
 export const DEFAULT_MAX_STEPS = 20000
 /** 连续错误阈值（超过则终止） */
 export const MAX_CONSECUTIVE_ERRORS = 3
+/** 并行意图检测正则（用户消息匹配时自动注入 parallel_agents 指令） */
+export const PARALLEL_INTENT_PATTERN = /同时|并行|一起|agent\s*team|parallel/i
 /** 自动压缩的 token 阈值（参照 CC: ~167K for 200K window，NA 上下文窗口约 200K） */
 export const AUTO_COMPACT_TOKEN_THRESHOLD = 140_000
 /** Compact 摘要 LLM 输入字符上限 */

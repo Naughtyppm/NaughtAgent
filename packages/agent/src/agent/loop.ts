@@ -23,7 +23,7 @@ import {
   type StopReason,
 } from "../session"
 import { convertSessionMessages } from "./message-converter"
-import { DEFAULT_MAX_STEPS, MAX_CONSECUTIVE_ERRORS, MAX_TOKENS_RECOVERY_LIMIT } from "../config"
+import { DEFAULT_MAX_STEPS, MAX_CONSECUTIVE_ERRORS, MAX_TOKENS_RECOVERY_LIMIT, PARALLEL_INTENT_PATTERN } from "../config"
 
 const logger = new Logger('agent-loop')
 
@@ -110,7 +110,7 @@ export function createAgentLoop(config: AgentLoopConfig) {
 
     // 并行关键词检测：用户消息包含明确并行意图时，注入强制指令
     const userText = typeof input === "string" ? input : input.map(b => b.type === "text" ? b.text : "").join("")
-    if (/同时|并行|一起|agent\s*team|parallel/i.test(userText)) {
+    if (PARALLEL_INTENT_PATTERN.test(userText)) {
       systemPrompt = [
         ...systemPrompt,
         {

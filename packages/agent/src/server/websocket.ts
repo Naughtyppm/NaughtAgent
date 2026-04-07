@@ -248,6 +248,7 @@ class WebSocketConnection {
   private cwd: string | null
   private session: ActiveSession | null = null
   private readonly runningSessionIds = new Set<string>() // per-session running state
+  private readonly sessionDoneResolvers = new Map<string, (() => void)[]>() // notify when session finishes
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null
   private lastPongTime = Date.now()
 
@@ -305,6 +306,9 @@ class WebSocketConnection {
    */
   private setupListeners(): void {
     let buffer = Buffer.alloc(0)
+    // 分片帧累积器
+    let fragmentBuffers: Buffer[] = []
+    let fragmentOpcode = 0
 
     this.socket.on("data", (data: Buffer) => {
       buffer = Buffer.concat([buffer, data])
@@ -315,7 +319,31 @@ class WebSocketConnection {
         if (!frame) break
 
         buffer = buffer.slice(frame.totalLength)
-        this.handleFrame(frame)
+
+        // 控制帧 (opcode >= 0x08) 可以穿插在分片中间，直接处理
+        if (frame.opcode >= 0x08) {
+          this.handleFrame({ opcode: frame.opcode, payload: frame.payload })
+          continue
+        }
+
+        if (frame.opcode !== 0x00) {
+          // 起始帧（text 0x01 或 binary 0x02）
+          fragmentOpcode = frame.opcode
+          fragmentBuffers = [frame.payload]
+        } else {
+          // 延续帧 (opcode 0x00)
+          fragmentBuffers.push(frame.payload)
+        }
+
+        if (frame.fin) {
+          // 消息完整，合并所有分片
+          const fullPayload = fragmentBuffers.length === 1
+            ? fragmentBuffers[0]
+            : Buffer.concat(fragmentBuffers)
+          this.handleFrame({ opcode: fragmentOpcode, payload: fullPayload })
+          fragmentBuffers = []
+          fragmentOpcode = 0
+        }
       }
     })
 
@@ -332,6 +360,7 @@ class WebSocketConnection {
    * 解析 WebSocket 帧
    */
   private parseFrame(buffer: Buffer): {
+    fin: boolean
     opcode: number
     payload: Buffer
     totalLength: number
@@ -341,6 +370,7 @@ class WebSocketConnection {
     const firstByte = buffer[0]
     const secondByte = buffer[1]
 
+    const fin = (firstByte & 0x80) !== 0
     const opcode = firstByte & 0x0f
     const masked = (secondByte & 0x80) !== 0
     let payloadLength = secondByte & 0x7f
@@ -376,6 +406,7 @@ class WebSocketConnection {
     }
 
     return {
+      fin,
       opcode,
       payload,
       totalLength: offset + payloadLength,
@@ -603,27 +634,43 @@ class WebSocketConnection {
       // 然后等待旧 loop 结束（pendingInputResolver 出现后传 null 让其退出）
       const hasPendingQuestion = this.cancelPendingQuestionsForSession(currentSessionId)
       if (hasPendingQuestion) {
-        // 等待 runner 走完（question cancelled → agent-loop → onAwaitInput → waitForInputFromWs → pendingInputResolvers.set）
-        // 限时等待 5 秒
-        const waitStart = Date.now()
-        while (Date.now() - waitStart < 5000) {
+        // 等 pendingInputResolver 出现（runner 走完 → onAwaitInput → waitForInputFromWs）
+        // 5 秒超时——用 Promise 替代轮询
+        const gotResolver = await new Promise<boolean>((resolve) => {
+          // 检查是否已经就绪
           if (this.pendingInputResolvers.has(currentSessionId)) {
-            const resolver = this.pendingInputResolvers.get(currentSessionId)!
-            this.pendingInputResolvers.delete(currentSessionId)
-            // 传 null 让旧 loop 干净退出，不要传用户新消息
-            resolver(null)
-            break
+            resolve(true)
+            return
           }
-          await new Promise(r => setTimeout(r, 100))
+          const timer = setTimeout(() => resolve(false), 5000)
+          // 用 runningSessionIds.delete 的通知机制来检测
+          const check = setInterval(() => {
+            if (this.pendingInputResolvers.has(currentSessionId)) {
+              clearInterval(check)
+              clearTimeout(timer)
+              resolve(true)
+            }
+          }, 50)
+          // 如果 session 已经完成了，也应该停止等待
+          this.waitForSessionDone(currentSessionId, 5000).then(() => {
+            clearInterval(check)
+            clearTimeout(timer)
+            resolve(this.pendingInputResolvers.has(currentSessionId))
+          })
+        })
+        if (gotResolver && this.pendingInputResolvers.has(currentSessionId)) {
+          const resolver = this.pendingInputResolvers.get(currentSessionId)!
+          this.pendingInputResolvers.delete(currentSessionId)
+          // 传 null 让旧 loop 干净退出，不要传用户新消息
+          resolver(null)
         }
-        // 等旧 loop 完全结束（runningSessionIds 被清除）
-        const waitDone = Date.now()
-        while (Date.now() - waitDone < 3000) {
-          if (!this.runningSessionIds.has(currentSessionId)) break
-          await new Promise(r => setTimeout(r, 50))
+        // 等旧 loop 完全结束
+        const done = await this.waitForSessionDone(currentSessionId, 3000)
+        if (!done) {
+          // 超时仍未就绪：强制清除
+          this.runningSessionIds.delete(currentSessionId)
+          this.notifySessionDone(currentSessionId)
         }
-        // 超时仍未就绪：强制清除
-        this.runningSessionIds.delete(currentSessionId)
       } else {
         this.sendError("Already running a task")
         return
@@ -709,6 +756,7 @@ class WebSocketConnection {
         sendIfSubscribed(msg)
         this.callbacks.broadcast(currentSessionId, msg)
         this.runningSessionIds.delete(currentSessionId)
+        this.notifySessionDone(currentSessionId)
 
         // 更新持久化会话
         const internalSession = runner.getSession()
@@ -735,6 +783,7 @@ class WebSocketConnection {
         reportedUsage.outputTokens = totalOutput
         sendIfSubscribed({ type: "done", usage: deltaUsage })
         this.runningSessionIds.delete(currentSessionId)
+        this.notifySessionDone(currentSessionId)
       },
       onPermissionRequest: () => {
         // 权限已移除，所有操作自动批准
@@ -776,6 +825,7 @@ class WebSocketConnection {
     } finally {
       unregisterSubAgent()
       this.runningSessionIds.delete(currentSessionId)
+      this.notifySessionDone(currentSessionId)
       this.pendingInputResolvers.delete(currentSessionId)
     }
   }
@@ -796,6 +846,7 @@ class WebSocketConnection {
     }
     if (currentSid) {
       this.runningSessionIds.delete(currentSid)
+      this.notifySessionDone(currentSid)
     }
   }
 
@@ -910,6 +961,42 @@ class WebSocketConnection {
   /**
    * 发送错误
    */
+  /**
+   * 等待 session 运行完成（Promise 驱动，替代轮询）
+   */
+  private waitForSessionDone(sessionId: string, timeout: number): Promise<boolean> {
+    if (!this.runningSessionIds.has(sessionId)) return Promise.resolve(true)
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        // 超时：移除 resolver
+        const resolvers = this.sessionDoneResolvers.get(sessionId)
+        if (resolvers) {
+          const idx = resolvers.indexOf(done)
+          if (idx >= 0) resolvers.splice(idx, 1)
+        }
+        resolve(false)
+      }, timeout)
+      const done = () => {
+        clearTimeout(timer)
+        resolve(true)
+      }
+      const existing = this.sessionDoneResolvers.get(sessionId) || []
+      existing.push(done)
+      this.sessionDoneResolvers.set(sessionId, existing)
+    })
+  }
+
+  /**
+   * 通知 session 完成（触发所有等待者）
+   */
+  private notifySessionDone(sessionId: string): void {
+    const resolvers = this.sessionDoneResolvers.get(sessionId)
+    if (resolvers) {
+      for (const resolve of resolvers) resolve()
+      this.sessionDoneResolvers.delete(sessionId)
+    }
+  }
+
   private sendError(message: string): void {
     this.send({ type: "error", message })
   }
