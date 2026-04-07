@@ -169,7 +169,7 @@ export class SessionPicker {
       vscode.window.showErrorMessage('获取会话列表失败');
       return;
     }
-    const data: { sessions: { id: string }[] } = await resp.json();
+    const data = await resp.json() as { sessions: { id: string }[] };
     const sessions = data.sessions;
     const activeId = this.agentClient.sessionId;
     const toDelete = sessions.filter(s => s.id !== activeId);

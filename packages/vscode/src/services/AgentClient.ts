@@ -90,12 +90,16 @@ export function getDefaultConfig(): AgentClientConfig {
 export class AgentClient {
   private config: AgentClientConfig;
   private ws: WebSocket | null = null;
-  private sessionId: string | null = null;
+  private _sessionId: string | null = null;
   private cwd: string | null = null;
   private messageHandlers: Set<MessageHandler> = new Set();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
   private pingInterval: NodeJS.Timeout | null = null;
+
+  get sessionId(): string | null {
+    return this._sessionId;
+  }
 
   constructor(config?: AgentClientConfig) {
     this.config = config || getDefaultConfig();
@@ -142,8 +146,8 @@ export class AgentClient {
       throw new Error(`Failed to find or create session: ${error}`);
     }
 
-    const data = await response.json();
-    this.sessionId = data.id;
+    const data = await response.json() as SessionInfo;
+    this._sessionId = data.id;
     this.cwd = cwd;
     return data;
   }
@@ -163,8 +167,8 @@ export class AgentClient {
       throw new Error(`Failed to create session: ${error}`);
     }
 
-    const data = await response.json();
-    this.sessionId = data.id;
+    const data = await response.json() as SessionInfo;
+    this._sessionId = data.id;
     this.cwd = cwd;
     return data;
   }
@@ -183,7 +187,7 @@ export class AgentClient {
       throw new Error('Failed to list sessions');
     }
 
-    const data = await response.json();
+    const data = await response.json() as { sessions?: SessionInfo[] };
     return data.sessions || [];
   }
 
@@ -191,12 +195,12 @@ export class AgentClient {
    * 连接 WebSocket
    */
   async connect(sessionId?: string): Promise<void> {
-    const sid = sessionId || this.sessionId;
+    const sid = sessionId || this._sessionId;
     if (!sid) {
       throw new Error('No session ID. Create a session first.');
     }
     // 保存当前连接的 sessionId
-    this.sessionId = sid;
+    this._sessionId = sid;
 
     return new Promise((resolve, reject) => {
       const params = new URLSearchParams();
@@ -286,7 +290,7 @@ export class AgentClient {
   async sendMessage(message: string, options?: SendOptions): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       // 尝试重连
-      if (this.sessionId) {
+      if (this._sessionId) {
         await this.connect();
       } else {
         throw new Error('Not connected. Create a session and connect first.');
@@ -311,12 +315,12 @@ export class AgentClient {
    * 发送消息（HTTP SSE 方式，用于流式响应）
    */
   async *sendMessageSSE(message: string): AsyncGenerator<AgentMessage> {
-    if (!this.sessionId) {
+    if (!this._sessionId) {
       throw new Error('No session. Create a session first.');
     }
 
     const response = await fetch(
-      `${this.config.baseURL}/sessions/${this.sessionId}/messages`,
+      `${this.config.baseURL}/sessions/${this._sessionId}/messages`,
       {
         method: 'POST',
         headers: {
@@ -445,15 +449,15 @@ export class AgentClient {
    * 关闭会话
    */
   async closeSession(): Promise<void> {
-    if (this.sessionId) {
+    if (this._sessionId) {
       try {
-        await fetch(`${this.config.baseURL}/sessions/${this.sessionId}`, {
+        await fetch(`${this.config.baseURL}/sessions/${this._sessionId}`, {
           method: 'DELETE',
         });
       } catch (e) {
         console.error('Failed to close session:', e);
       }
-      this.sessionId = null;
+      this._sessionId = null;
       this.cwd = null;
     }
     this.disconnect();
@@ -484,14 +488,14 @@ export class AgentClient {
    * 获取当前会话 ID
    */
   getSessionId(): string | null {
-    return this.sessionId;
+    return this._sessionId;
   }
 
   /**
    * 清除 sessionId（不发 DELETE 请求，用于切换会话场景）
    */
   clearSessionId(): void {
-    this.sessionId = null;
+    this._sessionId = null;
   }
 
   /**
@@ -502,7 +506,7 @@ export class AgentClient {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('Not connected. Cannot subscribe.');
     }
-    this.sessionId = sessionId;
+    this._sessionId = sessionId;
     this.ws.send(JSON.stringify({ type: 'subscribe', sessionId }));
   }
 
