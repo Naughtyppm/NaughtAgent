@@ -56,6 +56,14 @@ pnpm install && pnpm build
 # 在 VS Code 中按 F5 启动扩展开发模式
 ```
 
+**扩展功能**：
+- Chat 界面（Webview），支持 Markdown 渲染、代码高亮
+- **多会话并行**：侧边栏会话列表，支持新建/切换/删除会话，后台 session 继续运行
+- 模型/模式选择（Build / Plan / Explore）
+- 上下文采集（选中代码、打开文件、Git diff、终端输出等）
+- question 工具交互（文本输入、确认弹窗、单选/多选）
+- 子代理进度展示（parallel_agents 子任务实时状态）
+
 ## 项目结构
 
 ```
@@ -75,7 +83,7 @@ NaughtAgent/
 │   │       ├── permission/   # 权限系统
 │   │       ├── provider/     # LLM 提供者（Anthropic/OpenAI/Kiro）
 │   │       ├── security/     # 安全检查
-│   │       ├── server/       # HTTP/WebSocket 服务器
+│   │       ├── server/       # HTTP/WebSocket 服务器（多会话隔离）
 │   │       ├── session/      # 会话管理
 │   │       ├── skill/        # 技能系统
 │   │       ├── subtask/      # 子代理系统
