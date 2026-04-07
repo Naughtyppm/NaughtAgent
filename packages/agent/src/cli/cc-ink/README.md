@@ -22,7 +22,7 @@ cc-ink/
 ├── index.d.ts         # 手写类型声明
 ├── index.js           # Re-export 适配层
 ├── stubs.ts           # 日志 stub
-├── utils/             # CC 工具函数 stub（NA 不使用的部分为 noop）
+├── utils/             # CC 工具函数 stub（被 ink/ 内部引用，不可删除）
 ├── yoga-layout/       # 纯 TS Yoga flexbox 引擎 (~2500 行)
 │   ├── index.ts       # 核心布局算法
 │   └── enums.ts       # Yoga 枚举常量
