@@ -2,7 +2,7 @@
   "name": "@naughtyagent/vscode",
   "displayName": "NaughtyAgent",
   "description": "AI 编程助手 - 类似 Claude Code 的 VS Code 插件",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "publisher": "naughtyagent",
   "icon": "resources/icon.png",
   "engines": {
@@ -40,6 +40,10 @@
           "type": "webview",
           "id": "naughtyagent.chatView",
           "name": "Chat"
+        },
+        {
+          "id": "naughtyagent.sessionsView",
+          "name": "会话列表"
         }
       ]
     },
@@ -124,6 +128,17 @@
         "title": "在编辑器中打开 Chat",
         "category": "NaughtyAgent",
         "icon": "$(window)"
+      },
+      {
+        "command": "naughtyagent.switchToSession",
+        "title": "切换到此会话",
+        "category": "NaughtyAgent"
+      },
+      {
+        "command": "naughtyagent.refreshSessions",
+        "title": "刷新会话列表",
+        "category": "NaughtyAgent",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -151,9 +166,31 @@
           "group": "navigation"
         },
         {
+          "command": "naughtyagent.openChatInEditor",
+          "when": "view == naughtyagent.chatView",
+          "group": "navigation"
+        },
+        {
           "command": "naughtyagent.clearChat",
           "when": "view == naughtyagent.chatView",
           "group": "navigation"
+        },
+        {
+          "command": "naughtyagent.newSession",
+          "when": "view == naughtyagent.sessionsView",
+          "group": "navigation"
+        },
+        {
+          "command": "naughtyagent.refreshSessions",
+          "when": "view == naughtyagent.sessionsView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "naughtyagent.deleteSession",
+          "when": "view == naughtyagent.sessionsView && viewItem == session",
+          "group": "inline"
         }
       ]
     },

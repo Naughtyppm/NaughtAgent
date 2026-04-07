@@ -10,6 +10,7 @@ import { DaemonClient } from './services/DaemonClient';
 import { AgentClient, getDefaultConfig } from './services/AgentClient';
 import { ContextCollector } from './services/ContextCollector';
 import { SessionPicker } from './views/SessionPicker';
+import { SessionListProvider } from './views/SessionListProvider';
 import { DiffProvider } from './services/DiffProvider';
 import { FileReferenceProvider } from './services/FileReferenceProvider';
 import { registerCommands } from './commands';
@@ -17,6 +18,7 @@ import { registerCommands } from './commands';
 let daemonClient: DaemonClient | undefined;
 let agentClient: AgentClient | undefined;
 let diffProvider: DiffProvider | undefined;
+let sessionListProvider: SessionListProvider | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 
@@ -71,6 +73,45 @@ export function activate(context: vscode.ExtensionContext) {
   // 注册命令
   registerCommands(context, chatViewProvider, agentClient, contextCollector);
 
+  // 注册会话列表 TreeView
+  sessionListProvider = new SessionListProvider(agentClient);
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider(
+      'naughtyagent.sessionsView',
+      sessionListProvider
+    )
+  );
+  sessionListProvider.startAutoRefresh();
+  context.subscriptions.push(new vscode.Disposable(() => sessionListProvider?.dispose()));
+
+  // 刷新会话列表
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.refreshSessions', () => {
+      sessionListProvider?.refresh();
+    })
+  );
+
+  // 切换到指定会话
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.switchToSession', async (session: { id: string }) => {
+      if (!session?.id) return;
+      try {
+        // 先断开旧连接
+        agentClient!.disconnect();
+        // 重新连接到新会话
+        await agentClient!.connect(session.id);
+        sessionListProvider?.setActiveSession(session.id);
+        // 清空 Chat View 消息（不断开连接）
+        await chatViewProvider.clearChat();
+        outputChannel?.appendLine(`[session] switched to ${session.id}`);
+      } catch (e) {
+        vscode.window.showErrorMessage(
+          `切换会话失败: ${e instanceof Error ? e.message : e}`
+        );
+      }
+    })
+  );
+
   // 多窗口 Chat — 在编辑器区域打开独立 Chat 页签
   context.subscriptions.push(
     vscode.commands.registerCommand('naughtyagent.openChatInEditor', () => {
@@ -114,6 +155,7 @@ export function activate(context: vscode.ExtensionContext) {
         // 连接到选中的会话
         try {
           await agentClient!.connect(session.id);
+          sessionListProvider?.setActiveSession(session.id);
           vscode.window.showInformationMessage(`已切换到会话: ${session.id}`);
         } catch (e) {
           vscode.window.showErrorMessage(
@@ -130,6 +172,8 @@ export function activate(context: vscode.ExtensionContext) {
       if (session) {
         try {
           await agentClient!.connect(session.id);
+          sessionListProvider?.setActiveSession(session.id);
+          sessionListProvider?.refresh();
         } catch (e) {
           vscode.window.showErrorMessage(
             `连接会话失败: ${e instanceof Error ? e.message : e}`
@@ -142,6 +186,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('naughtyagent.deleteSession', async () => {
       await sessionPicker.deleteSession();
+      sessionListProvider?.refresh();
     })
   );
 
