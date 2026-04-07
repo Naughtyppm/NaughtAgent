@@ -32,7 +32,7 @@ export async function startInkRepl(config: ReplConfig): Promise<void> {
 
   const { startInkRepl: startInk } = await import('./ink/index.js')
 
-  const instance = startInk({
+  const instance = await startInk({
     cwd: config.cwd,
     agent: config.agent,
     model: config.model,

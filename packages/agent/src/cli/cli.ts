@@ -19,9 +19,9 @@
 import { execSync } from "child_process"
 if (process.platform === "win32") {
   try {
-    // 设置控制台输出代码页为 UTF-8
+    // 设置控制台输入+输出代码页为 UTF-8
     execSync("chcp 65001", { stdio: "ignore" })
-    // 设置 stdout/stderr 编码
+    // 设置 stdout/stderr 默认编码
     if (process.stdout.setDefaultEncoding) {
       process.stdout.setDefaultEncoding("utf8")
     }
@@ -68,8 +68,6 @@ import {
 } from "./daemon"
 import { createDaemonClient, type DaemonClientEvents } from "./client"
 import { createDaemonSessionManager } from "../daemon"
-import type { PermissionRequest } from "../permission"
-import * as readline from "readline"
 import { DEFAULT_THINKING_BUDGET, THINKING_BUDGETS, VERSION } from "../config"
 
 /**
@@ -91,6 +89,7 @@ interface CLIArgs {
   debug: boolean       // 调试模式，显示详细日志
   thinking: boolean    // Extended Thinking 模式
   thinkingBudget: number  // Thinking 预算 token 数
+  ui: "plain-text" | "ink"  // UI 模式
 }
 
 /**
@@ -111,6 +110,7 @@ function parseArgs(args: string[]): CLIArgs {
     debug: false,
     thinking: false,
     thinkingBudget: DEFAULT_THINKING_BUDGET,
+    ui: (process.env.NAUGHTY_UI_MODE as "plain-text" | "ink") || "plain-text",
   }
 
   const messageArgs: string[] = []
@@ -139,6 +139,11 @@ function parseArgs(args: string[]): CLIArgs {
       result.standalone = true
     } else if (arg === "--debug") {
       result.debug = true
+    } else if (arg === "--ui") {
+      const value = args[++i]?.toLowerCase()
+      if (value === "plain-text" || value === "ink") {
+        result.ui = value
+      }
     } else if (arg === "--thinking" || arg === "-t") {
       result.thinking = true
     } else if (arg === "--thinking-budget") {
@@ -239,6 +244,7 @@ function printHelp(): void {
   -t, --thinking   启用 Extended Thinking（深度思考模式）
   --thinking-budget  Thinking 预算 token 数（默认 16000，最小 1024）
   -r, --reasoning-effort  思考强度 (low|medium|high)，自动启用 thinking
+  --ui               UI 模式 (plain-text|ink)，默认 plain-text
   --debug          调试模式，显示详细日志
 
 可用模型:
@@ -296,24 +302,6 @@ function printVersion(): void {
 }
 
 /**
- * 用户确认提示
- */
-async function promptConfirm(request: PermissionRequest): Promise<boolean> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
-
-  return new Promise((resolve) => {
-    const description = request.description || `${request.type}: ${request.resource}`
-    rl.question(`\n⚠️  需要确认: ${description}\n   允许执行? (y/n) `, (answer) => {
-      rl.close()
-      resolve(answer.toLowerCase() === "y" || answer.toLowerCase() === "yes")
-    })
-  })
-}
-
-/**
  * 格式化输出
  */
 function createOutputHandlers(): RunnerEventHandlers {
@@ -329,15 +317,18 @@ function createOutputHandlers(): RunnerEventHandlers {
     },
     onToolStart: (_id, name, input) => {
       const inputStr = typeof input === "object"
-        ? JSON.stringify(input, null, 2).substring(0, 100)
+        ? JSON.stringify(input, null, 2).substring(0, 300)
         : String(input)
       console.log(`\n🔧 [${name}] ${inputStr}...`)
     },
     onToolEnd: (_id, output, isError) => {
+      const lines = output.split('\n')
+      const maxLines = 30
       if (isError) {
-        console.log(`   ❌ 错误: ${output.substring(0, 200)}`)
+        const preview = lines.length > maxLines ? lines.slice(0, maxLines).join('\n') + `\n   ... (${lines.length - maxLines} 行已省略)` : output
+        console.log(`   ❌ 错误: ${preview}`)
       } else {
-        const preview = output.length > 200 ? output.substring(0, 200) + "..." : output
+        const preview = lines.length > maxLines ? lines.slice(0, maxLines).join('\n') + `\n   ... (${lines.length - maxLines} 行已省略)` : output
         console.log(`   ✅ ${preview}`)
       }
     },
@@ -345,7 +336,11 @@ function createOutputHandlers(): RunnerEventHandlers {
       console.error(`\n❌ 错误: ${error.message}`)
     },
     onDone: (usage) => {
-      console.log(`\n\n📊 Token: ${usage.inputTokens} 输入 / ${usage.outputTokens} 输出`)
+      let line = `\n\n📊 Token: ${usage.inputTokens} 输入 / ${usage.outputTokens} 输出`
+      if (usage.cacheReadTokens || usage.cacheCreationTokens) {
+        line += ` | Cache: ${usage.cacheReadTokens || 0} 命中 / ${usage.cacheCreationTokens || 0} 写入`
+      }
+      console.log(line)
     },
     onPermissionRequest: (_request) => {
       // 权限请求会在 onConfirm 中处理
@@ -462,8 +457,8 @@ async function handleSessions(args: CLIArgs): Promise<void> {
  */
 async function handleChat(args: CLIArgs): Promise<void> {
   if (!args.message) {
-    // 没有消息，进入交互式 REPL 模式（使用 Ink UI）
-    await startInkRepl({
+    // 没有消息，进入交互式 REPL 模式
+    const replConfig = {
       cwd: args.cwd,
       agent: args.agent,
       model: args.model,
@@ -472,7 +467,16 @@ async function handleChat(args: CLIArgs): Promise<void> {
         enabled: true,
         budgetTokens: args.thinkingBudget,
       } : undefined,
-    })
+    }
+
+    if (args.ui === "ink") {
+      // Ink React UI
+      await startInkRepl(replConfig)
+    } else {
+      // Plain-text 流式 UI（默认）
+      const { startPlainTextRepl } = await import("./plain-text/index.js")
+      await startPlainTextRepl(replConfig)
+    }
     return
   }
 
@@ -498,8 +502,6 @@ async function handleChatDaemon(args: CLIArgs): Promise<void> {
   const client = createDaemonClient({
     cwd: args.cwd,
     agentType: args.agent,
-    autoConfirm: args.autoConfirm,
-    onConfirm: promptConfirm,
     model: args.model,
     thinking: args.thinking ? {
       enabled: true,
@@ -520,15 +522,18 @@ async function handleChatDaemon(args: CLIArgs): Promise<void> {
     },
     onToolStart: (_id, name, input) => {
       const inputStr = typeof input === "object"
-        ? JSON.stringify(input, null, 2).substring(0, 100)
+        ? JSON.stringify(input, null, 2).substring(0, 300)
         : String(input)
       console.log(`\n🔧 [${name}] ${inputStr}...`)
     },
     onToolEnd: (_id, output, isError) => {
+      const lines = output.split('\n')
+      const maxLines = 30
       if (isError) {
-        console.log(`   ❌ 错误: ${output.substring(0, 200)}`)
+        const preview = lines.length > maxLines ? lines.slice(0, maxLines).join('\n') + `\n   ... (${lines.length - maxLines} 行已省略)` : output
+        console.log(`   ❌ 错误: ${preview}`)
       } else {
-        const preview = output.length > 200 ? output.substring(0, 200) + "..." : output
+        const preview = lines.length > maxLines ? lines.slice(0, maxLines).join('\n') + `\n   ... (${lines.length - maxLines} 行已省略)` : output
         console.log(`   ✅ ${preview}`)
       }
     },
@@ -536,7 +541,11 @@ async function handleChatDaemon(args: CLIArgs): Promise<void> {
       console.error(`\n❌ 错误: ${error.message}`)
     },
     onDone: (usage) => {
-      console.log(`\n\n📊 Token: ${usage.inputTokens} 输入 / ${usage.outputTokens} 输出`)
+      let line = `\n\n📊 Token: ${usage.inputTokens} 输入 / ${usage.outputTokens} 输出`
+      if (usage.cacheReadTokens || usage.cacheCreationTokens) {
+        line += ` | Cache: ${usage.cacheReadTokens || 0} 命中 / ${usage.cacheCreationTokens || 0} 写入`
+      }
+      console.log(line)
     },
     onPermissionRequest: (_request) => {
       // 权限请求会在 onConfirm 中处理
@@ -575,8 +584,6 @@ async function handleChatStandalone(args: CLIArgs): Promise<void> {
     model: args.model,
     apiKey: process.env.ANTHROPIC_API_KEY,
     baseURL: process.env.ANTHROPIC_BASE_URL,
-    autoConfirm: args.autoConfirm,
-    onConfirm: promptConfirm,
     thinking: args.thinking ? {
       enabled: true,
       budgetTokens: args.thinkingBudget,

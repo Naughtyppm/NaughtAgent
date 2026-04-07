@@ -10,17 +10,22 @@ import { DaemonClient } from './services/DaemonClient';
 import { AgentClient, getDefaultConfig } from './services/AgentClient';
 import { ContextCollector } from './services/ContextCollector';
 import { SessionPicker } from './views/SessionPicker';
+import { SessionListProvider, SessionItem } from './views/SessionListProvider';
 import { DiffProvider } from './services/DiffProvider';
-import { FileReferenceProvider } from './services/FileReferenceProvider';
 import { registerCommands } from './commands';
 
 let daemonClient: DaemonClient | undefined;
 let agentClient: AgentClient | undefined;
 let diffProvider: DiffProvider | undefined;
+let sessionListProvider: SessionListProvider | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
+let outputChannel: vscode.OutputChannel | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('NaughtyAgent is now active!');
+  outputChannel = vscode.window.createOutputChannel('NaughtyAgent');
+  outputChannel.appendLine('[activate] extension activated');
+  context.subscriptions.push(outputChannel);
 
   // 获取配置
   const config = vscode.workspace.getConfiguration('naughtyagent');
@@ -42,13 +47,13 @@ export function activate(context: vscode.ExtensionContext) {
   const contextCollector = new ContextCollector();
   const sessionPicker = new SessionPicker(agentClient);
   diffProvider = new DiffProvider();
-  const fileReferenceProvider = new FileReferenceProvider();
 
   // 注册 Chat View
   const chatViewProvider = new ChatViewProvider(
     context.extensionUri,
     agentClient,
-    contextCollector
+    contextCollector,
+    outputChannel
   );
 
   context.subscriptions.push(
@@ -66,6 +71,87 @@ export function activate(context: vscode.ExtensionContext) {
   // 注册命令
   registerCommands(context, chatViewProvider, agentClient, contextCollector);
 
+  // 注册会话列表 TreeView
+  sessionListProvider = new SessionListProvider(agentClient);
+  const sessionsTreeView = vscode.window.createTreeView('naughtyagent.sessionsView', {
+    treeDataProvider: sessionListProvider,
+  });
+  context.subscriptions.push(sessionsTreeView);
+
+  // 用户点击 TreeView item 时切换会话（auto-refresh 不触发）
+  sessionsTreeView.onDidChangeSelection((e) => {
+    const selected = e.selection[0];
+    if (selected) {
+      vscode.commands.executeCommand('naughtyagent.switchToSession', selected.session);
+    }
+  });
+
+  sessionListProvider.startAutoRefresh();
+  context.subscriptions.push(new vscode.Disposable(() => sessionListProvider?.dispose()));
+
+  // 刷新会话列表
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.refreshSessions', () => {
+      sessionListProvider?.refresh();
+    })
+  );
+
+  // 切换到指定会话
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.switchToSession', async (session: { id: string }) => {
+      if (!session?.id) return;
+      // 避免切换到当前已活动的 session
+      if (session.id === agentClient!.getSessionId()) return;
+      try {
+        // 如果已连接，使用 subscribe 切换（不断开 WS）
+        if (agentClient!.isConnected()) {
+          agentClient!.subscribeToSession(session.id);
+        } else {
+          await agentClient!.connect(session.id);
+        }
+        chatViewProvider.switchSession(session.id);
+        sessionListProvider?.setActiveSession(session.id);
+        outputChannel?.appendLine(`[session] switched to ${session.id}`);
+      } catch (e) {
+        vscode.window.showErrorMessage(
+          `切换会话失败: ${e instanceof Error ? e.message : e}`
+        );
+      }
+    })
+  );
+
+  // 多窗口 Chat — 在编辑器区域打开独立 Chat 页签
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.openChatInEditor', () => {
+      const panel = vscode.window.createWebviewPanel(
+        'naughtyagent.chatPanel',
+        'NaughtyAgent Chat',
+        vscode.ViewColumn.Beside,
+        { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [context.extensionUri] }
+      );
+
+      // 每个 panel 使用独立的 AgentClient 连接
+      const panelAgentClient = new AgentClient(clientConfig);
+      const panelChatProvider = new ChatViewProvider(
+        context.extensionUri,
+        panelAgentClient,
+        contextCollector,
+        outputChannel
+      );
+      panelChatProvider.resolveWebviewPanel(panel);
+
+      panel.onDidDispose(() => {
+        panelAgentClient.dispose();
+      });
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.showLogs', () => {
+      outputChannel?.show(true);
+    })
+  );
+
   // 注册会话相关命令
   context.subscriptions.push(
     vscode.commands.registerCommand('naughtyagent.selectSession', async () => {
@@ -74,9 +160,14 @@ export function activate(context: vscode.ExtensionContext) {
         filterByCwd: true,
       });
       if (session) {
-        // 连接到选中的会话
         try {
-          await agentClient!.connect(session.id);
+          if (agentClient!.isConnected()) {
+            agentClient!.subscribeToSession(session.id);
+          } else {
+            await agentClient!.connect(session.id);
+          }
+          chatViewProvider.switchSession(session.id);
+          sessionListProvider?.setActiveSession(session.id);
           vscode.window.showInformationMessage(`已切换到会话: ${session.id}`);
         } catch (e) {
           vscode.window.showErrorMessage(
@@ -92,7 +183,15 @@ export function activate(context: vscode.ExtensionContext) {
       const session = await sessionPicker.createNewSession();
       if (session) {
         try {
-          await agentClient!.connect(session.id);
+          // 新 session 需要 subscribe（daemon 端会加载/创建 session 对象）
+          if (agentClient!.isConnected()) {
+            agentClient!.subscribeToSession(session.id);
+          } else {
+            await agentClient!.connect(session.id);
+          }
+          chatViewProvider.switchSession(session.id);
+          sessionListProvider?.setActiveSession(session.id);
+          sessionListProvider?.refresh();
         } catch (e) {
           vscode.window.showErrorMessage(
             `连接会话失败: ${e instanceof Error ? e.message : e}`
@@ -103,8 +202,17 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('naughtyagent.deleteSession', async () => {
-      await sessionPicker.deleteSession();
+    vscode.commands.registerCommand('naughtyagent.deleteSession', async (item?: SessionItem) => {
+      const sid = item?.session?.id;
+      await sessionPicker.deleteSession(sid);
+      sessionListProvider?.refresh();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.clearAllSessions', async () => {
+      await sessionPicker.clearAllSessions();
+      sessionListProvider?.refresh();
     })
   );
 
@@ -170,6 +278,20 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 初始化连接
   initializeDaemon();
+
+  // 监听 .reload-signal 文件（Agent 自迭代触发重载）
+  const reloadWatcher = vscode.workspace.createFileSystemWatcher('**/.reload-signal');
+  const handleReloadSignal = async (uri: vscode.Uri) => {
+    outputChannel?.appendLine(`[reload] signal detected: ${uri.fsPath}`);
+    // 删除信号文件
+    try { await vscode.workspace.fs.delete(uri); } catch { /* ignore */ }
+    // 读取信号文件内容判断是否自动重载
+    // 直接自动重载（无人值守模式），让 Agent 自迭代更流畅
+    vscode.commands.executeCommand('workbench.action.reloadWindow');
+  };
+  reloadWatcher.onDidCreate(handleReloadSignal);
+  reloadWatcher.onDidChange(handleReloadSignal);
+  context.subscriptions.push(reloadWatcher);
 
   // 清理资源
   context.subscriptions.push(
@@ -243,6 +365,7 @@ function updateStatusBar(status: string): void {
 }
 
 export function deactivate() {
+  outputChannel?.appendLine('[deactivate] extension deactivated');
   daemonClient?.dispose();
   diffProvider?.dispose();
 }

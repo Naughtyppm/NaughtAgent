@@ -14,7 +14,7 @@
  */
 
 import React from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text } from '../../cc-ink/index.js'
 import type { StatusIndicatorProps, StatusType, ActiveSubAgentSummary } from '../types.js'
 
 /**
@@ -266,6 +266,9 @@ export function StatusIndicator({
   // 构建 Token 显示
   const tokenDisplay = tokenUsage
     ? `📊 ${formatTokenCount(tokenUsage.input)}↓ ${formatTokenCount(tokenUsage.output)}↑`
+      + (tokenUsage.cacheRead || tokenUsage.cacheCreation
+        ? ` | Cache: ${formatTokenCount(tokenUsage.cacheRead || 0)}命中 ${formatTokenCount(tokenUsage.cacheCreation || 0)}写入`
+        : '')
     : null
 
   return (

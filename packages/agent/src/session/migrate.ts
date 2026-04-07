@@ -77,8 +77,8 @@ async function backupSession(
   sessionId: string,
   baseDir: string
 ): Promise<void> {
-  const sessionDir = path.join(baseDir, ".naught", "sessions", sessionId)
-  const backupDir = path.join(baseDir, ".naught", "sessions", `${sessionId}.backup`)
+  const sessionDir = path.join(baseDir, ".naughty", "sessions", sessionId)
+  const backupDir = path.join(baseDir, ".naughty", "sessions", `${sessionId}.backup`)
 
   // 复制整个会话目录
   await fs.cp(sessionDir, backupDir, { recursive: true })

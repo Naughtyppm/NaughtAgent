@@ -26,17 +26,11 @@ export {
   type ChatResult,
   type LLMProvider,
   type AnthropicConfig,
-  type KiroConfig,
   type ProviderConfig,
   // Constants
   DEFAULT_MODEL,
-  FAST_MODEL,
-  KIRO_MODEL_MAP,
-  KIRO_MODELS,
-  mapToKiroModel,
   // Factories
   createAnthropicProvider,
-  createKiroProvider,
   createProvider,
   createProviderFromEnv,
 } from "./provider"

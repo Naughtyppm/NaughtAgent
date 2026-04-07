@@ -6,18 +6,81 @@
  * Layer 3: compact 工具 - LLM 主动触发压缩（注册为工具）
  */
 
-import { writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs"
+import { writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync, existsSync, readFileSync, appendFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Session } from "../session"
 import type { ToolResultBlock } from "../session"
-import { AUTO_COMPACT_TOKEN_THRESHOLD } from "../config"
+import { AUTO_COMPACT_TOKEN_THRESHOLD, COMPACT_SUMMARY_INPUT_LIMIT, COMPACT_MEMORY_INPUT_LIMIT } from "../config"
+import { clearReadCache, getReadCacheSnapshot } from "../tool/read"
+import { resetFileAccessBudget } from "../tool/file-access-budget"
+
+// autoCompact 连续失败熔断（session 级）
+const MAX_AUTOCOMPACT_FAILURES = 3
+const autoCompactFailures = new Map<string, number>()
+
+/** 清除指定 session 的 autoCompact 失败计数（session 结束时调用） */
+export function clearAutoCompactFailures(sessionId?: string): void {
+  if (sessionId) {
+    autoCompactFailures.delete(sessionId)
+  } else {
+    autoCompactFailures.clear()
+  }
+}
+
+// ============================================================================
+// Compact 提示词（CC 9 段结构 + <analysis>/<summary> 模式）
+// ============================================================================
+
+export const COMPACT_SYSTEM_PROMPT = `You are a conversation summarizer. Your task is to create a structured summary that preserves all context needed for an AI assistant to continue working seamlessly.
+
+Use the following structure in your <summary> output (skip sections that have no content):
+
+1. **Primary Request and Intent**: The user's original goal and what they are trying to accomplish
+2. **Key Technical Concepts**: Important technical details, patterns, or domain knowledge discussed
+3. **Files and Code Sections**: ALL file paths read, created, or modified (the assistant MUST NOT re-read these)
+4. **Errors and Fixes**: Any errors encountered and how they were resolved
+5. **Problem Solving**: Key decisions, trade-offs, and reasoning chains
+6. **All User Messages**: Preserve the essence of every user message (preferences, constraints, style)
+7. **Pending Tasks**: Incomplete items or known issues that need to be addressed
+8. **Current Work**: What the assistant was doing when compression happened
+9. **Optional Next Step**: The single most logical next action to take
+
+IMPORTANT rules:
+- List EVERY file path that was read — the agent must NOT re-read them after compression
+- Preserve ALL user preferences and constraints mentioned anywhere in the conversation
+- Include specific code snippets, function names, and line numbers when relevant
+- Do NOT lose any pending tasks or action items`
+
+export const COMPACT_USER_PROMPT_PREFIX = `Summarize the following conversation. First draft your analysis inside <analysis> tags, then write the final summary inside <summary> tags.
+
+The <analysis> section is your scratchpad — think through what matters, what can be dropped, and what must be preserved. The <summary> section is what the agent will see.
+
+Conversation:
+`
+
+/**
+ * 从 LLM 摘要响应中提取 <summary> 内容（剥离 <analysis> 部分）
+ *
+ * CC 的 formatCompactSummary() 模式：LLM 在 <analysis> 中思考，
+ * 只有 <summary> 内容被保留到压缩后的对话中。
+ */
+export function formatCompactSummary(response: string): string {
+  // 提取 <summary> 标签内的内容
+  const summaryMatch = response.match(/<summary>([\s\S]*?)<\/summary>/i)
+  if (summaryMatch) {
+    return summaryMatch[1].trim()
+  }
+  // 如果没有 <summary> 标签，移除 <analysis> 部分后返回剩余内容
+  const withoutAnalysis = response.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '').trim()
+  return withoutAnalysis || response
+}
 
 // ============================================================================
 // 配置
 // ============================================================================
 
-/** 保留最近 N 个 tool_result 不压缩 */
-const KEEP_RECENT_RESULTS = 3
+/** 保留最近 N 个 tool_result 不压缩（3 太少，LLM 并行调用 3 个工具就占满了） */
+const KEEP_RECENT_RESULTS = 10
 
 /** tool_result 内容长度阈值，低于此值不替换 */
 const MIN_CONTENT_LENGTH = 100
@@ -110,65 +173,10 @@ export function estimateTokens(session: Session): number {
 // Layer 2: autoCompact
 // ============================================================================
 
-/** compact 后保留最近读取的文件数量上限 */
-const MAX_PRESERVED_FILES = 3
-/** 每个保留文件的最大行数 */
-const MAX_PRESERVED_LINES = 150
-
-/**
- * 从 session 消息中提取最近读取的文件内容
- *
- * 逆序扫描，找到最近 N 个 read 工具的 tool_result，
- * 提取文件路径和内容，去重后返回。
- */
-function extractRecentFileContents(session: Session): Array<{ path: string; content: string }> {
-  // 建立 tool_use_id → { name, input } 映射
-  const toolUseMap = new Map<string, { name: string; input: unknown }>()
-  for (const msg of session.messages) {
-    if (msg.role !== "assistant") continue
-    for (const block of msg.content) {
-      if (block.type === "tool_use") {
-        toolUseMap.set(block.id, { name: block.name, input: block.input })
-      }
-    }
-  }
-
-  // 逆序收集 read 工具的 tool_result
-  const files: Array<{ path: string; content: string }> = []
-  const seenPaths = new Set<string>()
-
-  for (let i = session.messages.length - 1; i >= 0 && files.length < MAX_PRESERVED_FILES; i--) {
-    const msg = session.messages[i]
-    if (msg.role !== "user") continue
-    for (let j = msg.content.length - 1; j >= 0 && files.length < MAX_PRESERVED_FILES; j--) {
-      const block = msg.content[j]
-      if (block.type !== "tool_result") continue
-      const toolUse = toolUseMap.get((block as ToolResultBlock).tool_use_id)
-      if (!toolUse || toolUse.name !== "read") continue
-
-      const input = toolUse.input as Record<string, unknown>
-      const filePath = String(input.filePath || input.file_path || "unknown")
-      if (seenPaths.has(filePath)) continue
-      seenPaths.add(filePath)
-
-      const resultContent = typeof block.content === "string"
-        ? block.content : JSON.stringify(block.content)
-
-      // 跳过已被 microCompact 替换的占位符
-      if (resultContent.startsWith("[Previous:")) continue
-
-      // 截断过长的文件内容
-      const contentLines = resultContent.split("\n")
-      const truncated = contentLines.length > MAX_PRESERVED_LINES
-        ? contentLines.slice(0, MAX_PRESERVED_LINES).join("\n") + `\n... (truncated, ${contentLines.length} lines total)`
-        : resultContent
-
-      files.push({ path: filePath, content: truncated })
-    }
-  }
-
-  return files.reverse() // 恢复正序
-}
+/** compact 后保留最近读取的文件数量上限（对齐 CC 的 POST_COMPACT_MAX_FILES_TO_RESTORE = 5） */
+const MAX_PRESERVED_FILES = 5
+/** 每个保留文件的最大行数（约 5000 token / 20 chars per line） */
+const MAX_PRESERVED_LINES = 250
 
 /**
  * 自动压缩：LLM 生成摘要替换全部历史
@@ -180,13 +188,27 @@ function extractRecentFileContents(session: Session): Array<{ path: string; cont
 export async function autoCompact(
   session: Session,
   summarizer: (text: string) => Promise<string>,
+  options?: {
+    /** 独立的记忆提取器（不复用 summarizer，使用专用 system prompt） */
+    memoryExtractor?: (text: string) => Promise<string>
+    /** 项目工作目录（记忆写入路径） */
+    cwd?: string
+  },
 ): Promise<boolean> {
   const tokens = estimateTokens(session)
   if (tokens <= AUTO_COMPACT_TOKEN_THRESHOLD) return false
 
-  // 0. 存档完整对话到 .transcripts/（压缩前保留，防止信息永久丢失）
+  // 连续失败熔断（对齐 CC circuit breaker: MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3）
+  const sessionId = (session as { id?: string }).id ?? 'default'
+  const failures = autoCompactFailures.get(sessionId) ?? 0
+  if (failures >= MAX_AUTOCOMPACT_FAILURES) {
+    return false  // 永久停止该 session 的 autoCompact
+  }
+
+  // 0. 存档完整对话到 .naughty/transcripts/（压缩前保留，防止信息永久丢失）
   try {
-    const transcriptDir = join(process.cwd(), ".transcripts")
+    const baseDir = options?.cwd || process.cwd()
+    const transcriptDir = join(baseDir, ".naughty", "transcripts")
     mkdirSync(transcriptDir, { recursive: true })
     const timestamp = Date.now()
     const transcriptPath = join(transcriptDir, `${timestamp}.json`)
@@ -217,22 +239,46 @@ export async function autoCompact(
   }
 
   // 截断避免超长（给摘要 LLM 的输入也要控制）
-  const conversationText = lines.join("\n\n").slice(0, 80000)
+  const conversationText = lines.join("\n\n").slice(0, COMPACT_SUMMARY_INPUT_LIMIT)
 
-  // 2. LLM 生成摘要
-  const summary = await summarizer(conversationText)
+  // 2. LLM 生成摘要（使用 9 段结构 + <analysis>/<summary> 模式）
+  let rawSummary: string
+  try {
+    rawSummary = await summarizer(conversationText)
+  } catch {
+    // 摘要失败，记录到熔断器
+    autoCompactFailures.set(sessionId, failures + 1)
+    return false
+  }
+  const summary = formatCompactSummary(rawSummary)
 
-  // 3. 提取最近读取的文件内容（compact 后保留，避免重读）
-  const preservedFiles = extractRecentFileContents(session)
+  // 2.5 提取需要跨会话持久化的关键信息，append 到 memory.md
+  try {
+    if (options?.memoryExtractor && options?.cwd) {
+      await persistMemoryFromCompact(conversationText, options.memoryExtractor, options.cwd)
+    }
+  } catch {
+    // 持久化失败不阻塞压缩流程
+  }
+
+  // 3. POST_COMPACT 文件恢复：从 read cache 获取快照（比从 session 消息提取更可靠）
+  // 对齐 CC 的 createPostCompactFileAttachments：最近 5 文件 x 5K token
+  const cachedFiles = getReadCacheSnapshot(MAX_PRESERVED_FILES)
   let preservedSection = ""
-  if (preservedFiles.length > 0) {
+  if (cachedFiles.length > 0) {
     preservedSection = "\n\n## Preserved File Contents (DO NOT re-read these files)\n\n"
-    for (const file of preservedFiles) {
-      preservedSection += `### ${file.path}\n\`\`\`\n${file.content}\n\`\`\`\n\n`
+    for (const file of cachedFiles) {
+      // 截断过长的文件内容（~5000 token ≈ 250 行）
+      const lines = file.output.split("\n")
+      const truncated = lines.length > MAX_PRESERVED_LINES
+        ? lines.slice(0, MAX_PRESERVED_LINES).join("\n") + `\n... (truncated, ${lines.length} lines total)`
+        : file.output
+      preservedSection += `### ${file.path}\n\`\`\`\n${truncated}\n\`\`\`\n\n`
     }
   }
 
-  // 4. 替换全部消息为压缩后的 2 条
+  // 4. 替换全部消息为压缩后的单条 user 消息
+  // 不加 assistant prefill（Copilot/OpenAI API 不支持，会返回 400）
   session.messages.length = 0
   session.messages.push(
     {
@@ -242,20 +288,22 @@ export async function autoCompact(
         type: "text",
         text: `[Conversation compressed. Estimated ${tokens} tokens → summary]\n\n${summary}${preservedSection}\n\n` +
           `IMPORTANT: All files mentioned above are already in context — their content is preserved above. ` +
-          `Do NOT re-read them. Proceed with the next step of your task based on this summary.`,
-      }],
-      timestamp: Date.now(),
-    },
-    {
-      id: `compact-assistant-${Date.now()}`,
-      role: "assistant",
-      content: [{
-        type: "text",
-        text: "Understood. I have the context from the summary and the preserved file contents. I will proceed without re-reading files already shown above.",
+          `Do NOT re-read them. Proceed with the next step of your task based on this summary.\n\n` +
+          `Continue working from where you left off. Do NOT re-read files already shown above.`,
       }],
       timestamp: Date.now(),
     },
   )
+
+  // 成功时重置失败计数
+  autoCompactFailures.delete(sessionId)
+
+  // 清空 read 缓存（对齐 CC: compact 后 readFileState.clear()）
+  // 保留的文件内容已嵌入 summary，LLM 再读同一文件会得到完整内容（count 从 1 开始）
+  clearReadCache(sessionId)
+
+  // 重置文件访问预算（给 LLM compact 后一次重读机会，但不是无限机会）
+  resetFileAccessBudget()
 
   return true
 }
@@ -285,4 +333,68 @@ function cleanOldTranscripts(dir: string, maxAge: number): void {
   } catch {
     // 清理失败不影响主流程
   }
+}
+
+// ============================================================================
+// Compact 记忆持久化：压缩时自动提取关键信息写入 memory.md
+// ============================================================================
+
+export const MEMORY_EXTRACT_PROMPT = `Based on the conversation below, extract ONLY information that should persist across sessions. Return ONLY the items, one per line, prefixed with "- ". If nothing worth persisting, return "NONE".
+
+What to extract:
+- User preferences and workflow patterns confirmed in this session
+- Key architectural decisions made
+- Bugs found and their root causes
+- Important file paths or project conventions discovered
+
+What NOT to extract:
+- Temporary task progress (what step you're on)
+- File contents already in code
+- Generic knowledge (how Git works, etc.)
+
+Conversation:
+`
+
+/**
+ * 从即将被压缩的对话中提取值得持久化的信息，append 到 .naughty/memory.md
+ *
+ * @param extractor 独立的提取器函数（使用 MEMORY_EXTRACT_PROMPT 作为 system prompt，
+ *   不复用 summarizer，避免 COMPACT_SYSTEM_PROMPT 干扰输出格式）
+ * @param cwd 项目工作目录（记忆写入到对应项目的 .naughty/memory.md）
+ */
+async function persistMemoryFromCompact(
+  conversationText: string,
+  extractor: (text: string) => Promise<string>,
+  cwd: string,
+): Promise<void> {
+  // 截取对话给提取器（比摘要更短，只需要关键信息）
+  const input = conversationText.slice(0, COMPACT_MEMORY_INPUT_LIMIT)
+  const extracted = await extractor(input)
+
+  // 没有值得持久化的内容
+  if (!extracted || extracted.trim() === "NONE" || extracted.trim().length < 10) return
+
+  // 读取已有 memory 避免重复（使用传入的 cwd，而非 process.cwd()）
+  const memoryDir = join(cwd, ".naughty")
+  const memoryPath = join(memoryDir, "memory.md")
+  let existingMemory = ""
+  if (existsSync(memoryPath)) {
+    existingMemory = readFileSync(memoryPath, "utf-8")
+  }
+
+  // 过滤掉已经存在的行（精确行匹配，避免 substring 误判）
+  const existingLines = new Set(
+    existingMemory.split("\n").map((l) => l.replace(/^- /, "").trim())
+  )
+  const newLines = extracted
+    .split("\n")
+    .filter((line) => line.startsWith("- "))
+    .filter((line) => !existingLines.has(line.slice(2).trim()))
+
+  if (newLines.length === 0) return
+
+  // append 到 memory.md
+  mkdirSync(memoryDir, { recursive: true })
+  const section = `\n\n## Auto-extracted (${new Date().toISOString().slice(0, 10)})\n${newLines.join("\n")}\n`
+  appendFileSync(memoryPath, section, "utf-8")
 }

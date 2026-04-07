@@ -25,17 +25,14 @@ export type {
   SubTaskBaseConfig,
   // ask_llm (原 API)
   AskLlmConfig,
-  APITaskConfig, // deprecated
   // run_agent (原 Agent)
   RunAgentConfig,
-  AgentTaskConfig, // deprecated
   // fork_agent (新增)
   InheritConfig,
   ForkAgentConfig,
   ParentContext,
   // run_workflow (原 Workflow)
   RunWorkflowConfig,
-  WorkflowTaskConfig, // deprecated
   // Unified config
   SubTaskConfig,
   // Execution types
@@ -88,6 +85,8 @@ export {
 export {
   setGlobalSubAgentEventListener,
   getGlobalSubAgentEventListener,
+  addGlobalSubAgentEventListener,
+  removeGlobalSubAgentEventListener,
 } from "./global-listener"
 
 // ============================================================================
@@ -96,7 +95,6 @@ export {
 
 export {
   runAskLlm,
-  runAPITask, // deprecated alias
 } from "./ask-llm"
 
 // ============================================================================
@@ -105,9 +103,7 @@ export {
 
 export {
   runRunAgent,
-  runAgentTask, // deprecated alias
   type RunAgentRuntime,
-  type AgentModeRuntime, // deprecated alias
 } from "./run-agent"
 
 // ============================================================================
@@ -125,13 +121,11 @@ export {
 
 export {
   runRunWorkflow,
-  runWorkflowTask, // deprecated alias
   registerWorkflow,
   getWorkflow,
   listWorkflows,
   clearWorkflows,
   type RunWorkflowRuntime,
-  type WorkflowModeRuntime, // deprecated alias
 } from "./run-workflow"
 
 // ============================================================================
@@ -377,14 +371,3 @@ export {
   type TaskParams,
 } from "./task-tool"
 
-// ============================================================================
-// Backward Compatibility (向后兼容)
-// ============================================================================
-
-// 保留旧的导出名称，标记为 deprecated
-/** @deprecated 使用 runAskLlm */
-export { runAskLlm as runAPITask_v2 } from "./ask-llm"
-/** @deprecated 使用 runRunAgent */
-export { runRunAgent as runAgentTask_v2 } from "./run-agent"
-/** @deprecated 使用 runRunWorkflow */
-export { runRunWorkflow as runWorkflowTask_v2 } from "./run-workflow"

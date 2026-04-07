@@ -3,6 +3,7 @@ import * as path from "path"
 import { z } from "zod"
 import { Tool } from "./tool"
 import { resolvePath } from "./safe-path"
+import { generateDiff } from "./file-utils"
 
 const DESCRIPTION = `Performs exact string replacements in files.
 
@@ -11,43 +12,7 @@ Usage:
 - The edit will FAIL if oldString is found multiple times (unless replaceAll is true)
 - Use replaceAll to replace all occurrences of oldString`
 
-/**
- * 简单的 diff 生成
- */
-function generateDiff(oldContent: string, newContent: string, filePath: string): string {
-  const oldLines = oldContent.split("\n")
-  const newLines = newContent.split("\n")
-
-  const diff: string[] = []
-  diff.push(`--- ${filePath}`)
-  diff.push(`+++ ${filePath}`)
-
-  // 简单的逐行对比
-  const maxLen = Math.max(oldLines.length, newLines.length)
-  let inChange = false
-
-  for (let i = 0; i < maxLen; i++) {
-    const oldLine = oldLines[i]
-    const newLine = newLines[i]
-
-    if (oldLine !== newLine) {
-      if (!inChange) {
-        inChange = true
-        diff.push(`@@ -${i + 1} +${i + 1} @@`)
-      }
-      if (oldLine !== undefined) {
-        diff.push(`-${oldLine}`)
-      }
-      if (newLine !== undefined) {
-        diff.push(`+${newLine}`)
-      }
-    } else {
-      inChange = false
-    }
-  }
-
-  return diff.join("\n")
-}
+// generateDiff 来自 file-utils.ts
 
 export const EditTool = Tool.define({
   id: "edit",

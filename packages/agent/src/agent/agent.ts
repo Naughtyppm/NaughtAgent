@@ -34,7 +34,8 @@ export type AgentEvent =
   | { type: "tool_start"; id: string; name: string; input: unknown }
   | { type: "tool_end"; id: string; result: Tool.Result; isError?: boolean }
   | { type: "error"; error: Error }
-  | { type: "done"; usage: TokenUsage; stopReason?: string }
+  | { type: "done"; usage: TokenUsage; stopReason?: string; writeOpCount?: number }
+  | { type: "await_input"; usage?: TokenUsage }
 
 /**
  * Agent 定义
@@ -93,15 +94,24 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
       "load_skill",
       // 持久记忆（跨会话记忆保存）
       "memory",
-      // 子代理工具（智能委托）
-      "ask_llm", "run_agent", "fork_agent", "parallel_agents", "multi_agent",
-      "dispatch_agent", "task", "run_workflow",
+      // CC 对齐工具
+      "web_fetch", "notebook_edit", "task_output", "task_stop",
+      "enter_plan_mode", "exit_plan_mode",
+      // MCP 资源工具
+      "list_mcp_resources", "read_mcp_resource",
+      // Cron 定时任务
+      "cron_create", "cron_delete", "cron_list",
+      // 子代理工具（核心 3 原语 + 统一入口 + 并行）
+      "ask_llm", "run_agent", "fork_agent", "task", "parallel_agents",
       // 团队协作工具（s10 Team Protocols）
       "request_shutdown", "respond_shutdown", "submit_plan", "review_plan", "list_pending_plans",
       // 自主任务工具（s11 Autonomous Agents）
       "scan_tasks", "claim_task", "complete_task", "create_team_task", "list_team_tasks",
       // Worktree 隔离工具（s12 Worktree Task Isolation）
       "worktree_create", "worktree_run", "worktree_closeout", "worktree_list", "worktree_status", "worktree_events",
+      // VSCode 扩展自迭代
+      "vscode_reload",
+      "webview_snapshot",
     ],
     maxSteps: DEFAULT_MAX_STEPS,
   },
@@ -114,7 +124,7 @@ export const BUILTIN_AGENTS: Record<AgentType, AgentDefinition> = {
     tools: [
       "read", "write", "append", "glob", "grep",
       // 规划模式可用的子代理
-      "ask_llm", "parallel_agents", "multi_agent",
+      "ask_llm", "fork_agent",
     ],
     maxSteps: 50,
   },

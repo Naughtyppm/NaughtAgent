@@ -1,8 +1,8 @@
 /**
  * 统一模型注册表
  *
- * 合并原来散落在 provider/types.ts 中的 3 套映射表
- * (KIRO_MODEL_MAP, ANTHROPIC_MODEL_MAP, COPILOT_MODEL_MAP)
+ * 合并原来散落在 provider/types.ts 中的映射表
+ * (ANTHROPIC_MODEL_MAP, COPILOT_MODEL_MAP)
  * 为单一数据源。新增模型只需在 MODEL_REGISTRY 中添加一行。
  */
 
@@ -15,8 +15,6 @@ export interface ModelEntry {
   anthropicId: string
   /** Copilot API 格式（不带日期后缀） */
   copilotId: string
-  /** Kiro 格式 */
-  kiroId: string
   /** UI 显示名 */
   displayName: string
   /** 性能档次 */
@@ -35,7 +33,7 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     shortName: "haiku",
     anthropicId: "claude-haiku-4-20250514",
     copilotId: "claude-haiku-4.5",
-    kiroId: "claude-haiku-4.5",
+
     displayName: "Claude Haiku 4",
     tier: "fast",
     supportsThinking: false,
@@ -47,7 +45,7 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     shortName: "sonnet",
     anthropicId: "claude-sonnet-4-20250514",
     copilotId: "claude-sonnet-4",
-    kiroId: "claude-sonnet-4",
+
     displayName: "Claude Sonnet 4",
     tier: "standard",
     supportsThinking: true,
@@ -57,7 +55,7 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     shortName: "sonnet-4.5",
     anthropicId: "claude-sonnet-4-5-20250514",
     copilotId: "claude-sonnet-4.5",
-    kiroId: "claude-sonnet-4.5",
+
     displayName: "Claude Sonnet 4.5",
     tier: "standard",
     supportsThinking: true,
@@ -67,7 +65,7 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     shortName: "sonnet-4.6",
     anthropicId: "claude-sonnet-4-6-20260206",
     copilotId: "claude-sonnet-4.6",
-    kiroId: "claude-sonnet-4.6",
+
     displayName: "Claude Sonnet 4.6",
     tier: "standard",
     supportsThinking: true,
@@ -79,7 +77,6 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     shortName: "opus",
     anthropicId: "claude-opus-4-20250514",
     copilotId: "claude-opus-4.5",
-    kiroId: "claude-opus-4.5",
     displayName: "Claude Opus 4",
     tier: "premium",
     supportsThinking: true,
@@ -89,7 +86,6 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     shortName: "opus-4.5",
     anthropicId: "claude-opus-4-5-20251101",
     copilotId: "claude-opus-4.5",
-    kiroId: "claude-opus-4.5",
     displayName: "Claude Opus 4.5",
     tier: "premium",
     supportsThinking: true,
@@ -99,7 +95,6 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
     shortName: "opus-4.6",
     anthropicId: "claude-opus-4-6-20260206",
     copilotId: "claude-opus-4.6",
-    kiroId: "claude-opus-4.6",
     displayName: "Claude Opus 4.6",
     tier: "premium",
     supportsThinking: true,
@@ -109,7 +104,7 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
 
 // ─── Provider 类型 ─────────────────────────────────────
 
-export type ModelProviderType = "anthropic" | "copilot" | "kiro"
+export type ModelProviderType = "anthropic" | "copilot"
 
 // ─── 查询和解析函数 ────────────────────────────────────
 
@@ -117,13 +112,11 @@ export type ModelProviderType = "anthropic" | "copilot" | "kiro"
 const _byShortName = new Map<string, ModelEntry>()
 const _byAnthropicId = new Map<string, ModelEntry>()
 const _byCopilotId = new Map<string, ModelEntry>()
-const _byKiroId = new Map<string, ModelEntry>()
 
 for (const entry of MODEL_REGISTRY) {
   _byShortName.set(entry.shortName, entry)
   _byAnthropicId.set(entry.anthropicId, entry)
   _byCopilotId.set(entry.copilotId, entry)
-  _byKiroId.set(entry.kiroId, entry)
 }
 
 /** 通过简写获取模型条目 */
@@ -143,7 +136,6 @@ export function getAvailableModels(): readonly ModelEntry[] {
  * - 简写：sonnet, opus, haiku, sonnet-4.5, opus-4.6 等
  * - Anthropic 完整格式：claude-sonnet-4-20250514
  * - Copilot 格式：claude-sonnet-4, claude-opus-4.6
- * - Kiro 格式：同 Copilot
  * - claude- 前缀简写：claude-sonnet, claude-opus
  * - OpenAI 兼容：gpt-4o, gpt-4o-mini, o1
  */
@@ -163,9 +155,6 @@ export function resolveModelId(
 
   const byCopilot = _byCopilotId.get(input)
   if (byCopilot) return getModelId(byCopilot, providerType)
-
-  const byKiro = _byKiroId.get(input)
-  if (byKiro) return getModelId(byKiro, providerType)
 
   // 3. 带版本号的简写：sonnet-4, opus-4, haiku-4
   const withVersion = _byShortName.get(input.replace(/-4$/, ""))
@@ -225,7 +214,6 @@ export function getModelEntry(modelId: string): ModelEntry | undefined {
   return (
     _byAnthropicId.get(modelId) ??
     _byCopilotId.get(modelId) ??
-    _byKiroId.get(modelId) ??
     _byShortName.get(modelId)
   )
 }
@@ -238,8 +226,6 @@ function getModelId(entry: ModelEntry, providerType: ModelProviderType): string 
       return entry.anthropicId
     case "copilot":
       return entry.copilotId
-    case "kiro":
-      return entry.kiroId
   }
 }
 

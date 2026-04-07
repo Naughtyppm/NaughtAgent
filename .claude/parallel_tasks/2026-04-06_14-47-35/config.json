@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-04-06_14-47-35",
+  "agents": [
+    {
+      "name": "todo_search",
+      "type": "run", 
+      "description": "搜索项目中所有 TODO 和 FIXME 注释"
+    },
+    {
+      "name": "tool_analysis",
+      "type": "run",
+      "description": "分析 packages/agent/src/tool/ 目录结构"
+    },
+    {
+      "name": "dependency_check",
+      "type": "run", 
+      "description": "检查 package.json 依赖版本"
+    }
+  ],
+  "merge_prompt": "汇总三个子任务的分析结果，生成项目状态简报",
+  "status": "completed"
+}

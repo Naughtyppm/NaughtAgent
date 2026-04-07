@@ -119,7 +119,7 @@ export class DaemonClient {
       });
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.json() as { pid?: number; uptime?: number; sessions?: unknown[] };
         this.updateStatus('connected', {
           pid: data.pid,
           uptime: data.uptime,

@@ -19,7 +19,7 @@ import { matchRules, getAlwaysLoadRules } from "./matcher"
 // Constants
 // ============================================================================
 
-const NAUGHT_DIR = ".naught"
+const NAUGHT_DIR = ".naughty"
 const RULES_DIR = "rules"
 const INDEX_FILE = "index.yaml"
 const INDEX_FILE_JSON = "index.json"

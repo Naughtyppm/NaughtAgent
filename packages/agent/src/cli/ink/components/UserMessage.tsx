@@ -9,7 +9,7 @@
  */
 
 import React from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text } from '../../cc-ink/index.js'
 import type { UserMessageProps } from '../types.js'
 
 /**

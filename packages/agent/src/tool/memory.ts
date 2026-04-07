@@ -58,6 +58,7 @@ Guidelines:
       return {
         title: "memory error",
         output: "Error: content is required for write/append actions.",
+        isError: true,
       }
     }
 

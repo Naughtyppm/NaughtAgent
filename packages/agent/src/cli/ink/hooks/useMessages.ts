@@ -27,12 +27,11 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
 }
 
-/** 流式更新节流间隔（毫秒）- 统一到 400ms，与 useSubAgent/StatusIndicator 对齐
- * 三套节流统一到同一节奏，消除多区域交替闪烁 */
-const STREAM_THROTTLE_MS = 400
+/** 流式更新节流间隔（毫秒）- 降低到 200ms 提高流畅性 */
+const STREAM_THROTTLE_MS = 200
 
-/** 最大更新频率（每秒最多更新次数）- 对应 400ms 间隔 */
-const MAX_UPDATES_PER_SECOND = 2.5
+/** 最大更新频率（每秒最多更新次数） */
+const MAX_UPDATES_PER_SECOND = 5
 
 /**
  * useMessages Hook
@@ -165,13 +164,13 @@ export function useMessages(): UseMessagesReturn {
       clearTimeout(timer)
       throttleTimerRef.current.delete(id)
     }
-    
+
     // 确保最终内容被更新
     const finalContent = pendingContentRef.current.get(id)
     pendingContentRef.current.delete(id)
     lastUpdateContentRef.current.delete(id)
     lastUpdateTimeRef.current.delete(id)
-    
+
     setMessages((prev) => {
       const idx = prev.findIndex(msg => msg.id === id && msg.type === 'ai')
       if (idx === -1) return prev
@@ -181,9 +180,53 @@ export function useMessages(): UseMessagesReturn {
         ...msg,
         content: finalContent ?? msg.content,
         isStreaming: false,
+        isThinking: false,
       }
       return next
     })
+  }, [])
+
+  /**
+   * 更新 AI 消息的 thinking 状态（带节流，防止高频重渲染）
+   * @param id 消息 ID
+   * @param thinking thinking 内容（累积）
+   * @param isThinking 是否正在思考
+   */
+  const thinkingPendingRef = useRef<Map<string, { thinking: string; isThinking: boolean }>>(new Map())
+  const thinkingTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+
+  const updateAIThinking = useCallback((id: string, thinking: string, isThinking: boolean): void => {
+    thinkingPendingRef.current.set(id, { thinking, isThinking })
+
+    // 如果已有节流定时器，只更新 pending 数据
+    if (thinkingTimerRef.current.has(id)) return
+
+    // 立即执行第一次更新
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id === id && msg.type === 'ai') {
+          return { ...msg, thinking, isThinking }
+        }
+        return msg
+      })
+    )
+
+    // 节流：200ms 内不再更新
+    const timer = setTimeout(() => {
+      thinkingTimerRef.current.delete(id)
+      const pending = thinkingPendingRef.current.get(id)
+      if (pending) {
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (msg.id === id && msg.type === 'ai') {
+              return { ...msg, thinking: pending.thinking, isThinking: pending.isThinking }
+            }
+            return msg
+          })
+        )
+      }
+    }, STREAM_THROTTLE_MS)
+    thinkingTimerRef.current.set(id, timer)
   }, [])
 
   /**
@@ -258,6 +301,7 @@ export function useMessages(): UseMessagesReturn {
     addUserMessage,
     addAIMessage,
     updateAIMessage,
+    updateAIThinking,
     finishAIMessage,
     addToolCall,
     updateToolCall,

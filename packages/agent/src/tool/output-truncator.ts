@@ -57,11 +57,11 @@ export interface OutputTruncator {
 // Constants
 // ============================================================================
 
-/** 默认配置 */
+/** 默认配置（参照 CC: DEFAULT_MAX_RESULT_SIZE_CHARS = 50,000） */
 export const DEFAULT_TRUNCATOR_CONFIG: OutputTruncatorConfig = {
-  maxLength: 10000,
-  headLength: 4000,
-  tailLength: 2000,
+  maxLength: 50000,
+  headLength: 20000,
+  tailLength: 10000,
   smartTruncate: true,
 }
 

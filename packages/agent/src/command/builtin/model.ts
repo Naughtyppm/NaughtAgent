@@ -12,7 +12,7 @@
 
 import type { BuiltinCommandDefinition } from './types.js'
 import type { ExecutionResult } from '../types.js'
-import { resolveModelName, isProxyBaseURL } from '../../provider/types.js'
+import { resolveModelName, isProxyBaseURL } from '../../config/models.js'
 
 /**
  * Copilot-api 模型列表（反代模式）

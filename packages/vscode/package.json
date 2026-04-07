@@ -2,8 +2,9 @@
   "name": "@naughtyagent/vscode",
   "displayName": "NaughtyAgent",
   "description": "AI 编程助手 - 类似 Claude Code 的 VS Code 插件",
-  "version": "0.1.0",
+  "version": "0.10.1",
   "publisher": "naughtyagent",
+  "icon": "resources/icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -39,6 +40,10 @@
           "type": "webview",
           "id": "naughtyagent.chatView",
           "name": "Chat"
+        },
+        {
+          "id": "naughtyagent.sessionsView",
+          "name": "会话列表"
         }
       ]
     },
@@ -95,6 +100,12 @@
         "icon": "$(trash)"
       },
       {
+        "command": "naughtyagent.clearAllSessions",
+        "title": "清除所有会话",
+        "category": "NaughtyAgent",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "naughtyagent.reconnect",
         "title": "重新连接",
         "category": "NaughtyAgent",
@@ -105,6 +116,35 @@
         "title": "显示 Daemon 状态",
         "category": "NaughtyAgent",
         "icon": "$(info)"
+      },
+      {
+        "command": "naughtyagent.debugPing",
+        "title": "调试发送链路",
+        "category": "NaughtyAgent",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "naughtyagent.showLogs",
+        "title": "显示日志",
+        "category": "NaughtyAgent",
+        "icon": "$(output)"
+      },
+      {
+        "command": "naughtyagent.openChatInEditor",
+        "title": "在编辑器中打开 Chat",
+        "category": "NaughtyAgent",
+        "icon": "$(window)"
+      },
+      {
+        "command": "naughtyagent.switchToSession",
+        "title": "切换到此会话",
+        "category": "NaughtyAgent"
+      },
+      {
+        "command": "naughtyagent.refreshSessions",
+        "title": "刷新会话列表",
+        "category": "NaughtyAgent",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -132,9 +172,36 @@
           "group": "navigation"
         },
         {
+          "command": "naughtyagent.openChatInEditor",
+          "when": "view == naughtyagent.chatView",
+          "group": "navigation"
+        },
+        {
           "command": "naughtyagent.clearChat",
           "when": "view == naughtyagent.chatView",
           "group": "navigation"
+        },
+        {
+          "command": "naughtyagent.newSession",
+          "when": "view == naughtyagent.sessionsView",
+          "group": "navigation"
+        },
+        {
+          "command": "naughtyagent.clearAllSessions",
+          "when": "view == naughtyagent.sessionsView",
+          "group": "navigation"
+        },
+        {
+          "command": "naughtyagent.refreshSessions",
+          "when": "view == naughtyagent.sessionsView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "naughtyagent.deleteSession",
+          "when": "view == naughtyagent.sessionsView && viewItem == session",
+          "group": "inline"
         }
       ]
     },

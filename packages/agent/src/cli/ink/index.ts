@@ -8,7 +8,7 @@
  */
 
 import React from 'react'
-import { render } from 'ink'
+import { render } from '../cc-ink/index.js'
 import { App } from './App.js'
 import type { ReplConfig } from './types.js'
 
@@ -61,7 +61,7 @@ export function checkTerminalSupport(): boolean {
  * @param config REPL 配置
  * @returns Ink 实例（用于清理）
  */
-export function startInkRepl(config: ReplConfig): { waitUntilExit: () => Promise<void> } {
+export async function startInkRepl(config: ReplConfig): Promise<{ waitUntilExit: () => Promise<void> }> {
   // 检查终端支持
   if (!checkTerminalSupport()) {
     console.warn('终端不支持 Ink，请使用传统 REPL 模式')
@@ -70,7 +70,7 @@ export function startInkRepl(config: ReplConfig): { waitUntilExit: () => Promise
 
   // 渲染 App 组件
   // exitOnCtrlC: false 让我们自己处理 Ctrl+C
-  const instance = render(React.createElement(App, { config }), {
+  const instance = await render(React.createElement(App, { config }), {
     exitOnCtrlC: false,
   })
 

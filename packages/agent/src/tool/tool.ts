@@ -16,17 +16,20 @@ export const TOOL_TIMEOUTS: Record<string, number> = {
   write: 10_000,    // 10 秒
   append: 10_000,   // 10 秒
   edit: 10_000,     // 10 秒
+  notebook_edit: 10_000, // 10 秒
   grep: 15_000,     // 15 秒
   bash: 60_000,     // 60 秒
   glob: 10_000,     // 10 秒
+  web_fetch: 30_000, // 30 秒
+  // 交互工具 - 用户需要时间阅读和回答
+  question: 300_000,      // 5 分钟
+  todo: 30_000,           // 30 秒
   // 子代理工具 - 需要更长超时
-  ask_llm: 60_000,        // 60 秒
-  run_agent: 180_000,     // 3 分钟
-  fork_agent: 180_000,    // 3 分钟
-  dispatch_agent: 300_000, // 5 分钟（内部调度多个子 agent）
-  parallel_agents: 300_000, // 5 分钟
-  multi_agent: 300_000,   // 5 分钟
-  run_workflow: 300_000,  // 5 分钟
+  ask_llm: 120_000,       // 2 分钟
+  run_agent: 600_000,     // 10 分钟
+  fork_agent: 600_000,    // 10 分钟
+  task: 600_000,          // 10 分钟（内部可能调 run_agent/fork_agent）
+  parallel_agents: 900_000, // 15 分钟（并行多个子 Agent）
 }
 
 /**
@@ -104,6 +107,8 @@ export namespace Tool {
     sharedContextId?: string
     /** 扩展元数据（工具可按需使用） */
     meta?: Record<string, unknown>
+    /** 流式输出回调：工具执行期间发送中间输出 chunk */
+    onOutputChunk?: (chunk: string) => void
   }
 
   /**
@@ -393,8 +398,12 @@ export namespace Tool {
   export interface Definition<TParams = unknown> {
     /** 工具 ID */
     id: string
-    /** 工具描述（给 LLM 看） */
-    description: string
+    /**
+     * 工具描述（给 LLM 看）
+     * - string: 静态描述（默认）
+     * - 函数: 动态描述，根据上下文变化（如 subagent 根据模式返回不同描述）
+     */
+    description: string | ((context?: { cwd?: string; depth?: number }) => string)
     /** 参数 Schema（Zod） */
     parameters: z.ZodType<TParams>
     /** 执行函数 */
@@ -417,6 +426,23 @@ export namespace Tool {
     source?: "builtin" | "mcp" | "custom"
     /** MCP 服务器名称（仅 MCP 工具） */
     mcpServer?: string
+
+    // ===== 并行执行控制 =====
+
+    /**
+     * 是否并行安全（可与其他工具同时执行）
+     * - true: 只读操作，无副作用（如 read, glob, grep）
+     * - false: 有写入或副作用（如 write, edit, bash）
+     * - 函数: 根据参数动态判断
+     * 默认 false（保守策略）
+     */
+    isConcurrencySafe?: boolean | ((input: TParams) => boolean)
+
+    /**
+     * 是否只读操作（不修改文件系统或外部状态）
+     * 默认 false
+     */
+    isReadOnly?: boolean | ((input: TParams) => boolean)
 
     // ===== 内部字段 =====
 
@@ -563,7 +589,8 @@ export namespace Tool {
   export class TimeoutError extends AgentError {
     constructor(toolId: string, timeout: number) {
       super(
-        `Tool '${toolId}' execution timed out after ${timeout}ms`,
+        `Tool '${toolId}' execution timed out after ${timeout}ms. ` +
+        `You should ask the user (via question tool) if they want to retry with a longer timeout or different approach.`,
         ErrorCode.TIMEOUT,
         true,
         { toolId, timeout }

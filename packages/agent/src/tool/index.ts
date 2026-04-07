@@ -8,15 +8,6 @@
 export { Tool, TOOL_TIMEOUTS, DEFAULT_TIMEOUT, getToolTimeout } from "./tool"
 export { ToolRegistry, ToolRegistryCompat, type TruncationOptions } from "./registry"
 
-// 工具执行包装器
-export {
-  withToolWrapper,
-  defineWithWrapper,
-  TimeoutError,
-  type ToolExecutionStats,
-  type WrapperOptions,
-} from "./wrapper"
-
 // Schema 转换
 export {
   jsonSchemaToZod,
@@ -54,42 +45,60 @@ export { GlobTool } from "./glob"
 export { GrepTool } from "./grep"
 export { LoadSkillTool } from "./load-skill"
 export { MemoryTool } from "./memory"
+export { NotebookEditTool } from "./notebook-edit"
+export { WebFetchTool } from "./web-fetch"
+export { EnterPlanModeTool, ExitPlanModeTool, isPlanMode } from "./plan-mode"
+export { VSCodeReloadTool } from "./vscode-reload"
+export { WebviewSnapshotTool, registerSnapshotRequestor, unregisterSnapshotRequestor } from "./webview-snapshot"
+
+// 文件访问预算
+export {
+  checkFileAccessBudget,
+  resetFileAccessBudget,
+  clearFileAccessBudget,
+  getFileAccessCount,
+} from "./file-access-budget"
+
+// 后台任务工具
+export {
+  TaskOutputTool,
+  TaskStopTool,
+  registerBackgroundTask,
+  updateBackgroundTask,
+  appendTaskOutput,
+  getBackgroundTask,
+  getAllBackgroundTasks,
+  type BackgroundTask,
+} from "./background-task"
+
+// Cron 定时任务工具
+export {
+  CronCreateTool,
+  CronDeleteTool,
+  CronListTool,
+  setCronFireCallback,
+  getAllCronJobs,
+  startCronScheduler,
+  stopCronScheduler,
+  clearAllCronJobs,
+  type CronJob,
+  type CronFireEvent,
+} from "./cron"
+
+// MCP 资源工具
+export {
+  ListMcpResourcesTool,
+  ReadMcpResourceTool,
+} from "./mcp-resource"
 
 // 子代理工具
 export {
   AskLlmTool,
   RunAgentTool,
   ForkAgentTool,
-  RunWorkflowTool,
-  ParallelAgentsTool,
-  MultiAgentTool,
   TaskTool,
   registerSubagentTools,
   updateParentContext,
   SUBAGENT_TOOL_IDS,
   type SubagentToolId,
 } from "./subagent"
-
-// 注册所有内置工具
-import { ToolRegistryCompat as ToolRegistry } from "./registry"
-import { ReadTool } from "./read"
-import { WriteTool } from "./write"
-import { AppendTool } from "./append"
-import { EditTool } from "./edit"
-import { BashTool } from "./bash"
-import { GlobTool } from "./glob"
-import { GrepTool } from "./grep"
-import { LoadSkillTool } from "./load-skill"
-import { MemoryTool } from "./memory"
-
-export function registerBuiltinTools(): void {
-  ToolRegistry.register(ReadTool)
-  ToolRegistry.register(WriteTool)
-  ToolRegistry.register(AppendTool)
-  ToolRegistry.register(EditTool)
-  ToolRegistry.register(BashTool)
-  ToolRegistry.register(GlobTool)
-  ToolRegistry.register(GrepTool)
-  ToolRegistry.register(LoadSkillTool)
-  ToolRegistry.register(MemoryTool)
-}

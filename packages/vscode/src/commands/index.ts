@@ -3,9 +3,9 @@
  */
 
 import * as vscode from 'vscode';
-import { ChatViewProvider } from './views/chat/ChatViewProvider';
-import { AgentClient } from './services/AgentClient';
-import { ContextCollector } from './services/ContextCollector';
+import { ChatViewProvider } from '../views/chat/ChatViewProvider';
+import { AgentClient } from '../services/AgentClient';
+import { ContextCollector } from '../services/ContextCollector';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -91,6 +91,14 @@ export function registerCommands(
 
       const message = `请帮我修复这段代码中的问题：\n\n文件: ${filePath}\n\n\`\`\`${language}\n${selection}\n\`\`\``;
       await chatViewProvider.sendMessage(message);
+    })
+  );
+
+  // 调试：直接由扩展侧发一条消息，绕过 webview 输入事件
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.debugPing', async () => {
+      await vscode.commands.executeCommand('naughtyagent.chatView.focus');
+      await chatViewProvider.sendMessage('你好，请回复一句话确认链路正常。');
     })
   );
 }

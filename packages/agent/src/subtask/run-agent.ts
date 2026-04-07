@@ -20,7 +20,8 @@ import {
   getAgentDefinition,
   type AgentType,
 } from "../agent"
-import type { ToolRegistry } from "../tool/registry"
+import { DEFAULT_MAX_TOKENS } from "../config"
+import { ToolRegistry } from "../tool/registry"
 import { createSession } from "../session"
 import { createProviderFromEnv, createProvider } from "../provider"
 import {
@@ -40,16 +41,14 @@ export interface RunAgentRuntime {
   baseURL?: string
   /** 固定模型（不能是 "auto"） */
   model?: string
+  /** 父 Agent 的 sessionId（用于 copilot-api 计费归属同一 interaction） */
+  sessionId?: string
   /** 事件监听器 - 用于向 UI 传递子 Agent 执行状态 */
   onEvent?: SubAgentEventListener
   /** 工具注册表实例（传递给子 Agent，确保子 Agent 能使用 read/write/edit 等基础工具） */
   toolRegistry?: ToolRegistry
 }
 
-/**
- * @deprecated 使用 RunAgentRuntime
- */
-export type AgentModeRuntime = RunAgentRuntime
 
 /**
  * 执行 run_agent 模式子任务
@@ -124,7 +123,7 @@ export async function runRunAgent(
           provider: "auto",
           model: runtime.model,
           temperature: filteredDefinition.model?.temperature || 0,
-          maxTokens: filteredDefinition.model?.maxTokens || 8192,
+          maxTokens: filteredDefinition.model?.maxTokens || DEFAULT_MAX_TOKENS,
         },
       }
     }
@@ -133,6 +132,15 @@ export async function runRunAgent(
     const session = createSession({
       cwd,
       agentType,
+    })
+
+    // 诊断：确认子 Agent 使用父 sessionId
+    const effectiveSessionId = runtime.sessionId || session.id
+    console.log('[run_agent] sessionId:', {
+      parent: runtime.sessionId?.slice(0, 8),
+      child: session.id.slice(0, 8),
+      effective: effectiveSessionId.slice(0, 8),
+      isProxy: !!runtime.baseURL?.includes('localhost'),
     })
 
     // 收集输出（在重试循环外声明，跨重试保留进度）
@@ -153,22 +161,44 @@ export async function runRunAgent(
         session,
         provider,
         runConfig: {
-          sessionId: session.id,
+          sessionId: runtime.sessionId || session.id,
           cwd,
           abort: config.abort,
         },
         depth: config.depth ?? 0,
         sharedContextId: config.sharedContextId,
-        toolRegistry: runtime.toolRegistry,
+        toolRegistry: runtime.toolRegistry ?? new ToolRegistry(),
       })
 
       // 工具执行计时（每次重试重置）
       const toolStartTimes = new Map<string, number>()
 
-      // 重试时用压缩后的摘要作为输入，首次用原始 prompt
-      const loopInput = attempt === 0
+      // 构建子 Agent 的输入消息
+      // 使用 ContentBlock[] 格式，注入 subagent marker 供 copilot-api 识别
+      const promptText = attempt === 0
         ? config.prompt
         : `[Context was compressed due to token overflow. Continue the task.]\n\nOriginal task: ${config.prompt}`
+
+      const loopInput: import("../session").ContentBlock[] = []
+
+      // 注入 copilot-api subagent marker（仅 proxy 模式）
+      // copilot-api 通过 parseSubagentMarkerFromFirstUser 检测第一条 user 消息中的
+      // <system-reminder>__SUBAGENT_MARKER__...</system-reminder> 标签，
+      // 检测到后会设置 x-initiator:"agent" + x-interaction-type:"conversation-subagent"，
+      // 避免子 Agent 请求被视为新的计费 turn。
+      if (runtime.baseURL && runtime.sessionId) {
+        const marker = JSON.stringify({
+          session_id: runtime.sessionId,
+          agent_id: subAgentId,
+          agent_type: config.agentType || "build",
+        })
+        loopInput.push({
+          type: "text",
+          text: `<system-reminder>__SUBAGENT_MARKER__${marker}</system-reminder>`,
+        })
+      }
+
+      loopInput.push({ type: "text", text: promptText })
 
       let shouldRetry = false
 
@@ -301,7 +331,3 @@ export async function runRunAgent(
   }
 }
 
-/**
- * @deprecated 使用 runRunAgent
- */
-export const runAgentTask = runRunAgent

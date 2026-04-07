@@ -20,21 +20,6 @@ export function setRunAgentRuntime(runtime: RunAgentRuntime) {
   globalRuntime = runtime
 }
 
-/**
- * @deprecated 使用 setGlobalSubAgentEventListener 代替
- * 保留此函数以保持向后兼容
- */
-export function setSubAgentEventListener(_listener: unknown) {
-  console.warn("[run_agent] setSubAgentEventListener is deprecated, use setGlobalSubAgentEventListener from subtask module")
-}
-
-/**
- * @deprecated 使用 getGlobalSubAgentEventListener 代替
- */
-export function getSubAgentEventListener() {
-  return getGlobalSubAgentEventListener()
-}
-
 const DESCRIPTION = `Run an autonomous sub-agent to complete a task.
 
 Use this for:
@@ -68,6 +53,7 @@ export const RunAgentTool = Tool.define({
       return {
         title: "run_agent",
         output: `Error: 子代理嵌套深度已达上限 (${MAX_SUBAGENT_DEPTH})。当前深度: ${currentDepth}。请在当前层级完成任务。`,
+        isError: true,
         metadata: { error: true, depth: currentDepth, maxDepth: MAX_SUBAGENT_DEPTH },
       }
     }
@@ -76,6 +62,7 @@ export const RunAgentTool = Tool.define({
       return {
         title: "run_agent",
         output: "Error: RunAgent runtime not configured.",
+        isError: true,
         metadata: { error: true },
       }
     }
@@ -125,6 +112,7 @@ export const RunAgentTool = Tool.define({
         return {
           title: "run_agent",
           output: `Error: ${result.error}`,
+          isError: true,
           metadata: { error: true, duration },
         }
       }
@@ -132,6 +120,7 @@ export const RunAgentTool = Tool.define({
       return {
         title: "run_agent",
         output: `Error: ${error instanceof Error ? error.message : String(error)}`,
+        isError: true,
         metadata: { error: true },
       }
     }

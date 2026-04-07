@@ -12,7 +12,7 @@
  * 需求: 6.2, 6.3, 6.5
  */
 
-import { useInput } from 'ink'
+import { useInput } from '../../cc-ink/index.js'
 import type { UseKeyboardOptions } from '../types.js'
 
 /**

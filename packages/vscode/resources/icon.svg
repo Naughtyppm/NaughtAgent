@@ -1,6 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <circle cx="12" cy="12" r="10"/>
-  <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
-  <line x1="9" y1="9" x2="9.01" y2="9"/>
-  <line x1="15" y1="9" x2="15.01" y2="9"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 猫耳朵 -->
+  <path d="M4 6 L6 2 L9 6" fill="currentColor" stroke="currentColor"/>
+  <path d="M20 6 L18 2 L15 6" fill="currentColor" stroke="currentColor"/>
+  <!-- 头部 -->
+  <ellipse cx="12" cy="12" rx="9" ry="8"/>
+  <!-- 眼睛 -->
+  <ellipse cx="8.5" cy="10.5" rx="1.2" ry="1.5" fill="currentColor"/>
+  <ellipse cx="15.5" cy="10.5" rx="1.2" ry="1.5" fill="currentColor"/>
+  <!-- 鼻子 -->
+  <path d="M11.5 13.5 L12 14.5 L12.5 13.5" fill="currentColor"/>
+  <!-- 嘴巴 -->
+  <path d="M10 15.5 Q12 17 14 15.5"/>
+  <!-- 胡须 -->
+  <line x1="2" y1="12" x2="7" y2="13"/>
+  <line x1="2" y1="14" x2="7" y2="14"/>
+  <line x1="17" y1="13" x2="22" y2="12"/>
+  <line x1="17" y1="14" x2="22" y2="14"/>
 </svg>

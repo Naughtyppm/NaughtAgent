@@ -12,7 +12,7 @@ import type { Message } from "./message"
 /**
  * 存储目录名
  */
-const STORAGE_DIR = ".naught"
+const STORAGE_DIR = ".naughty"
 const SESSIONS_DIR = "sessions"
 
 /**

@@ -14,7 +14,7 @@ import * as path from "path"
 import * as os from "os"
 import { createServer } from "../server"
 import type { ServerConfig } from "../server/types"
-import { DEFAULT_DAEMON_PORT, NAUGHTY_DIR_NAME } from "../config"
+import { DEFAULT_DAEMON_PORT, NAUGHTY_DIR_NAME, VERSION } from "../config"
 
 // ============================================================================
 // 配置
@@ -298,7 +298,7 @@ export function getDaemonStatus(): DaemonStatus {
     port: info.port,
     host: "127.0.0.1",
     url: `http://127.0.0.1:${info.port}`,
-    version: "0.1.0",
+    version: VERSION,
     uptime,
     sessions: serverInstance?.getSessionCount(),
   }

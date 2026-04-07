@@ -142,10 +142,6 @@ export interface AskLlmConfig extends SubTaskBaseConfig {
   schema?: ZodSchema
 }
 
-/**
- * @deprecated 使用 AskLlmConfig
- */
-export type APITaskConfig = AskLlmConfig
 
 // ============================================================================
 // run_agent (原 Agent) 模式
@@ -168,10 +164,6 @@ export interface RunAgentConfig extends SubTaskBaseConfig {
   depth?: number
 }
 
-/**
- * @deprecated 使用 RunAgentConfig
- */
-export type AgentTaskConfig = RunAgentConfig
 
 // ============================================================================
 // fork_agent 模式（新增）
@@ -241,10 +233,6 @@ export interface RunWorkflowConfig extends SubTaskBaseConfig {
   params?: Record<string, unknown>
 }
 
-/**
- * @deprecated 使用 RunWorkflowConfig
- */
-export type WorkflowTaskConfig = RunWorkflowConfig
 
 // ============================================================================
 // Unified Config

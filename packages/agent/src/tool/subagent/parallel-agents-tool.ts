@@ -1,370 +1,239 @@
 /**
- * parallel_agents 工具 - 融合代理协调并行执行
- * 
- * 架构：
- * 主 Agent → 融合 Agent（协调者）→ 多个子 Agent（干活的）
- *                 ↓
- *          汇总结果返回给主 Agent
- * 
+ * parallel_agents 工具 - 并行执行多个子 Agent
+ *
  * 特点：
- * - 主 Agent 只知道融合 Agent
- * - 融合 Agent 决定需要多少子 Agent
- * - 融合 Agent 分配任务、收集结果、汇总报告
+ * - 接收任务数组，并行启动多个 run_agent
+ * - 每个子任务独立执行，互不影响
+ * - 全部完成后汇总结果返回
+ * - 支持 child_start/child_end 事件，UI 可跟踪每个子任务状态
+ * - 单个子任务失败不影响其他子任务
  */
 
 import { z } from "zod"
 import { Tool } from "../tool"
-import { runRunAgent, runAskLlm, type RunAgentRuntime, type SubTaskProvider } from "../../subtask"
-import { createConcurrencyController } from "../../subtask/concurrency"
-import { getGlobalSubAgentEventListener } from "../../subtask/global-listener"
-import { generateSubAgentId, createSubAgentEmitter } from "../../subtask/events"
+import { runRunAgent, type RunAgentRuntime, getGlobalSubAgentEventListener } from "../../subtask"
+import {
+  generateSubAgentId,
+  createSubAgentEmitter,
+} from "../../subtask/events"
 
-// 全局运行时引用
-// 注意：globalRuntime 来自 runner.ts，已包含 toolRegistry 字段
-// 子代理通过 globalRuntime.toolRegistry 获取 read/write/edit 等基础工具
-// 如果手动构造 runtime 对象，务必保留 toolRegistry 字段
+// 全局运行时引用（由 register.ts 设置，与 run_agent 共用同一个）
 let globalRuntime: RunAgentRuntime | null = null
-let globalProvider: SubTaskProvider | null = null
-
-/** 最大并发数限制 */
-const MAX_CONCURRENCY = 3
 
 export function setParallelAgentsRuntime(runtime: RunAgentRuntime) {
   globalRuntime = runtime
 }
 
-export function setParallelAgentsProvider(provider: SubTaskProvider) {
-  globalProvider = provider
-}
+/** 最大并行子任务数 */
+const MAX_PARALLEL_TASKS = 10
 
-const DESCRIPTION = `Delegate a task to a synthesis agent that coordinates multiple sub-agents.
+/** 最大子代理嵌套深度 */
+const MAX_SUBAGENT_DEPTH = 3
 
-Use this for:
-- Multi-perspective analysis (the synthesis agent decides how many perspectives)
-- Complex tasks requiring parallel processing
-- Tasks that benefit from divide-and-conquer approach
+const DESCRIPTION = `Run multiple sub-agents in parallel and collect all results.
 
-The synthesis agent will:
-1. Analyze the task and decide how to split it
-2. Spawn appropriate sub-agents
-3. Collect and synthesize results
-4. Return a unified report
+Use this when you have 2+ independent tasks that can execute simultaneously.
+Each task gets its own isolated sub-agent with full tool access.
 
-You only interact with the synthesis agent - it handles all coordination.`
+All tasks run concurrently — a single task failure does NOT abort others.
+Results are returned as a structured summary once ALL tasks complete.
 
-/**
- * 分批并行执行，使用 ConcurrencyController 限制并发数并传递 abort 信号
- */
-async function runWithConcurrencyLimit<T, R>(
-  items: T[],
-  maxConcurrency: number,
-  fn: (item: T, signal: AbortSignal) => Promise<R>,
-  parentAbort?: AbortSignal
-): Promise<R[]> {
-  const controller = createConcurrencyController<T, R>()
-  
-  // 如果父级 abort，取消所有子任务
-  if (parentAbort) {
-    const onAbort = () => controller.abort()
-    parentAbort.addEventListener("abort", onAbort, { once: true })
-  }
+Example:
+  parallel_agents({
+    tasks: [
+      { name: "search-auth", prompt: "Find all authentication code" },
+      { name: "search-db", prompt: "Find all database queries" },
+      { name: "check-tests", prompt: "List all test files and their coverage" }
+    ]
+  })`
 
-  const result = await controller.run(
-    items,
-    fn,
-    { maxConcurrency, failFast: false }
-  )
-
-  // 返回所有成功的结果值（失败的在 executor 内部已处理并返回了结果对象）
-  return result.results
-    .filter((r) => r.value !== undefined)
-    .map((r) => r.value as R)
-}
-
-/**
- * 子任务定义（由融合代理生成）
- */
-interface SubTask {
-  name: string
-  prompt: string
-  agentType: "build" | "plan" | "explore"
-}
+const TaskSchema = z.object({
+  /** 子任务名称（用于标识结果） */
+  name: z.string().describe("Unique name to identify this task in results"),
+  /** 子任务描述 */
+  prompt: z.string().describe("Task description for the sub-agent"),
+  /** Agent 类型 */
+  agentType: z
+    .enum(["build", "plan", "explore"])
+    .optional()
+    .describe("Agent type: build (full), plan (read+write), explore (read-only). Default: build"),
+  /** 工具白名单 */
+  tools: z.array(z.string()).optional().describe("Specific tools to allow"),
+  /** 最大步数 */
+  maxTurns: z.number().optional().describe("Max tool calls for this task (default: 30)"),
+})
 
 export const ParallelAgentsTool = Tool.define({
   id: "parallel_agents",
   description: DESCRIPTION,
   parameters: z.object({
-    task: z.string().describe("The task to delegate to the synthesis agent"),
-    context: z.string().optional()
-      .describe("Additional context for the synthesis agent"),
-    maxSubAgents: z.number().optional()
-      .describe("Maximum number of sub-agents (default: 5)"),
-    maxTurnsPerAgent: z.number().optional()
-      .describe("Maximum tool calls per sub-agent (default: 15)"),
+    tasks: z
+      .array(TaskSchema)
+      .min(1)
+      .max(MAX_PARALLEL_TASKS)
+      .describe("Array of tasks to execute in parallel"),
   }),
 
   async execute(params, ctx) {
-    if (!globalRuntime || !globalProvider) {
+    // 深度检查
+    const currentDepth = ctx.depth ?? 0
+    if (currentDepth >= MAX_SUBAGENT_DEPTH) {
+      return {
+        title: "parallel_agents",
+        output: `Error: 子代理嵌套深度已达上限 (${MAX_SUBAGENT_DEPTH})。当前深度: ${currentDepth}。请使用 question 工具询问用户是否需要调整策略。`,
+        isError: true,
+        metadata: { error: true },
+      }
+    }
+
+    if (!globalRuntime) {
       return {
         title: "parallel_agents",
         output: "Error: ParallelAgents runtime not configured.",
+        isError: true,
         metadata: { error: true },
       }
     }
 
     const startTime = Date.now()
-    const maxSubAgents = params.maxSubAgents || 5
-    const maxTurns = params.maxTurnsPerAgent || 15
-
-    // 创建事件发射器
-    const subAgentId = generateSubAgentId()
+    const parentId = generateSubAgentId()
     const listener = getGlobalSubAgentEventListener()
-    const emitter = createSubAgentEmitter(subAgentId, listener ?? undefined, "parallel_agents")
+    const emitter = createSubAgentEmitter(parentId, listener ?? undefined, "parallel_agents")
 
     // 发送开始事件
-    emitter.start(params.task, "synthesis", maxSubAgents)
-
-    // 发送配置事件，记录并行执行配置
+    emitter.start(
+      `Parallel: ${params.tasks.map((t) => t.name).join(", ")}`,
+      "parallel",
+      params.tasks.length
+    )
     emitter.config({
-      maxTurns: maxTurns,
-      agentType: "synthesis",
+      maxTurns: params.tasks.length,
+      agentType: "parallel",
     })
 
-    try {
-      // Step 1: 融合代理分析任务，决定子任务分配
-      emitter.thinking("融合代理正在分析任务，规划子任务分配...")
-      const planningPrompt = `你是一个任务协调专家。请分析以下任务，决定如何分配给多个子代理并行执行。
+    // 并行启动所有子任务
+    const taskPromises = params.tasks.map(async (task) => {
+      const childId = generateSubAgentId()
 
-任务：${params.task}
-${params.context ? `\n上下文：${params.context}` : ""}
+      // 发送子任务开始事件
+      emitter.childStart(childId, task.name, task.prompt)
 
-请输出一个 JSON 数组，每个元素包含：
-- name: 子任务名称（简短描述）
-- prompt: 子任务的详细指令
-- agentType: 代理类型（"explore" 用于分析/阅读，"build" 用于修改/创建，"plan" 用于规划）
-
-要求：
-1. 最多 ${maxSubAgents} 个子任务
-2. 每个子任务应该是独立的，可以并行执行
-3. 子任务之间不应有依赖关系
-4. 确保覆盖任务的所有方面
-
-只输出 JSON 数组，不要其他内容。`
-
-      const planResult = await runAskLlm(
-        {
-          mode: "ask_llm",
-          prompt: planningPrompt,
-          systemPrompt: "你是一个任务分解专家，擅长将复杂任务拆分为可并行执行的子任务。只输出有效的 JSON。",
-          cwd: ctx.cwd,
-          abort: ctx.abort,
-        },
-        globalProvider
-      )
-
-      if (!planResult.success) {
-        const duration = Date.now() - startTime
-        emitter.end(false, `融合代理规划失败: ${planResult.error}`, duration, planResult.error)
-        return {
-          title: "parallel_agents",
-          output: `融合代理规划失败: ${planResult.error}`,
-          metadata: { error: true },
-        }
-      }
-
-      // 解析子任务
-      let subTasks: SubTask[]
       try {
-        // 尝试提取 JSON
-        const jsonMatch = planResult.output.match(/\[[\s\S]*\]/)
-        if (!jsonMatch) {
-          throw new Error("No JSON array found")
+        // 创建子 Agent 运行时，传入事件回调
+        const runtimeWithListener: RunAgentRuntime = {
+          ...globalRuntime!,
+          onEvent: listener ?? undefined,
         }
-        subTasks = JSON.parse(jsonMatch[0])
-        
-        // 验证和限制
-        if (!Array.isArray(subTasks) || subTasks.length === 0) {
-          throw new Error("Invalid subtasks array")
-        }
-        subTasks = subTasks.slice(0, maxSubAgents)
-        
-        emitter.thinking(`规划完成，将启动 ${subTasks.length} 个子代理并行执行`)
-      } catch (e) {
-        const duration = Date.now() - startTime
-        const errorMsg = `融合代理输出解析失败: ${e instanceof Error ? e.message : String(e)}`
-        emitter.end(false, errorMsg, duration, errorMsg)
+
+        const result = await runRunAgent(
+          {
+            mode: "run_agent",
+            prompt: task.prompt,
+            agentType: task.agentType || "build",
+            tools: task.tools,
+            maxTurns: task.maxTurns || 30,
+            cwd: ctx.cwd,
+            abort: ctx.abort,
+            depth: currentDepth + 1,
+            sharedContextId: ctx.sharedContextId,
+          },
+          runtimeWithListener
+        )
+
+        // 发送子任务结束事件
+        emitter.childEnd(childId, task.name, result.success, result.output, result.error)
+
         return {
-          title: "parallel_agents",
-          output: `${errorMsg}\n原始输出: ${planResult.output}`,
-          metadata: { error: true },
+          name: task.name,
+          success: result.success,
+          output: result.output,
+          error: result.error,
+          usage: result.usage,
+          steps: result.steps?.length ?? 0,
+          duration: result.duration,
         }
-      }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        emitter.childEnd(childId, task.name, false, "", errorMsg)
 
-      // Step 2: 并行执行子任务
-      const results = await runWithConcurrencyLimit(
-        subTasks,
-        MAX_CONCURRENCY,
-        async (task, signal) => {
-          const childId = `child-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-          
-          // 发送子任务开始事件
-          emitter.childStart(childId, task.name, task.prompt)
-          
-          // 检查 abort（来自 ConcurrencyController 或父级）
-          if (signal.aborted || ctx.abort?.aborted) {
-            emitter.childEnd(childId, task.name, false, "", "aborted")
-            return {
-              name: task.name,
-              prompt: task.prompt,
-              success: false,
-              output: "",
-              error: "aborted",
-              steps: 0,
-            }
-          }
-          
-          try {
-            const result = await runRunAgent(
-              {
-                mode: "run_agent",
-                prompt: task.prompt,
-                agentType: task.agentType || "explore",
-                maxTurns,
-                cwd: ctx.cwd,
-                abort: ctx.abort,
-              },
-              globalRuntime!
-            )
-            
-            // 发送子任务结束事件
-            emitter.childEnd(childId, task.name, result.success, result.output, result.error)
-            
-            return {
-              name: task.name,
-              prompt: task.prompt,
-              success: result.success,
-              output: result.output,
-              error: result.error,
-              steps: result.steps?.length || 0,
-            }
-          } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : String(error)
-            
-            // 发送子任务错误事件
-            emitter.childEnd(childId, task.name, false, "", errorMsg)
-            
-            return {
-              name: task.name,
-              prompt: task.prompt,
-              success: false,
-              output: "",
-              error: errorMsg,
-              steps: 0,
-            }
-          }
-        },
-        ctx.abort
-      )
-
-      // 格式化子代理结果
-      const subAgentOutputs: string[] = []
-      let totalSteps = 0
-      let successCount = 0
-
-      for (const result of results) {
-        totalSteps += result.steps
-        if (result.success) successCount++
-
-        subAgentOutputs.push(`### ${result.name}`)
-        subAgentOutputs.push(`任务: ${result.prompt}`)
-        if (result.success) {
-          subAgentOutputs.push(result.output)
-        } else {
-          subAgentOutputs.push(`错误: ${result.error}`)
-        }
-        subAgentOutputs.push("")
-      }
-
-      // Step 3: 融合代理汇总结果
-      // 检查取消
-      if (ctx.abort?.aborted) {
-        const duration = Date.now() - startTime
-        emitter.end(false, "Task aborted before synthesis", duration, "aborted")
         return {
-          title: "parallel_agents",
-          output: `# 子代理执行结果（已中止）\n\n${subAgentOutputs.join("\n")}`,
-          metadata: { error: false, aborted: true },
+          name: task.name,
+          success: false,
+          output: "",
+          error: errorMsg,
+          usage: { inputTokens: 0, outputTokens: 0 },
+          steps: 0,
+          duration: Date.now() - startTime,
         }
       }
-      
-      emitter.thinking(`所有子代理执行完成 (${successCount}/${results.length} 成功)，正在汇总结果...`)
-      const synthesisPrompt = `你是一个分析融合专家。以下是多个子代理针对任务的分析结果。
+    })
 
-原始任务：${params.task}
+    // 等待所有子任务完成
+    const results = await Promise.allSettled(taskPromises)
+    const duration = Date.now() - startTime
 
-各子代理分析结果：
-${subAgentOutputs.join("\n")}
+    // 汇总结果
+    const taskResults = results.map((r) =>
+      r.status === "fulfilled"
+        ? r.value
+        : {
+            name: "unknown",
+            success: false,
+            output: "",
+            error: r.reason?.message ?? String(r.reason),
+            usage: { inputTokens: 0, outputTokens: 0 },
+            steps: 0,
+            duration: 0,
+          }
+    )
 
-请你：
-1. 理解每个子代理的分析内容
-2. 找出关键发现和共同点
-3. 识别差异和潜在冲突
-4. 综合所有信息，给出一个完整、结构化的报告
+    const succeeded = taskResults.filter((r) => r.success).length
+    const failed = taskResults.filter((r) => !r.success).length
+    const totalUsage = taskResults.reduce(
+      (acc, r) => ({
+        inputTokens: acc.inputTokens + (r.usage?.inputTokens ?? 0),
+        outputTokens: acc.outputTokens + (r.usage?.outputTokens ?? 0),
+      }),
+      { inputTokens: 0, outputTokens: 0 }
+    )
 
-报告应该直接回答原始任务，不需要重复列出各子代理的原始输出。`
+    // 格式化输出
+    const outputLines: string[] = [
+      `## Parallel Results (${succeeded}/${params.tasks.length} succeeded, ${duration}ms)`,
+      "",
+    ]
 
-      const synthesisResult = await runAskLlm(
-        {
-          mode: "ask_llm",
-          prompt: synthesisPrompt,
-          systemPrompt: "你是一个专业的分析融合专家，擅长整合多个来源的信息，提炼关键洞察，形成结构化的综合报告。",
-          cwd: ctx.cwd,
-          abort: ctx.abort,
-        },
-        globalProvider
-      )
-
-      const duration = Date.now() - startTime
-
-      // 构建最终输出
-      let finalOutput: string
-      if (synthesisResult.success) {
-        finalOutput = `# 综合分析报告\n\n${synthesisResult.output}\n\n---\n\n## 执行详情\n\n- 子代理数量: ${subTasks.length}\n- 成功: ${successCount}/${results.length}\n- 总工具调用: ${totalSteps}\n- 耗时: ${Math.round(duration / 1000)}s`
-      } else {
-        // 融合失败，返回原始结果
-        finalOutput = `# 子代理执行结果\n\n${subAgentOutputs.join("\n")}\n\n---\n\n融合汇总失败: ${synthesisResult.error}`
+    for (const result of taskResults) {
+      const status = result.success ? "✓" : "✗"
+      outputLines.push(`### ${status} ${result.name} (${result.steps} steps, ${result.duration}ms)`)
+      if (result.error) {
+        outputLines.push(`**Error**: ${result.error}`)
       }
+      outputLines.push(result.output)
+      outputLines.push("")
+    }
 
-      // 发送结束事件
-      emitter.end(true, finalOutput, duration, undefined, {
-        inputTokens: (planResult.usage?.inputTokens || 0) + (synthesisResult.usage?.inputTokens || 0),
-        outputTokens: (planResult.usage?.outputTokens || 0) + (synthesisResult.usage?.outputTokens || 0),
-      })
+    const output = outputLines.join("\n")
 
-      return {
-        title: "parallel_agents",
-        output: finalOutput,
-        metadata: {
-          duration,
-          subAgentCount: subTasks.length,
-          successCount,
-          totalSteps,
-          planningUsage: planResult.usage,
-          synthesisUsage: synthesisResult.usage,
-        },
-      }
-    } catch (error) {
-      const duration = Date.now() - startTime
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      
-      // 发送错误结束事件
-      emitter.end(false, `Error: ${errorMsg}`, duration, errorMsg)
-      
-      return {
-        title: "parallel_agents",
-        output: `Error: ${errorMsg}`,
-        metadata: { error: true },
-      }
+    // 发送结束事件
+    emitter.end(failed === 0, output, duration, failed > 0 ? `${failed} task(s) failed` : undefined, totalUsage)
+
+    return {
+      title: "parallel_agents",
+      output,
+      metadata: {
+        duration,
+        succeeded,
+        failed,
+        total: params.tasks.length,
+        usage: totalUsage,
+        tasks: taskResults.map((r) => ({
+          name: r.name,
+          success: r.success,
+          steps: r.steps,
+          duration: r.duration,
+        })),
+      },
     }
   },
 })

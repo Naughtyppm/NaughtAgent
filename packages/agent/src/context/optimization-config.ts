@@ -3,7 +3,7 @@
  *
  * 负责：
  * - 定义优化配置接口和默认值
- * - 从 .naught/config.json 加载配置
+ * - 从 .naughty/config.json 加载配置
  * - 合并用户配置和默认配置
  *
  * 需求: 7.1, 7.2, 7.3, 7.4, 7.5
@@ -117,7 +117,7 @@ type DeepPartial<T> = {
 // ============================================================================
 
 /** 配置文件路径 */
-const CONFIG_FILE_PATH = ".naught/config.json"
+const CONFIG_FILE_PATH = ".naughty/config.json"
 
 /** 默认优化配置 */
 export const DEFAULT_OPTIMIZATION_CONFIG: OptimizationConfig = {
@@ -130,9 +130,9 @@ export const DEFAULT_OPTIMIZATION_CONFIG: OptimizationConfig = {
   },
   truncation: {
     enabled: true,
-    maxLength: 10000,
-    headLength: 4000,
-    tailLength: 2000,
+    maxLength: 30000,
+    headLength: 12000,
+    tailLength: 8000,
   },
   contentCache: {
     enabled: true,
@@ -165,7 +165,7 @@ export function createOptimizationConfigManager(): OptimizationConfigManager {
 /**
  * 加载配置
  *
- * 从 .naught/config.json 读取配置，与默认配置合并
+ * 从 .naughty/config.json 读取配置，与默认配置合并
  * 需求 7.1, 7.2, 7.3, 7.4: 支持通过配置文件设置各项参数
  * 需求 7.5: 缺失配置值时使用默认值
  */

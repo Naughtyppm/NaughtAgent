@@ -2,7 +2,7 @@
  * Context 上下文系统
  *
  * 负责：
- * - 加载项目规则 (.naught/rules/)
+ * - 加载项目规则 (.naughty/rules/)
  * - 收集项目结构（目录树、技术栈）
  * - 获取 Git 上下文
  * - 加载配置文件
@@ -132,7 +132,7 @@ export interface Context {
 // Constants
 // ============================================================================
 
-const NAUGHT_DIR = ".naught"
+const NAUGHT_DIR = ".naughty"
 const RULES_DIR = "rules"
 const CONFIG_FILE = "config.json"
 
@@ -163,7 +163,7 @@ const KEY_FILES = [
   "go.mod",
   "pyproject.toml",
   "requirements.txt",
-  ".naught/rules/*.md",
+  ".naughty/rules/*.md",
 ]
 
 // ============================================================================

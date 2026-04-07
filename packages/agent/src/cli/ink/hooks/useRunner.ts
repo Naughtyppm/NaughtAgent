@@ -10,14 +10,13 @@
  * 需求: 1.3, 8.1, 8.2
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { createRunner, type Runner, type RunnerEventHandlers } from '../../runner.js'
 import type { Session } from '../../../session/session.js'
 import type {
   UseRunnerOptions,
   UseRunnerReturn,
   RunnerEvent,
-  PermissionRequest,
 } from '../types.js'
 
 /**
@@ -30,13 +29,12 @@ import type {
  * @returns UseRunnerReturn
  */
 export function useRunner(options: UseRunnerOptions): UseRunnerReturn & { resetRunner: () => void } {
-  const { config, onPermissionRequest } = options
+  const { config } = options
 
   const [isRunning, setIsRunning] = useState(false)
   const [events, setEvents] = useState<RunnerEvent[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
   const runnerRef = useRef<Runner | null>(null)
-  const autoConfirmRef = useRef({ value: config.autoConfirm })
   
   // 保存会话引用，确保切换模型/Agent 时不丢失对话历史
   const sessionRef = useRef<Session | null>(null)
@@ -44,11 +42,6 @@ export function useRunner(options: UseRunnerOptions): UseRunnerReturn & { resetR
   // 保存最新的配置引用
   const configRef = useRef(config)
   configRef.current = config
-
-  // 同步 autoConfirm 状态
-  useEffect(() => {
-    autoConfirmRef.current.value = config.autoConfirm
-  }, [config.autoConfirm])
 
   // 创建 Runner（懒加载）
   const getRunner = useCallback(() => {
@@ -60,20 +53,10 @@ export function useRunner(options: UseRunnerOptions): UseRunnerReturn & { resetR
         model: currentConfig.model,
         apiKey: process.env.ANTHROPIC_API_KEY,
         baseURL: process.env.ANTHROPIC_BASE_URL,
-        autoConfirmRef: autoConfirmRef.current,
         // 传入已有的 session（如果有）
         existingSession: sessionRef.current,
         // Extended Thinking 配置
         thinking: currentConfig.thinking,
-        onConfirm: async (request) => {
-          // 转换权限请求格式
-          const inkRequest: PermissionRequest = {
-            type: request.type,
-            resource: request.resource,
-            description: request.description || `执行 ${request.type} 操作`,
-          }
-          return onPermissionRequest(inkRequest)
-        },
       })
       
       // 保存 session 引用
@@ -83,7 +66,7 @@ export function useRunner(options: UseRunnerOptions): UseRunnerReturn & { resetR
       }
     }
     return runnerRef.current
-  }, [onPermissionRequest])
+  }, [])
 
   /**
    * 重置 Runner（用于切换模型/Agent）

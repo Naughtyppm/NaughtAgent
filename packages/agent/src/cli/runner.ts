@@ -14,7 +14,7 @@ import {
   type AgentType,
   type AgentEvent,
 } from "../agent"
-import { createSession, type Session } from "../session"
+import { createSession, type Session, type ContentBlock, type ImageBlock } from "../session"
 import {
   createProvider,
   createProviderFromEnv,
@@ -31,28 +31,40 @@ import { GlobTool } from "../tool/glob"
 import { GrepTool } from "../tool/grep"
 import { TodoTool } from "../interaction/todo"
 import { QuestionTool } from "../interaction/question"
+import { setInteractionCallbacks } from "../interaction/callbacks"
 import { LoadSkillTool } from "../tool/load-skill"
+import { CreateSkillTool } from "../tool/create-skill"
+import { EmitEventTool } from "../tool/emit-event"
 import { CompactTool } from "../tool/compact"
 import { MemoryTool } from "../tool/memory"
+import { NotebookEditTool } from "../tool/notebook-edit"
+import { WebFetchTool } from "../tool/web-fetch"
+import { TaskOutputTool, TaskStopTool } from "../tool/background-task"
+import { EnterPlanModeTool, ExitPlanModeTool, isPlanMode } from "../tool/plan-mode"
+import { ListMcpResourcesTool, ReadMcpResourceTool } from "../tool/mcp-resource"
+import { CronCreateTool, CronDeleteTool, CronListTool } from "../tool/cron"
+import { VSCodeReloadTool } from "../tool/vscode-reload"
+import { WebviewSnapshotTool } from "../tool/webview-snapshot"
 import { initKnowledgeSkills, getKnowledgeSkillLoader } from "../skill/knowledge"
+import { initSkillHookRegistry } from "../skill/skill-hooks"
 import { initSkills } from "../skill"
+import { clearReadCache } from "../tool/read"
+import { clearFileAccessBudget } from "../tool/file-access-budget"
 import { existsSync } from "fs"
 import { homedir } from "os"
 import * as path from "path"
 import { registerSubagentTools } from "../tool/subagent"
+import { initMcpManager, type McpManager } from "../mcp/manager"
 import type { SubTaskProvider, RunAgentRuntime } from "../subtask"
 import { getSubAgentConfigManager, getAgentRegistry } from "../subtask"
 import {
   createDefaultPermissions,
-  checkPermission,
   type PermissionSet,
-  type PermissionRequest,
   type ConfirmCallback,
-  type PermissionType,
 } from "../permission"
-import { microCompact, autoCompact, estimateTokens } from "../agent/compact"
+import { microCompact, autoCompact, estimateTokens, COMPACT_SYSTEM_PROMPT, COMPACT_USER_PROMPT_PREFIX, MEMORY_EXTRACT_PROMPT, clearAutoCompactFailures } from "../agent/compact"
 import { DEFAULT_MAX_TOKENS, DEFAULT_THINKING_BUDGET, AUTO_COMPACT_TOKEN_THRESHOLD } from "../config"
-import { createLogger } from "../logging"
+import { createLogger, Logger } from "../logging"
 
 const log = createLogger("runner")
 
@@ -65,16 +77,20 @@ export interface RunnerConfig {
   apiKey?: string
   baseURL?: string
   permissions?: Partial<PermissionSet>
-  onConfirm?: ConfirmCallback
-  autoConfirm?: boolean
-  autoConfirmRef?: { value: boolean }
+
   existingSession?: Session | null
   thinking?: { enabled: boolean; budgetTokens?: number }
   backgroundNotifications?: Array<{ taskId: string; command: string; output: string; error?: string }>
+  maxConsecutiveErrors?: number
+  /** 持久模式：LLM 回复完后等待用户输入，而非退出 loop */
+  waitForInput?: () => Promise<string | null>
+  /** Question 工具回调：前端弹窗获取用户回答 */
+  onQuestion?: (question: { type: string; message: string; options?: Array<{ value: string; label: string; description?: string }>; default?: unknown }) => Promise<{ answered: boolean; value: string | boolean | string[] | null; cancelled: boolean }>
 }
 
 export interface RunOptions {
   abort?: AbortSignal
+  attachments?: Array<{ type: string; data: string; mimeType: string }>
 }
 
 export interface RunnerEventHandlers {
@@ -86,9 +102,13 @@ export interface RunnerEventHandlers {
   onThinkingEnd?: () => void
   onToolStart?: (id: string, name: string, input: unknown) => void
   onToolEnd?: (id: string, output: string, isError?: boolean) => void
+  /** 工具流式输出（side-channel，不经过 generator） */
+  onToolOutputStream?: (id: string, chunk: string) => void
   onError?: (error: Error) => void
-  onDone?: (usage: { inputTokens: number; outputTokens: number }) => void
-  onPermissionRequest?: (request: PermissionRequest) => void
+  onDone?: (usage: { inputTokens: number; outputTokens: number; cacheCreationTokens?: number; cacheReadTokens?: number }) => void
+  onPermissionRequest?: (request: { type: string; resource: string; description?: string }) => void
+  /** 持久模式：Agent 完成当前回合，等待用户输入 */
+  onAwaitInput?: (usage?: { inputTokens: number; outputTokens: number }) => void
 }
 
 // ─── 模型配置 ─────────────────────────────────────────
@@ -119,44 +139,14 @@ function applyModelConfig(
 
 // ─── 权限 ─────────────────────────────────────────────
 
-const TOOL_PERMISSION_MAP: Record<string, PermissionType> = {
-  read: "read", write: "write", edit: "edit",
-  bash: "bash", glob: "glob", grep: "grep",
-}
-
-function getResourceFromInput(toolName: string, input: unknown): string {
-  const obj = input as Record<string, unknown>
-  switch (toolName) {
-    case "read": case "write": case "edit":
-      return String(obj.filePath || obj.file_path || "")
-    case "bash": return String(obj.command || "")
-    case "glob": case "grep": return String(obj.pattern || "")
-    default: return JSON.stringify(input)
-  }
-}
-
 function buildPermissionChecker(
-  permissions: PermissionSet,
-  confirmCallback: ConfirmCallback,
-  handlers: RunnerEventHandlers,
+  _permissions: PermissionSet,
+  _confirmCallback: ConfirmCallback,
+  _handlers: RunnerEventHandlers,
 ): PermissionChecker {
-  return async (toolName: string, input: unknown): Promise<boolean> => {
-    const permType = TOOL_PERMISSION_MAP[toolName]
-    if (!permType) return true // 未映射的工具默认允许
-
-    const request: PermissionRequest = {
-      type: permType,
-      resource: getResourceFromInput(toolName, input),
-      description: `Execute ${toolName}`,
-    }
-
-    const result = checkPermission(request, permissions)
-    if (result.action === "allow") return true
-    if (result.action === "deny") return false
-
-    // 仅需要用户确认时才发送通知（避免 allow/deny 时也弹窗）
-    handlers.onPermissionRequest?.(request)
-    return confirmCallback(request)
+  // 所有工具操作自动批准，不需要权限确认
+  return async (_toolName: string, _input: unknown): Promise<boolean> => {
+    return true
   }
 }
 
@@ -188,6 +178,9 @@ function dispatchEvent(event: AgentEvent, handlers: RunnerEventHandlers): void {
     case "done":
       handlers.onDone?.(event.usage)
       break
+    case "await_input":
+      handlers.onAwaitInput?.(event.usage)
+      break
   }
 }
 
@@ -199,9 +192,6 @@ export function createRunner(config: RunnerConfig) {
     cwd = process.cwd(),
     model, apiKey, baseURL,
     permissions: customPermissions,
-    onConfirm,
-    autoConfirm = false,
-    autoConfirmRef,
     existingSession,
   } = config
 
@@ -209,12 +199,26 @@ export function createRunner(config: RunnerConfig) {
   const toolRegistry = new ToolRegistry()
   registerBuiltinTools(toolRegistry)
 
+  // 启用文件日志（写入项目下 .naughty/logs/）
+  const logDir = path.join(cwd, '.naughty', 'logs')
+  Logger.enableFileLog(logDir)
+  log.debug('Session started', { cwd, agentType, logFile: Logger.getFileLogPath() })
+
   // Skill 系统初始化（s05: 两层注入）
   initSkills() // 注册 Workflow Skill (commit/pr/review/test)
-  initKnowledgeSkillDirs(cwd) // 初始化 Knowledge Skill（全局 + 项目级）
+  initKnowledgeSkillDirs(cwd) // 初始化 Knowledge Skill（全局 + 项目级 + CC全局）
+  initSkillHooks() // 初始化 Skill Hook 注册表（事件总线）
 
   // 子 Agent 初始化
   const subAgentSystemReady = initializeSubAgentSystem(cwd)
+
+  // MCP 初始化（异步，不阻塞启动）
+  let mcpManager: McpManager | null = null
+  const mcpReady = initializeMcpSystem(cwd).then((manager) => {
+    mcpManager = manager
+  }).catch((error) => {
+    log.warn("MCP 初始化失败（跳过）:", { error: error instanceof Error ? error.message : String(error) })
+  })
 
   // Provider
   const provider: LLMProvider = apiKey
@@ -222,7 +226,7 @@ export function createRunner(config: RunnerConfig) {
     : createProviderFromEnv()
 
   // 子代理适配
-  const subAgentModel = (model && model !== "auto") ? model : "claude-sonnet-4"
+  let subAgentModel = (model && model !== "auto") ? model : "claude-sonnet-4"
   const subTaskProvider: SubTaskProvider = {
     async chat(options) {
       if (options.abort?.aborted) throw new Error("Task was aborted")
@@ -235,6 +239,7 @@ export function createRunner(config: RunnerConfig) {
       const response = await provider.chat({
         model: { provider: "auto", model: effectiveModel },
         messages, system: systemMessage?.content, abortSignal: options.abort,
+        sessionId: agentRuntime.sessionId,
       })
       return { content: response.text, usage: response.usage }
     },
@@ -266,12 +271,8 @@ export function createRunner(config: RunnerConfig) {
     ? { rules: [...(customPermissions.rules || []), ...basePermissions.rules], default: customPermissions.default || basePermissions.default }
     : basePermissions
 
-  const confirmCallback: ConfirmCallback = async (request) => {
-    if (autoConfirmRef ? autoConfirmRef.value : autoConfirm) return true
-    const result = checkPermission(request, permissions)
-    if (result.action === "allow") return true
-    if (result.action === "deny") return false
-    return onConfirm ? onConfirm(request) : false
+  const confirmCallback: ConfirmCallback = async (_request) => {
+    return true // 所有操作自动批准
   }
 
   let session: Session | null = existingSession || null
@@ -279,41 +280,125 @@ export function createRunner(config: RunnerConfig) {
   return {
     async run(input: string, handlers: RunnerEventHandlers = {}, options: RunOptions = {}): Promise<void> {
       await subAgentSystemReady
+      await mcpReady
       if (!session) session = createSession({ cwd, agentType })
+
+      // 将主 Agent sessionId 传递给子 Agent runtime，确保 copilot-api 计费归属同一 interaction
+      agentRuntime.sessionId = session.id
+
+      // 构建消息内容块（支持多模态附件）
+      const contentBlocks: ContentBlock[] = [{ type: "text", text: input }]
+      if (options.attachments?.length) {
+        for (const att of options.attachments) {
+          if (att.type === "image") {
+            contentBlocks.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: att.mimeType as ImageBlock["source"]["media_type"],
+                data: att.data,
+              },
+            } as ImageBlock)
+          }
+        }
+      }
 
       // 构建权限检查器（在 loop 层拦截，不是事后通知）
       const permissionChecker = buildPermissionChecker(permissions, confirmCallback, handlers)
 
       // compact 摘要器（供 autoCompact 和 compact 工具共用）
+      // 使用 CC 9 段结构 + <analysis>/<summary> 模式
       const summarizer = async (text: string): Promise<string> => {
         const resp = await provider.chat({
           model: definition.model || { provider: "auto", model: "claude-sonnet-4" },
-          messages: [{ role: "user", content: "Summarize this conversation concisely. Include:\n1) What was accomplished so far\n2) Current state and next steps\n3) Key decisions made\n4) ALL files that were read (list file paths) - these must NOT be re-read\n5) ALL files that were created or modified\n\n" + text }],
-          system: "You are a conversation summarizer. Output a concise summary. IMPORTANT: List every file path that was read, so the agent knows not to re-read them.",
+          messages: [{ role: "user", content: COMPACT_USER_PROMPT_PREFIX + text }],
+          system: COMPACT_SYSTEM_PROMPT,
+        })
+        return resp.text
+      }
+
+      // toolMeta 对象（PlanMode 工具会修改 meta.planMode）
+      // compact 工具通过 meta 获取 autoCompact/estimateTokens，避免 tool→agent 直接依赖
+      const toolMeta: Record<string, unknown> = { session, summarizer, mcpManager, autoCompact, estimateTokens }
+
+      // 计划模式写入拦截（包装 permissionChecker）
+      const PLAN_MODE_BLOCKED_TOOLS = new Set(["write", "edit", "append", "bash", "notebook_edit"])
+      const wrappedPermissionChecker: PermissionChecker = async (toolName, input) => {
+        if (isPlanMode(toolMeta) && PLAN_MODE_BLOCKED_TOOLS.has(toolName)) {
+          return false // 计划模式下拒绝写入工具
+        }
+        return permissionChecker(toolName, input)
+      }
+
+      // 独立记忆提取器（使用专用 system prompt，不复用 summarizer 的 COMPACT_SYSTEM_PROMPT）
+      const memoryExtractor = async (text: string): Promise<string> => {
+        const resp = await provider.chat({
+          model: definition.model || { provider: "auto", model: "claude-sonnet-4" },
+          messages: [{ role: "user", content: MEMORY_EXTRACT_PROMPT + text }],
         })
         return resp.text
       }
 
       // compact 管道通过 onBeforeStep 注入
+      const compactOptions = { memoryExtractor, cwd }
+      let lastLoopDetectedStep = 0  // 上次循环检测 compact 的 step（间隔至少 20 步可再触发）
       const onBeforeStep = async (ctx: { session: Session; stepCount: number; provider: LLMProvider }) => {
         microCompact(ctx.session)
         if (estimateTokens(ctx.session) > AUTO_COMPACT_TOKEN_THRESHOLD) {
-          await autoCompact(ctx.session, summarizer)
+          await autoCompact(ctx.session, summarizer, compactOptions)
         }
+        // 循环模式检测：最近 N 条消息中 read 类 tool_use 占比过高时触发 compact
+        // 这能在 token 阈值之前介入，打破"读取-遗忘-再读取"循环
+        // 可多次触发（每次间隔至少 20 步），不再限制只触发一次
+        if (ctx.stepCount > 20 && (ctx.stepCount - lastLoopDetectedStep) >= 20) {
+          const recentMsgs = ctx.session.messages.slice(-20)
+          let readToolCount = 0
+          let totalToolCount = 0
+          for (const msg of recentMsgs) {
+            for (const block of msg.content) {
+              if (block.type === 'tool_use') {
+                totalToolCount++
+                if (block.name === 'read' || block.name === 'glob' || block.name === 'grep') {
+                  readToolCount++
+                }
+              }
+            }
+          }
+          // 如果最近 20 条消息中 80%+ 的工具调用都是 read/glob/grep，判定为循环
+          if (totalToolCount >= 8 && readToolCount / totalToolCount > 0.8) {
+            lastLoopDetectedStep = ctx.stepCount
+            await autoCompact(ctx.session, summarizer, compactOptions)
+          }
+        }
+      }
+
+      // 注册 Question 工具回调（如果提供了 onQuestion）
+      if (config.onQuestion) {
+        setInteractionCallbacks({
+          onQuestion: async (question) => {
+            return config.onQuestion!(question)
+          },
+        })
       }
 
       const loop = createAgentLoop({
         definition, session, provider,
         runConfig: { sessionId: session.id, cwd, abort: options.abort },
         toolRegistry,
-        permissionChecker,
+        permissionChecker: wrappedPermissionChecker,
+        maxConsecutiveErrors: config.maxConsecutiveErrors,
+        waitForInput: config.waitForInput,
         onBeforeStep,
-        toolMeta: { session, summarizer },
+        onReactiveCompact: async (s: Session) => {
+          return await autoCompact(s, summarizer, compactOptions)
+        },
+        toolMeta,
         backgroundNotifications: config.backgroundNotifications,
+        onToolOutputStream: handlers.onToolOutputStream,
       })
 
       try {
-        for await (const event of loop.run(input)) {
+        for await (const event of loop.run(contentBlocks)) {
           if (options.abort?.aborted) break
           dispatchEvent(event, handlers)
         }
@@ -324,11 +409,23 @@ export function createRunner(config: RunnerConfig) {
     },
 
     getSession(): Session | null { return session },
-    resetSession(): void { session = null },
+    resetSession(): void {
+      // 清理 session 关联的全局缓存，防止跨 session 泄漏
+      const sessionId = session?.id
+      clearReadCache(sessionId)
+      clearFileAccessBudget()
+      clearAutoCompactFailures(sessionId)
+      session = null
+    },
     getPermissions(): PermissionSet { return permissions },
 
     setModel(newModel: string): void {
       applyModelConfig(definition, newModel)
+      // 同步更新子 agent 模型
+      if (newModel && newModel !== "auto") {
+        subAgentModel = newModel
+        agentRuntime.model = newModel
+      }
     },
 
     setThinking(thinking: { enabled: boolean; budgetTokens?: number }): void {
@@ -357,10 +454,35 @@ function registerBuiltinTools(registry: ToolRegistry): void {
   registry.register(QuestionTool)
   // Knowledge Skill 加载器（s05: Layer 2 按需加载）
   registry.register(LoadSkillTool)
+  // Knowledge Skill 创建器（CC 兼容，支持 hooks/emits）
+  registry.register(CreateSkillTool)
+  // 事件发射工具（CC 事件总线兼容）
+  registry.register(EmitEventTool)
   // 上下文压缩工具（s06: Layer 3 LLM 主动触发）
   registry.register(CompactTool)
   // 持久记忆工具（跨会话记忆）
   registry.register(MemoryTool)
+  // Jupyter Notebook 编辑工具
+  registry.register(NotebookEditTool)
+  // 网页抓取工具
+  registry.register(WebFetchTool)
+  // 后台任务管理工具
+  registry.register(TaskOutputTool)
+  registry.register(TaskStopTool)
+  // 计划模式工具
+  registry.register(EnterPlanModeTool)
+  registry.register(ExitPlanModeTool)
+  // MCP 资源工具
+  registry.register(ListMcpResourcesTool)
+  registry.register(ReadMcpResourceTool)
+  // Cron 定时任务工具
+  registry.register(CronCreateTool)
+  registry.register(CronDeleteTool)
+  registry.register(CronListTool)
+  // VSCode 扩展编译重载工具
+  registry.register(VSCodeReloadTool)
+  // Webview 快照工具（自我迭代：查看 UI 状态）
+  registry.register(WebviewSnapshotTool)
 }
 
 /**
@@ -370,18 +492,50 @@ function registerBuiltinTools(registry: ToolRegistry): void {
 function initKnowledgeSkillDirs(cwd: string): void {
   const projectDir = path.join(cwd, ".naughty", "skills")
   const globalDir = path.join(homedir(), ".naughtyagent", "skills")
+  // CC Skills 兼容：加载 ~/.claude/skills/ 目录（最低优先级）
+  const ccSkillsDir = path.join(homedir(), ".claude", "skills")
 
   // 项目级先加载（优先级高）
   if (existsSync(projectDir)) {
     initKnowledgeSkills(projectDir)
   }
-  // 全局级追加加载（不覆盖同名 skill）
-  if (existsSync(globalDir)) {
+
+  // 追加加载辅助函数（确保 loader 存在后追加目录）
+  const appendDir = (dir: string) => {
+    if (!existsSync(dir)) return
     const loader = getKnowledgeSkillLoader()
     if (loader) {
-      loader.addDirectory(globalDir)
+      loader.addDirectory(dir)
     } else {
-      initKnowledgeSkills(globalDir)
+      initKnowledgeSkills(dir)
+    }
+  }
+
+  // NA 全局级追加加载（不覆盖同名 skill）
+  appendDir(globalDir)
+  // CC 全局级追加加载（最低优先级，不覆盖同名 skill）
+  appendDir(ccSkillsDir)
+}
+
+/**
+ * 初始化 Skill Hook 注册表
+ * 从 SkillLoader 的 frontmatter hooks 声明 + hook 文件批量注册
+ */
+function initSkillHooks(): void {
+  const registry = initSkillHookRegistry()
+
+  // 从 frontmatter 声明注册
+  registry.registerFromSkillLoader()
+
+  // 从各 skill 目录的 hooks/ 子目录注册
+  const loader = getKnowledgeSkillLoader()
+  if (loader) {
+    for (const name of loader.listNames()) {
+      const skill = loader.getSkill(name)
+      if (skill) {
+        const skillDir = path.dirname(skill.path)
+        registry.registerFromHookFiles(skillDir, name)
+      }
     }
   }
 }
@@ -400,6 +554,47 @@ async function initializeSubAgentSystem(cwd: string): Promise<void> {
     await registry.loadCustomAgents(customAgentsDir ?? ".naughty/agents")
   } catch (error) {
     console.warn(`[SubAgentSystem] Agent 注册表加载失败: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+/**
+ * 初始化 MCP 系统
+ *
+ * 加载 .naughty/mcp.json 配置，连接 MCP 服务器，
+ * 发现并注册 MCP 工具到 ToolRegistry。
+ * 配置文件不存在时静默跳过。
+ */
+async function initializeMcpSystem(cwd: string): Promise<McpManager | null> {
+  const configPath = path.join(cwd, ".naughty", "mcp.json")
+
+  // 配置文件不存在时静默跳过
+  if (!existsSync(configPath)) {
+    log.debug("MCP 配置文件不存在，跳过 MCP 初始化", { configPath })
+    return null
+  }
+
+  try {
+    const manager = await initMcpManager(cwd)
+
+    // 检查是否有成功连接的服务器
+    const status = manager.getStatus()
+    const connectedCount = status.filter((s) => s.state === "connected").length
+
+    if (connectedCount === 0) {
+      log.warn("所有 MCP 服务器连接失败", { status })
+      return manager
+    }
+
+    log.info("MCP 系统初始化完成", {
+      servers: status.length,
+      connected: connectedCount,
+      tools: status.reduce((sum, s) => sum + s.toolCount, 0),
+    })
+
+    return manager
+  } catch (error) {
+    log.warn("MCP 系统初始化异常", { error: error instanceof Error ? error.message : String(error) })
+    return null
   }
 }
 

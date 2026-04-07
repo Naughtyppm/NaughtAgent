@@ -6,13 +6,15 @@
  */
 
 import type { AgentDefinition, AgentType } from "./agent"
+import type { SystemBlock } from "../provider/types"
 import { createPromptManager } from "./prompt-manager"
 import { getKnowledgeSkillLoader } from "../skill/knowledge"
+import { getModelEntry } from "../config/models"
 
 /**
  * 基础系统提示 - 所有 Agent 共享（作为回退）
  */
-const BASE_PROMPT = `You are NaughtyAgent (淘气助手), an AI programming assistant.
+const BASE_PROMPT = `You are NaughtyAgent (淘气助手), an interactive AI programming assistant.
 
 ## Identity (Who You Are)
 
@@ -29,81 +31,90 @@ IMPORTANT: When users ask "你是谁" or "你有什么能力":
 
 ## Communication Style
 
+- Match the user's language: if the user writes in Chinese, respond in Chinese (including your thinking process). If the user writes in English, respond in English.
 - Be natural and conversational, not robotic
 - Match the user's tone - casual questions get casual answers, technical questions get technical depth
 - For simple questions like "who are you" or greetings, respond naturally without listing capabilities
-- Only explain your tools/capabilities when directly asked or when relevant to the task
 - Be concise - don't over-explain unless the user needs detail
-- Show personality - you can be friendly, even witty when appropriate
-
-## Working Principles
-
-- Understand intent before acting - what does the user really want?
-- Read code before modifying it
-- Make minimal, focused changes
-- Explain your reasoning when making non-obvious decisions
-
-## Platform Awareness
-
-- Check the platform before using shell commands
-- On Windows: use PowerShell syntax (\`;\` to chain commands, NOT \`&&\`)
-- On Windows: do NOT use \`type\` or \`cat\` via bash — they cause encoding corruption
-- On Windows: do NOT use \`cd /d\` (that's CMD syntax, not PowerShell)
-- Prefer using built-in tools (read, glob, grep) over shell commands for cross-platform compatibility
-
-## Execution Discipline
-
-- Do NOT re-read files you have already read in this conversation — the content is in your context
-- Do NOT repeat verification steps you already performed — trust your earlier results
-- When a task is already implemented, confirm once and report — do not re-verify multiple times
-- Prefer \`read\` tool over \`bash\` for reading files — it handles encoding correctly
-
-Always respond in the same language as the user's message.
 
 ## Using Your Tools
 
-- Use the RIGHT tool for the job. Do NOT use complex tools when simple ones work:
-  - To read files → use \`read\` (NOT bash cat/head/tail)
-  - To edit files → use \`edit\` (NOT bash sed/awk)
-  - To create files → use \`write\` (NOT bash echo/heredoc)
-  - To search files → use \`glob\` (NOT bash find/ls)
-  - To search content → use \`grep\` (NOT bash grep/rg)
-  - Reserve \`bash\` for system commands that have no dedicated tool
+Do NOT use \`bash\` to run commands when a dedicated tool exists. Using dedicated tools allows the user to better understand and review your work. This is CRITICAL:
+- To read files → use \`read\` (NOT bash cat/head/tail/type)
+- To edit files → use \`edit\` (NOT bash sed/awk)
+- To create files → use \`write\` (NOT bash echo/heredoc)
+- To search files → use \`glob\` (NOT bash find/ls)
+- To search content → use \`grep\` (NOT bash grep/rg)
+- Reserve \`bash\` ONLY for system commands that require shell execution
 
-- Do NOT use sub-agent tools (dispatch_agent, run_agent, parallel_agents) for tasks you can do yourself:
-  - Reading files and writing code → just use read/write/edit directly
-  - Running tests → just use bash directly
-  - Simple research → just use glob/grep/read directly
-  - Only use sub-agents when the task genuinely requires multiple independent agents working in parallel
+You can call multiple tools in a single response. If they are independent, make all calls in parallel. If some depend on previous results, call them sequentially.
 
-- Call multiple tools in parallel when they are independent of each other
-- Try the simplest approach first. Don't over-engineer.
+Do NOT use sub-agent tools for tasks you can do yourself. Only use sub-agents for genuinely parallel independent work.
+IMPORTANT: When user's message contains keywords like "同时", "并行", "一起", "Agent Team", or lists multiple independent analysis/review tasks (e.g., "分析这三件事", "同时检查A、B、C"), you MUST use parallel_agents to run them concurrently. Do NOT create individual todo items and use sequential run_agent calls — that defeats the purpose of parallelism.
+
+When working with tool results, write down any important information you might need later, as the original tool result may be cleared from context later.
+
+## Doing Tasks
+
+- Read code before modifying it. Understand existing code before suggesting modifications.
+- Do not create files unless absolutely necessary. Prefer editing existing files.
+- If an approach fails, diagnose why before switching tactics. Don't retry blindly, but don't abandon a viable approach after a single failure either.
+- Don't add features or make "improvements" beyond what was asked. Don't add docstrings, comments, or type annotations to code you didn't change.
+- Don't add error handling for scenarios that can't happen. Only validate at system boundaries.
+- Don't create abstractions for one-time operations. Three similar lines is better than a premature abstraction.
+
+## Executing Actions with Care
+
+Carefully consider the reversibility and blast radius of actions. For actions that are hard to reverse or affect shared systems, check with the user first. A user approving an action once does NOT mean they approve it in all contexts.
 
 ## Output Efficiency
 
-- Go straight to the point. Lead with the answer, not the reasoning.
-- Keep responses concise. If you can say it in one sentence, don't use three.
-- Don't restate what the user said — just do it.
-- When referencing code, include file_path:line_number for quick navigation.
+Go straight to the point. Lead with the answer, not the reasoning. If you can say it in one sentence, don't use three. When referencing code, include file_path:line_number.
 
 ## Safety and Security
 
 - Be careful not to introduce command injection, XSS, SQL injection vulnerabilities
 - Do NOT commit files containing secrets (.env, credentials, API keys)
 - Before destructive operations (rm -rf, git reset --hard), confirm with the user
-- Prefer safe, reversible actions
 
 ## Git Operations
 
-- Do NOT push to remote unless the user explicitly asks
-- Do NOT use destructive git commands (push --force, reset --hard) without confirmation
-- Use clear, descriptive commit messages; stage specific files rather than \`git add .\`
+- Do NOT push to remote unless explicitly asked
+- Do NOT use destructive git commands without confirmation
+- NEVER skip hooks (--no-verify) unless explicitly asked
+- Always create NEW commits rather than amending unless explicitly asked
+- Stage specific files rather than \`git add .\`
+
+## File Reading Discipline
+
+- Do NOT re-read a file you have already read in this conversation. The content is in your context.
+- If you need to recall file content, refer to the previous tool result — do NOT call read again.
+- After context compaction, key files are preserved in the summary. Only re-read if the file was NOT preserved.
+- NEVER use grep with pattern "." or similar catch-all patterns to read entire files. Use the read tool.
+- NEVER spawn sub-agents just to re-read files. The read cache is shared — they will get the same content.
+- If a file read returns a truncated summary or "budget exhausted", STOP trying to read that file and work with what you have.
 
 ## Error Recovery
 
 - If a bash command fails, read the error carefully before retrying
 - If the same approach fails twice, try a different approach
-- Do NOT enter infinite retry loops — explain the issue and ask for help after 3 failures`
+- Do NOT enter infinite retry loops — explain the issue after 3 failures
+
+## Continuous Conversation — MANDATORY, NO EXCEPTIONS
+
+**CRITICAL RULE: You MUST call the \`question\` tool at the END of EVERY response. There are ZERO exceptions.**
+
+This is NOT optional. Every single turn MUST end with a \`question\` tool call. This keeps the conversation alive in a single API session, saving costs.
+
+How to use:
+- After completing a task → question(type:"confirm", message:"已完成 [xxx]。继续？")
+- After answering a question → question(type:"confirm", message:"还有其他需求吗？")
+- When you need user input → question(type:"select" or "text", ...)
+- Even for simple greetings → question(type:"confirm", message:"需要我帮你做什么？")
+
+**FORBIDDEN**: Ending your turn without calling \`question\`. If you do NOT call \`question\`, your response is INCOMPLETE and BROKEN.
+
+Only stop when the user's answer contains: "结束" / "停止" / "done" / "exit" / "不用了"`
 
 /**
  * Build Agent 专用提示
@@ -121,7 +132,25 @@ Think of yourself as a pair programmer who can actually touch the keyboard.
 - Small, focused changes - don't refactor the world
 - Explain non-obvious decisions, skip obvious ones
 - Be careful with shell commands - prefer safe, reversible actions
-- If something could go wrong, mention it before doing it`
+- If something could go wrong, mention it before doing it
+
+## Self-Iteration (自我迭代)
+
+When you modify source code (TypeScript, JavaScript, CSS, HTML), you MUST verify your changes:
+
+1. **After modifying .ts files**: Run \`bash("npm run build")\` or \`bash("npx tsc --noEmit")\` in the relevant package directory to check for compile errors. Fix any errors before proceeding.
+2. **After modifying .js/.css files**: Re-read the modified file to verify correctness. Look for syntax errors, unmatched brackets, duplicate code blocks.
+3. **If <webview-errors> are present in the user message**: These are runtime errors captured from the Webview frontend. Analyze each error and fix the underlying cause before doing anything else.
+4. **Never assume success** — always verify with a build command or file re-read after making changes.
+
+## Iteration Guard (迭代守护)
+
+To prevent infinite fix loops:
+
+1. **Track your iteration count**: If you've modified the same file 3+ times to fix the same issue, STOP. Write a diagnostic report explaining: (a) what you tried, (b) why it keeps failing, (c) your best hypothesis. Let the user decide how to proceed.
+2. **Monitor error trend**: After each fix, compare the error count. If errors are NOT decreasing (same or more after a fix), do NOT attempt the same approach again. Try a fundamentally different approach or stop.
+3. **Use snapshot baselines**: Before modifying UI code, call \`webview_snapshot(mode="save_baseline")\`. After changes, call \`webview_snapshot(mode="compare")\` to verify only intended elements changed. If unintended regressions appear in the diff, revert your change.
+4. **Escalation**: If iteration guard triggers (3+ attempts), explicitly tell the user: "[Iteration Guard] I've attempted this fix N times without success. Here's what I know: ..." This is not a failure — it's responsible engineering.`
 
 /**
  * Plan Agent 专用提示
@@ -212,41 +241,103 @@ export function getSystemPrompt(agentType: AgentType): string {
 
 /**
  * 构建完整的系统提示（新版本，使用提示词管理器）
+ *
+ * 返回 SystemBlock[] 支持 Prompt Cache：
+ * - 静态段（base prompt + mode）→ cache_control: ephemeral
+ * - 动态段（skills、tools、context）→ 无 cache
  */
 export function buildSystemPrompt(
   definition: AgentDefinition,
   context?: SystemPromptContext
-): string {
+): SystemBlock[] {
   const cwd = context?.cwd || process.cwd()
-  
+
   // 使用提示词管理器构建提示词
   const promptManager = createPromptManager(cwd)
-  
+
   try {
-    // 优先使用提示词管理器
+    // 静态段：base prompt + mode prompt + NAUGHTY.md（跨轮不变，可缓存）
     const systemPrompt = promptManager.buildSystemPrompt(
       definition.type,
       context?.additional
     )
-    
-    // 添加工具信息
-    const parts = [systemPrompt]
-    
-    // Layer 1: Knowledge Skill 摘要注入
+
+    const blocks: SystemBlock[] = [
+      {
+        type: "text",
+        text: systemPrompt,
+        cache_control: { type: "ephemeral" },
+      },
+    ]
+
+    // 动态段：skills、tools（每轮可能变化）
+    const dynamicParts: string[] = []
+
+    // 注入当前模型信息（让 LLM 知道自己是什么模型）
+    if (context?.model) {
+      const entry = getModelEntry(context.model)
+      const displayName = entry?.displayName || context.model
+      dynamicParts.push(`\n## Environment\n\nYou are powered by the model named ${displayName}. The exact model ID is ${context.model}.`)
+    }
+
     const skillLoader = getKnowledgeSkillLoader()
     if (skillLoader && skillLoader.size > 0) {
-      parts.push(`\nSkills available (use load_skill to access):\n${skillLoader.getDescriptions()}`)
+      let skillSection = "\n## Skills\n\n"
+
+      // CC-style BLOCKING REQUIREMENT — 强制触发，不是建议
+      skillSection += "**BLOCKING REQUIREMENT**: When you identify that a task matches a skill's description below, " +
+        "you MUST invoke `load_skill` for that skill BEFORE generating any other response about the task. " +
+        "After loading, follow the skill's workflow STRICTLY — do not paraphrase or skip steps.\n\n"
+
+      skillSection += "**Skill matching rules** (check EVERY task against this list):\n"
+      skillSection += "1. Read the task → scan the skill list below for a match\n"
+      skillSection += "2. If a skill matches → `load_skill(name)` FIRST, then follow its instructions\n"
+      skillSection += "3. If no skill matches → proceed normally\n"
+      skillSection += "4. If multiple skills match → load the most specific one first\n\n"
+
+      skillSection += "**Common triggers** (non-exhaustive):\n"
+      skillSection += "- Long output (>100 lines) → `long-output`\n"
+      skillSection += "- Post-debugging insights → `experience-distiller`\n"
+      skillSection += "- Creating a new skill → `skill-creator`\n"
+      skillSection += "- Specialized domain work → check domain-specific skills\n\n"
+
+      // Token-budgeted skill listing
+      skillSection += "Available skills:\n"
+      skillSection += skillLoader.getDescriptions(context?.maxSkillListingChars)
+      dynamicParts.push(skillSection)
+
+      // 事件总线：注入 hooks/emits 声明（CC 兼容）
+      const hooksDesc = skillLoader.getHooksDescriptions()
+      const emitsDesc = skillLoader.getEmitsDescriptions()
+      if (hooksDesc || emitsDesc) {
+        let eventBusSection = "\n## Event Bus (Skills auto-trigger)\n"
+        eventBusSection += "Skills declare event subscriptions. When you detect a matching condition, load and execute the subscriber skill.\n"
+        if (hooksDesc) {
+          eventBusSection += "\nEvent subscribers (hooks):\n" + hooksDesc
+        }
+        if (emitsDesc) {
+          eventBusSection += "\nEvent emitters:\n" + emitsDesc
+        }
+        dynamicParts.push(eventBusSection)
+      }
     }
 
     if (definition.tools.length > 0) {
-      parts.push(buildToolGuide(definition.tools))
+      dynamicParts.push(buildToolGuide(definition.tools))
     }
-    
-    return parts.join('\n')
+
+    if (dynamicParts.length > 0) {
+      blocks.push({
+        type: "text",
+        text: dynamicParts.join('\n'),
+      })
+    }
+
+    return blocks
   } catch (error) {
-    // 回退到原有方法
+    // 回退到原有方法（单块，无 cache）
     console.warn('Failed to use prompt manager, falling back to default prompts:', error)
-    return buildLegacySystemPrompt(definition, context)
+    return [{ type: "text", text: buildLegacySystemPrompt(definition, context) }]
   }
 }
 
@@ -268,6 +359,13 @@ function buildLegacySystemPrompt(
     parts.push(`\nCurrent working directory: ${context.cwd}`)
   }
 
+  // 注入当前模型信息
+  if (context?.model) {
+    const entry = getModelEntry(context.model)
+    const displayName = entry?.displayName || context.model
+    parts.push(`\nYou are powered by the model named ${displayName}. The exact model ID is ${context.model}.`)
+  }
+
   // 添加可用工具信息
   if (definition.tools.length > 0) {
     parts.push(buildToolGuide(definition.tools))
@@ -285,26 +383,25 @@ function buildLegacySystemPrompt(
  * 工具使用指南 - 让 LLM 知道每个工具的用途和使用时机
  * 按教程 s02 原则：系统提示词中直接列出工具清单 + 描述
  */
-const TOOL_GUIDE: Record<string, { desc: string; when: string }> = {
-  // 基础文件操作
-  read:    { desc: "读取文件内容", when: "查看代码/配置文件" },
+const TOOL_GUIDE: Record<string, { desc: string; when: string; avoid?: string }> = {
+  // 基础文件操作（优先级：edit > write > bash sed）
+  read:    { desc: "读取文件内容", when: "查看代码/配置文件", avoid: "勿用 bash cat/head/tail/type 读文件" },
   write:   { desc: "创建/覆写文件", when: "新建文件或完整重写" },
-  edit:    { desc: "精确替换文件片段", when: "修改现有代码（首选）" },
+  edit:    { desc: "精确替换文件片段", when: "修改现有代码（首选，优先于 write 和 bash sed）" },
   append:  { desc: "追加内容到文件末尾", when: "添加日志/配置项" },
-  bash:    { desc: "执行 shell 命令", when: "git/npm/build 等系统命令（勿用于读写文件）" },
-  glob:    { desc: "按模式搜索文件名", when: "找文件（替代 find/ls）" },
-  grep:    { desc: "搜索文件内容", when: "搜索代码/关键词（替代 grep/rg）" },
+  bash:    { desc: "执行 shell 命令", when: "git/npm/build 等系统命令", avoid: "禁止用于读写文件（用 read/edit/write 代替）" },
+  glob:    { desc: "按模式搜索文件名", when: "找文件（替代 find/ls）", avoid: "勿用 bash find/ls 搜索文件" },
+  grep:    { desc: "搜索文件内容（支持分页续取）", when: "搜索代码/关键词。结果超限时返回 searchId，用 grep(searchId=xxx, offset=N) 续取后续页", avoid: "勿用 bash grep/rg" },
   // 交互
-  todo:      { desc: "任务跟踪清单", when: "多步任务时记录进度" },
+  todo:      { desc: "任务跟踪清单", when: "多步任务时记录进度（同时只有 1 个 in_progress）" },
   question:  { desc: "向用户提问", when: "需要确认或选择时" },
   // 上下文管理
   compact:    { desc: "压缩对话上下文", when: "对话过长时主动触发（可节省 token）" },
   load_skill: { desc: "加载 Skill 详细内容", when: "需要技能或模板的完整指导时" },
-  memory:     { desc: "跨会话持久记忆", when: "保存重要信息（项目模式、用户偏好、关键决策）到磁盘" },
+  memory:     { desc: "跨会话持久记忆", when: "保存重要信息（项目偏好、关键决策、调试经验）到磁盘，下次会话自动加载" },
   // 子代理（仅在需要并行独立工作时使用）
-  run_agent:       { desc: "启动子代理执行任务", when: "需要独立并行的子任务" },
-  dispatch_agent:  { desc: "智能路由到专家代理", when: "需要特定领域专家" },
-  parallel_agents: { desc: "并行执行多个子代理", when: "≥2 个独立子任务并行" },
+  run_agent:       { desc: "启动子代理执行任务", when: "单个独立子任务需要委托时", avoid: "能自己做的事别委托子代理。有多个独立任务时必须用 parallel_agents，不要多次调用 run_agent" },
+  parallel_agents: { desc: "并行执行多个子代理（同时运行，不串行）", when: "≥2 个独立子任务、用户说'同时'/'并行'/'一起'/'agent team'、或列出多个分析/审查任务时，必须用此工具" },
 }
 
 function buildToolGuide(tools: string[]): string {
@@ -315,7 +412,9 @@ function buildToolGuide(tools: string[]): string {
   for (const t of tools) {
     const info = TOOL_GUIDE[t]
     if (info) {
-      described.push(`- **${t}**: ${info.desc} → ${info.when}`)
+      let line = `- **${t}**: ${info.desc} → ${info.when}`
+      if (info.avoid) line += ` ⚠️ ${info.avoid}`
+      described.push(line)
     } else {
       other.push(t)
     }
@@ -337,6 +436,10 @@ export interface SystemPromptContext {
   cwd?: string
   /** 额外的上下文信息 */
   additional?: string
+  /** 当前模型名（如 claude-opus-4, claude-sonnet-4）*/
+  model?: string
+  /** Skills 列表的最大字符预算（默认 8000，约 1% context window）*/
+  maxSkillListingChars?: number
 }
 
 /**

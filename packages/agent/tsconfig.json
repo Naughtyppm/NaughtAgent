@@ -19,12 +19,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "paths": {
-      "@/*": ["./src/*"]
-    },
-    "baseUrl": "."
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/**/*.example.ts"]
+  "exclude": ["node_modules", "dist", "src/**/*.example.ts", "src/cli/cc-ink/**"]
 }

@@ -329,7 +329,7 @@ export class McpManager {
  * 加载 MCP 配置
  */
 export async function loadMcpConfig(cwd: string): Promise<McpConfig> {
-  const configPath = path.join(cwd, ".naught", "mcp.json")
+  const configPath = path.join(cwd, ".naughty", "mcp.json")
 
   try {
     const content = await fs.readFile(configPath, "utf-8")

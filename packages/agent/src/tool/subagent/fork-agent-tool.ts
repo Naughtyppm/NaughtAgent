@@ -66,6 +66,7 @@ export const ForkAgentTool = Tool.define({
       return {
         title: "fork_agent",
         output: `Error: 子代理嵌套深度已达上限 (${MAX_SUBAGENT_DEPTH})。当前深度: ${currentDepth}。请在当前层级完成任务。`,
+        isError: true,
         metadata: { error: true, depth: currentDepth, maxDepth: MAX_SUBAGENT_DEPTH },
       }
     }
@@ -74,6 +75,7 @@ export const ForkAgentTool = Tool.define({
       return {
         title: "fork_agent",
         output: "Error: ForkAgent runtime or parent context not configured.",
+        isError: true,
         metadata: { error: true },
       }
     }
@@ -127,6 +129,7 @@ export const ForkAgentTool = Tool.define({
         return {
           title: "fork_agent",
           output: `Error: ${result.error}`,
+          isError: true,
           metadata: { error: true, duration },
         }
       }
@@ -136,6 +139,7 @@ export const ForkAgentTool = Tool.define({
       return {
         title: "fork_agent",
         output: `Error: ${errorMsg}`,
+        isError: true,
         metadata: { error: true },
       }
     }

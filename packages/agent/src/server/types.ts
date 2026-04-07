@@ -163,6 +163,8 @@ export interface DoneEvent {
   usage: {
     inputTokens: number
     outputTokens: number
+    cacheCreationTokens?: number
+    cacheReadTokens?: number
   }
 }
 
@@ -193,6 +195,15 @@ export interface ThinkingEndEvent {
 }
 
 /**
+ * 流式事件 - 工具输出流（实时中间输出）
+ */
+export interface ToolOutputStreamEvent {
+  type: "tool_output_stream"
+  id: string
+  chunk: string
+}
+
+/**
  * 流式事件联合类型
  */
 export type StreamEvent =
@@ -200,11 +211,38 @@ export type StreamEvent =
   | TextDeltaEvent
   | ToolStartEvent
   | ToolEndEvent
+  | ToolOutputStreamEvent
   | ErrorEvent
   | DoneEvent
   | PermissionRequestEvent
   | ThinkingEvent
   | ThinkingEndEvent
+  | SubAgentStartEvent
+  | SubAgentEndEvent
+
+/**
+ * 子 Agent 开始事件（parallel_agents 子任务进度）
+ */
+export interface SubAgentStartEvent {
+  type: "subagent_start"
+  parentId: string
+  childId: string
+  childName: string
+  prompt?: string
+}
+
+/**
+ * 子 Agent 结束事件
+ */
+export interface SubAgentEndEvent {
+  type: "subagent_end"
+  parentId: string
+  childId: string
+  childName: string
+  success: boolean
+  output?: string
+  error?: string
+}
 
 // ============================================================================
 // WebSocket Types
@@ -221,6 +259,8 @@ export interface WSSendMessage {
     enabled: boolean
     budgetTokens?: number
   }
+  autoConfirm?: boolean
+  attachments?: Array<{ type: string; data: string; mimeType: string }>
 }
 
 /**
@@ -247,6 +287,16 @@ export interface WSPermissionResponse {
 }
 
 /**
+ * WebSocket 客户端消息 - 问题回答
+ */
+export interface WSQuestionResponse {
+  type: "question_response"
+  requestId: string
+  value: unknown
+  cancelled?: boolean
+}
+
+/**
  * WebSocket 客户端消息联合类型
  */
 export type WSClientMessage =
@@ -254,6 +304,8 @@ export type WSClientMessage =
   | WSCancelMessage
   | WSPingMessage
   | WSPermissionResponse
+  | WSQuestionResponse
+  | WSSnapshotResponse
 
 /**
  * WebSocket 服务端消息 - Pong
@@ -263,9 +315,38 @@ export interface WSPongMessage {
 }
 
 /**
+ * WebSocket 服务端消息 - 向前端提问
+ */
+export interface WSQuestionRequest {
+  type: "question_request"
+  requestId: string
+  questionType: "confirm" | "select" | "multiselect" | "text"
+  message: string
+  options?: Array<{ value: string; label: string; description?: string }>
+  default?: unknown
+}
+
+/**
  * WebSocket 服务端消息联合类型
  */
-export type WSServerMessage = StreamEvent | WSPongMessage
+export type WSServerMessage = StreamEvent | WSPongMessage | WSQuestionRequest | WSSnapshotRequest
+
+/**
+ * WebSocket 服务端消息 - 请求 Webview 快照
+ */
+export interface WSSnapshotRequest {
+  type: "snapshot_request"
+  requestId: string
+}
+
+/**
+ * WebSocket 客户端消息 - Webview 快照结果
+ */
+export interface WSSnapshotResponse {
+  type: "snapshot_response"
+  requestId: string
+  snapshot: Record<string, unknown>
+}
 
 // ============================================================================
 // Skill Types

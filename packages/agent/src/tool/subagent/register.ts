@@ -4,15 +4,12 @@
  * 提供统一的注册入口，配置所有子代理工具的运行时
  */
 
-import { ToolRegistry, ToolRegistryCompat } from "../registry"
+import { ToolRegistry } from "../registry"
 import { AskLlmTool, setAskLlmProvider } from "./ask-llm-tool"
 import { RunAgentTool, setRunAgentRuntime } from "./run-agent-tool"
 import { ForkAgentTool, setForkAgentRuntime, setForkAgentParentContext } from "./fork-agent-tool"
-import { RunWorkflowTool, setRunWorkflowRuntime } from "./run-workflow-tool"
-import { ParallelAgentsTool, setParallelAgentsRuntime, setParallelAgentsProvider } from "./parallel-agents-tool"
-import { MultiAgentTool, setMultiAgentProvider, setMultiAgentRuntime } from "./multi-agent-tool"
-import { DispatchAgentTool, setDispatchAgentRuntime, setDispatchAgentProvider } from "./dispatch-agent-tool"
 import { TaskTool, setTaskRuntime } from "../../subtask/task-tool"
+import { ParallelAgentsTool, setParallelAgentsRuntime } from "./parallel-agents-tool"
 import {
   RequestShutdownTool,
   RespondShutdownTool,
@@ -35,22 +32,20 @@ import {
   worktreeStatusTool,
   worktreeEventsTool,
 } from "./worktree-tools"
-import type { SubTaskProvider, RunAgentRuntime, RunWorkflowRuntime, ParentContext } from "../../subtask"
+import type { SubTaskProvider, RunAgentRuntime, ParentContext } from "../../subtask"
 
 /**
  * 子代理工具配置
  */
 export interface SubagentToolsConfig {
-  /** LLM Provider（用于 ask_llm 和 multi_agent） */
+  /** LLM Provider（用于 ask_llm） */
   provider: SubTaskProvider
-  /** Agent 运行时（用于 run_agent, fork_agent, parallel_agents） */
+  /** Agent 运行时（用于 run_agent, fork_agent） */
   agentRuntime: RunAgentRuntime
-  /** Workflow 运行时（用于 run_workflow） */
-  workflowRuntime?: RunWorkflowRuntime
   /** 父会话上下文（用于 fork_agent） */
   parentContext?: ParentContext
-  /** 工具注册表实例 */
-  registry?: ToolRegistry
+  /** 工具注册表实例（必传） */
+  registry: ToolRegistry
 }
 
 /**
@@ -59,46 +54,36 @@ export interface SubagentToolsConfig {
 export function registerSubagentTools(config: SubagentToolsConfig): void {
   // 配置 Provider
   setAskLlmProvider(config.provider)
-  setMultiAgentProvider(config.provider)
-  setMultiAgentRuntime(config.agentRuntime)  // Phase 2 执行需要 Agent Runtime
-  setParallelAgentsProvider(config.provider)  // 用于融合代理
 
   // 配置 Agent 运行时
   setRunAgentRuntime(config.agentRuntime)
-  setParallelAgentsRuntime(config.agentRuntime)
   setForkAgentRuntime(config.agentRuntime)
-  setDispatchAgentRuntime(config.agentRuntime)
-  setDispatchAgentProvider(config.provider)
-
-  // 配置 Workflow 运行时
-  if (config.workflowRuntime) {
-    setRunWorkflowRuntime(config.workflowRuntime)
-  }
+  setParallelAgentsRuntime(config.agentRuntime)
 
   // 配置父上下文
   if (config.parentContext) {
     setForkAgentParentContext(config.parentContext)
   }
 
-  // 配置 Task 工具运行时（统一入口，需要 provider 和 agentRuntime 信息）
+  // 配置 Task 工具运行时
+  // 注意：agentRuntime 是引用，sessionId 会在 runner.run() 时动态设置
+  // 所以这里传递 agentRuntime 引用而不是静态复制
   setTaskRuntime({
     provider: config.provider,
     apiKey: config.agentRuntime.apiKey,
     baseURL: config.agentRuntime.baseURL,
+    get sessionId() { return config.agentRuntime.sessionId },
   })
 
-  // 使用传入的注册表实例，或回退到全局兼容实例
-  const registry = config.registry ?? ToolRegistryCompat.getInstance()
+  // 使用传入的注册表实例
+  const registry = config.registry
 
-  // 注册工具
+  // 注册核心子代理工具
   registry.register(AskLlmTool)
   registry.register(RunAgentTool)
   registry.register(ForkAgentTool)
-  registry.register(RunWorkflowTool)
-  registry.register(ParallelAgentsTool)
-  registry.register(MultiAgentTool)
-  registry.register(DispatchAgentTool)
   registry.register(TaskTool)
+  registry.register(ParallelAgentsTool)
 
   // 协议工具（s10 Team Protocols）
   registry.register(RequestShutdownTool)
@@ -135,11 +120,8 @@ export const SUBAGENT_TOOL_IDS = [
   "ask_llm",
   "run_agent",
   "fork_agent",
-  "run_workflow",
-  "parallel_agents",
-  "multi_agent",
-  "dispatch_agent",
   "task",
+  "parallel_agents",
   // 协议工具（s10 Team Protocols）
   "request_shutdown",
   "respond_shutdown",

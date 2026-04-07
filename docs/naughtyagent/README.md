@@ -8,3 +8,9 @@
 - `架构设计/` - 五层架构设计文档（总览、核心引擎、上下文管理、安全权限、用户界面、扩展生态）
 - `使用指南/` - CLI、API、VS Code 扩展使用说明
 - `参考资料/` - 业界 Agent 横向对比、技术栈全景
+
+## CLI 记忆提示
+
+- plain-text REPL 支持 `/memory`：查看持久记忆
+- 支持 `/memory add <内容>`：追加到 `.naughty/memory.md`
+- 支持 `/memory edit`：快速定位到记忆文件路径

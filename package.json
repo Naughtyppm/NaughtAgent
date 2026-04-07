@@ -1,12 +1,17 @@
 {
   "name": "naughtyagent",
-  "version": "0.1.0",
+  "version": "0.10.0",
   "private": true,
   "description": "NaughtyAgent - AI 编程助手",
   "scripts": {
     "dev": "pnpm -C packages/agent dev",
     "build": "pnpm -C packages/agent build",
-    "typecheck": "pnpm -C packages/agent typecheck"
+    "typecheck": "pnpm -C packages/agent typecheck",
+    "typecheck:vscode": "pnpm -C packages/vscode exec tsc --noEmit",
+    "lint": "eslint 'packages/*/src/**/*.{ts,tsx}'",
+    "lint:fix": "eslint 'packages/*/src/**/*.{ts,tsx}' --fix",
+    "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'",
+    "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}'"
   },
   "keywords": [
     "ai",
@@ -15,5 +20,12 @@
     "vscode"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
+    "@typescript-eslint/parser": "^8.58.0",
+    "eslint": "^10.2.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1"
+  }
 }

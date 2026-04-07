@@ -11,8 +11,8 @@
  * 需求: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
  */
 
-import React from 'react'
-import { Box, Text } from 'ink'
+import React, { memo } from 'react'
+import { Box, Text } from '../../cc-ink/index.js'
 import type { ToolPanelProps } from '../types.js'
 import {
   getToolColor,
@@ -27,12 +27,12 @@ import {
 } from '../utils/format.js'
 import { SubAgentPanel } from './SubAgentPanel.js'
 
-/** 输出预览最大行数（折叠时） — 减少到 1 行，降低渲染量 */
-const MAX_PREVIEW_LINES = 1
+/** 输出预览最大行数（折叠时） */
+const MAX_PREVIEW_LINES = 5
 /** 输出预览每行最大字符数 */
-const MAX_LINE_LENGTH = 80
-/** 展开时最大显示行数 — 从 30 降到 15 */
-const MAX_EXPANDED_LINES = 15
+const MAX_LINE_LENGTH = 120
+/** 展开时最大显示行数（CC 工具输出上限 50K 字符，这里放宽到 200 行） */
+const MAX_EXPANDED_LINES = 200
 
 /**
  * 格式化输出预览（折叠状态下显示）
@@ -56,7 +56,7 @@ function formatOutputPreview(output: string | undefined, maxLines: number = MAX_
  *
  * @param props ToolPanelProps
  */
-export function ToolPanel({
+export const ToolPanel = memo(function ToolPanel({
   tool,
   isExpanded,
   onToggle: _onToggle,
@@ -263,7 +263,13 @@ export function ToolPanel({
       {!isSubAgentTool && renderDetails()}
     </Box>
   )
-}
+}, (prev, next) => {
+  return prev.tool.status === next.tool.status &&
+    prev.tool.output === next.tool.output &&
+    prev.isExpanded === next.isExpanded &&
+    prev.isSelected === next.isSelected &&
+    prev.tool.subAgent === next.tool.subAgent
+})
 
 /**
  * 获取工具面板的折叠摘要文本（用于测试）

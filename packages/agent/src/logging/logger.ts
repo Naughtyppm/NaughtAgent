@@ -1,10 +1,12 @@
 /**
  * 日志系统
- * 
+ *
  * 提供结构化日志记录功能，支持多级别日志、元数据和 TraceId 追踪
  */
 
 import { getCurrentTraceId } from './trace.js'
+import { appendFileSync, mkdirSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 
 /**
  * 日志级别
@@ -53,6 +55,54 @@ export class Logger {
   private minLevel: LogLevel
   private format: 'json' | 'text'
   private output: (entry: LogEntry) => void
+
+  // ─── 全局文件日志 transport ───
+  private static fileLogPath: string | null = null
+  private static fileLogBuffer: string[] = []
+  private static flushTimer: ReturnType<typeof setTimeout> | null = null
+
+  /**
+   * 启用全局文件日志：所有 Logger 实例的日志同时写入文件
+   * @param dir 日志目录（自动创建），文件名按日期生成
+   */
+  static enableFileLog(dir: string): void {
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    const date = new Date().toISOString().slice(0, 10)
+    const pid = process.pid
+    Logger.fileLogPath = join(dir, `${date}-${pid}.log`)
+  }
+
+  /** 关闭文件日志 */
+  static disableFileLog(): void {
+    Logger.flush()
+    Logger.fileLogPath = null
+  }
+
+  /** 获取当前日志文件路径 */
+  static getFileLogPath(): string | null {
+    return Logger.fileLogPath
+  }
+
+  /** 立即刷新缓冲区到文件 */
+  private static flush(): void {
+    if (Logger.fileLogBuffer.length === 0 || !Logger.fileLogPath) return
+    try {
+      appendFileSync(Logger.fileLogPath, Logger.fileLogBuffer.join(''))
+    } catch { /* 日志写入失败不影响主流程 */ }
+    Logger.fileLogBuffer = []
+    Logger.flushTimer = null
+  }
+
+  /** 写入文件日志（异步批量：50ms 或 20 条一刷） */
+  private static writeToFile(line: string): void {
+    if (!Logger.fileLogPath) return
+    Logger.fileLogBuffer.push(line)
+    if (Logger.fileLogBuffer.length >= 20) {
+      Logger.flush()
+    } else if (!Logger.flushTimer) {
+      Logger.flushTimer = setTimeout(() => Logger.flush(), 50)
+    }
+  }
 
   constructor(
     private category: string,
@@ -125,6 +175,14 @@ export class Logger {
     }
 
     this.output(entry)
+
+    // 全局文件 transport（所有实例共享）
+    if (Logger.fileLogPath) {
+      const time = entry.timestamp.toISOString()
+      const levelTag = level.toUpperCase().padEnd(5)
+      const meta = metadata ? ` ${JSON.stringify(metadata)}` : ''
+      Logger.writeToFile(`${time} ${levelTag} [${this.category}] ${message}${meta}\n`)
+    }
   }
 
   /**

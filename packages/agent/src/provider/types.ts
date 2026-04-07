@@ -5,12 +5,16 @@
  */
 
 import type { z } from "zod"
-import { DEFAULT_MAX_TOKENS, FAST_MAX_TOKENS, DEFAULT_TEMPERATURE } from "../config"
+import { DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE } from "../config"
+import type { StopReason } from "../session/message"
+
+// Re-export for consumers
+export type { StopReason }
 
 /**
  * Provider 类型
  */
-export type ProviderType = "anthropic" | "kiro" | "openai" | "auto"
+export type ProviderType = "anthropic" | "openai" | "auto"
 
 /**
  * Extended Thinking 配置
@@ -46,12 +50,20 @@ export interface ModelConfig {
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
+  /** Prompt Cache 创建的 token 数（仅 Anthropic） */
+  cacheCreationTokens?: number
+  /** Prompt Cache 命中读取的 token 数（仅 Anthropic） */
+  cacheReadTokens?: number
 }
 
 /**
- * 停止原因
+ * Thinking 块原始数据（含签名，用于回放回 API）
  */
-export type StopReason = "end_turn" | "max_tokens" | "tool_use" | "stop_sequence"
+export interface ThinkingBlockRaw {
+  type: "thinking"
+  thinking: string
+  signature: string
+}
 
 /**
  * 流式事件
@@ -61,7 +73,7 @@ export type StreamEvent =
   | { type: "thinking"; text: string }
   | { type: "thinking_end" }
   | { type: "tool_call"; id: string; name: string; args: unknown }
-  | { type: "message_end"; usage: TokenUsage; stopReason?: StopReason }
+  | { type: "message_end"; usage: TokenUsage; stopReason?: StopReason; thinkingBlocks?: ThinkingBlockRaw[] }
   | { type: "error"; error: Error }
 
 /**
@@ -121,6 +133,18 @@ export interface ToolUseContent {
 }
 
 /**
+ * Thinking 内容块（Anthropic Extended Thinking）
+ *
+ * 启用 thinking 时，assistant 消息必须以此块开头
+ * signature 是 Anthropic 的加密签名，回放消息时必须原样发送
+ */
+export interface ThinkingContent {
+  type: "thinking"
+  thinking: string
+  signature: string
+}
+
+/**
  * 工具结果内容块
  */
 export interface ToolResultContent {
@@ -135,7 +159,7 @@ export interface ToolResultContent {
  */
 export type MessageContent =
   | string
-  | Array<TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent>
+  | Array<TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent | ThinkingContent>
 
 /**
  * 消息
@@ -146,14 +170,27 @@ export interface Message {
 }
 
 /**
+ * 系统提示词块（支持 Prompt Cache 分界线）
+ */
+export interface SystemBlock {
+  type: "text"
+  text: string
+  /** Prompt Cache 控制：设置 "ephemeral" 让此块成为缓存断点 */
+  cache_control?: { type: "ephemeral" }
+}
+
+/**
  * 调用参数
  */
 export interface ChatParams {
   model: ModelConfig
   messages: Message[]
-  system?: string
+  /** 系统提示词：string（传统）或 SystemBlock[]（支持 cache_control） */
+  system?: string | SystemBlock[]
   tools?: ToolDefinition[]
   abortSignal?: AbortSignal
+  /** 会话 ID：传给 copilot-api 的 metadata.user_id，固定后避免重复扣费 */
+  sessionId?: string
 }
 
 /**
@@ -200,26 +237,6 @@ export interface AnthropicConfig {
 }
 
 /**
- * Kiro 配置
- */
-export interface KiroConfig {
-  /**
-   * Token 缓存目录（默认 ~/.aws/sso/cache）
-   */
-  tokenCacheDir?: string
-
-  /**
-   * HTTP 代理
-   */
-  proxy?: string
-
-  /**
-   * 调试模式
-   */
-  debug?: boolean
-}
-
-/**
  * OpenAI 兼容配置
  *
  * 支持 OpenRouter、Azure OpenAI 等 OpenAI 兼容服务
@@ -246,9 +263,8 @@ export interface OpenAIConfig {
  */
 export type ProviderConfig =
   | { type: "anthropic"; config: AnthropicConfig }
-  | { type: "kiro"; config?: KiroConfig }
   | { type: "openai"; config: OpenAIConfig }
-  | { type: "auto"; anthropic?: AnthropicConfig; kiro?: KiroConfig; openai?: OpenAIConfig }
+  | { type: "auto"; anthropic?: AnthropicConfig; openai?: OpenAIConfig }
 
 /**
  * 默认模型配置
@@ -258,212 +274,4 @@ export const DEFAULT_MODEL: ModelConfig = {
   model: "claude-sonnet-4-20250514",
   temperature: DEFAULT_TEMPERATURE,
   maxTokens: DEFAULT_MAX_TOKENS,
-}
-
-/**
- * 快速模型（用于子任务）
- */
-export const FAST_MODEL: ModelConfig = {
-  provider: "auto",
-  model: "claude-haiku-4-20250514",
-  temperature: DEFAULT_TEMPERATURE,
-  maxTokens: FAST_MAX_TOKENS,
-}
-
-/**
- * 模型映射（外部模型名 -> Kiro 模型名）
- */
-export const KIRO_MODEL_MAP: Record<string, string> = {
-  // Claude 官方模型名
-  "claude-3-5-sonnet-20241022": "claude-sonnet-4",
-  "claude-3-5-sonnet-latest": "claude-sonnet-4",
-  "claude-sonnet-4-20250514": "claude-sonnet-4",
-  "claude-3-opus-20240229": "claude-opus-4.5",
-  "claude-opus-4-20250514": "claude-opus-4.5",
-  "claude-3-5-haiku-20241022": "claude-haiku-4.5",
-  "claude-haiku-4-20250514": "claude-haiku-4.5",
-  // 简写
-  sonnet: "claude-sonnet-4",
-  "sonnet-4.5": "claude-sonnet-4.5",
-  opus: "claude-opus-4.5",
-  "opus-4.5": "claude-opus-4.5",
-  haiku: "claude-haiku-4.5",
-  "haiku-4.5": "claude-haiku-4.5",
-  // OpenAI 兼容
-  "gpt-4o": "claude-sonnet-4",
-  "gpt-4o-mini": "claude-haiku-4.5",
-  o1: "claude-opus-4.5",
-}
-
-/**
- * Kiro 支持的模型
- * 注意：不包含 "auto"，避免 Kiro 后端自动切换模型
- */
-export const KIRO_MODELS = new Set([
-  "claude-sonnet-4",
-  "claude-sonnet-4.5",
-  "claude-haiku-4.5",
-  "claude-opus-4.5",
-])
-
-/**
- * 映射模型名到 Kiro 模型
- * 注意：永远不返回 "auto"，确保模型固定
- */
-export function mapToKiroModel(model: string): string {
-  if (!model || model === "auto") return "claude-sonnet-4"
-  if (KIRO_MODEL_MAP[model]) return KIRO_MODEL_MAP[model]
-  if (KIRO_MODELS.has(model)) return model
-
-  // 模糊匹配
-  const m = model.toLowerCase()
-  if (m.includes("opus")) return "claude-opus-4.5"
-  if (m.includes("haiku")) return "claude-haiku-4.5"
-  if (m.includes("sonnet")) {
-    return m.includes("4.5") ? "claude-sonnet-4.5" : "claude-sonnet-4"
-  }
-
-  return "claude-sonnet-4"
-}
-
-/**
- * Anthropic API 模型映射（简写 -> 完整模型名）
- */
-export const ANTHROPIC_MODEL_MAP: Record<string, string> = {
-  // 简写
-  sonnet: "claude-sonnet-4-20250514",
-  "sonnet-4": "claude-sonnet-4-20250514",
-  "sonnet-4.5": "claude-sonnet-4-5-20250514",
-  opus: "claude-opus-4-20250514",
-  "opus-4": "claude-opus-4-20250514",
-  "opus-4.5": "claude-opus-4-5-20251101",
-  "opus-4.6": "claude-opus-4-6-20260206",
-  haiku: "claude-haiku-4-20250514",
-  "haiku-4": "claude-haiku-4-20250514",
-  "haiku-4.5": "claude-haiku-4-5-20250514",
-  // Kiro 格式 -> Anthropic 格式
-  "claude-sonnet-4": "claude-sonnet-4-20250514",
-  "claude-sonnet-4.5": "claude-sonnet-4-5-20250514",
-  "claude-opus-4.5": "claude-opus-4-5-20251101",
-  "claude-opus-4.6": "claude-opus-4-6-20260206",
-  "claude-haiku-4.5": "claude-haiku-4-5-20250514",
-}
-
-/**
- * Copilot API 兼容的模型名映射（简写 -> copilot-api 识别的格式）
- * copilot-api 不认识带日期后缀的模型名
- */
-export const COPILOT_MODEL_MAP: Record<string, string> = {
-  // 简写
-  sonnet: "claude-sonnet-4",
-  "sonnet-4": "claude-sonnet-4",
-  "sonnet-4.5": "claude-sonnet-4.5",
-  "sonnet-4.6": "claude-sonnet-4.6",
-  opus: "claude-opus-4.6",
-  "opus-4": "claude-opus-4.6",
-  "opus-4.5": "claude-opus-4.5",
-  "opus-4.6": "claude-opus-4.6",
-  haiku: "claude-haiku-4.5",
-  "haiku-4": "claude-haiku-4.5",
-  "haiku-4.5": "claude-haiku-4.5",
-  // claude- 前缀简写（不带版本号）
-  "claude-opus": "claude-opus-4.6",
-  "claude-sonnet": "claude-sonnet-4",
-  "claude-haiku": "claude-haiku-4.5",
-  // copilot-api 直接支持的格式（直通）
-  "claude-sonnet-4": "claude-sonnet-4",
-  "claude-sonnet-4.5": "claude-sonnet-4.5",
-  "claude-sonnet-4.6": "claude-sonnet-4.6",
-  "claude-opus-4.5": "claude-opus-4.5",
-  "claude-opus-4.6": "claude-opus-4.6",
-  "claude-haiku-4.5": "claude-haiku-4.5",
-  // Anthropic 完整格式 -> copilot 格式
-  "claude-sonnet-4-20250514": "claude-sonnet-4",
-  "claude-sonnet-4-5-20250514": "claude-sonnet-4.5",
-  "claude-opus-4-20250514": "claude-opus-4.5",
-  "claude-opus-4-5-20251101": "claude-opus-4.5",
-  "claude-opus-4-6-20260206": "claude-opus-4.6",
-  "claude-haiku-4-20250514": "claude-haiku-4.5",
-  "claude-haiku-4-5-20250514": "claude-haiku-4.5",
-}
-
-/**
- * copilot-api 支持的有效模型名集合
- */
-const COPILOT_VALID_MODELS = new Set([
-  "claude-sonnet-4", "claude-sonnet-4.5", "claude-sonnet-4.6",
-  "claude-opus-4.5", "claude-opus-4.6",
-  "claude-haiku-4.5",
-])
-
-/**
- * 映射模型名到 Copilot API 兼容的模型名
- */
-export function mapToCopilotModel(model: string): string {
-  if (!model) return "claude-sonnet-4"
-  if (COPILOT_MODEL_MAP[model]) return COPILOT_MODEL_MAP[model]
-
-  // 已经是 copilot-api 认识的格式（白名单验证）
-  if (COPILOT_VALID_MODELS.has(model)) return model
-
-  // 模糊匹配
-  const m = model.toLowerCase()
-  if (m.includes("opus")) {
-    if (m.includes("4.5")) return "claude-opus-4.5"
-    return "claude-opus-4.6"
-  }
-  if (m.includes("haiku")) return "claude-haiku-4.5"
-  if (m.includes("sonnet")) {
-    if (m.includes("4.6")) return "claude-sonnet-4.6"
-    return m.includes("4.5") ? "claude-sonnet-4.5" : "claude-sonnet-4"
-  }
-
-  return "claude-sonnet-4"
-}
-
-/**
- * 映射模型名到 Anthropic API 模型名
- */
-export function mapToAnthropicModel(model: string): string {
-  if (!model) return "claude-sonnet-4-20250514"
-  if (ANTHROPIC_MODEL_MAP[model]) return ANTHROPIC_MODEL_MAP[model]
-
-  // 如果已经是完整的 Anthropic 模型名，直接返回
-  if (model.startsWith("claude-") && model.includes("-202")) {
-    return model
-  }
-
-  // 模糊匹配
-  const m = model.toLowerCase()
-  if (m.includes("opus")) {
-    if (m.includes("4.6")) return "claude-opus-4-6-20260206"
-    return m.includes("4.5") ? "claude-opus-4-5-20251101" : "claude-opus-4-20250514"
-  }
-  if (m.includes("haiku")) {
-    return m.includes("4.5") ? "claude-haiku-4-5-20250514" : "claude-haiku-4-20250514"
-  }
-  if (m.includes("sonnet")) {
-    return m.includes("4.5") ? "claude-sonnet-4-5-20250514" : "claude-sonnet-4-20250514"
-  }
-
-  return "claude-sonnet-4-20250514"
-}
-
-/**
- * 检测 baseURL 是否为反代（copilot-api 等）
- */
-export function isProxyBaseURL(baseURL?: string): boolean {
-  if (!baseURL) return false
-  return baseURL.includes("localhost") || baseURL.includes("127.0.0.1")
-}
-
-/**
- * 根据 baseURL 自动选择模型名格式
- * 反代用 copilot 格式，原生用 Anthropic 格式
- */
-export function resolveModelName(model: string, baseURL?: string): string {
-  if (isProxyBaseURL(baseURL)) {
-    return mapToCopilotModel(model)
-  }
-  return mapToAnthropicModel(model)
 }

@@ -5,9 +5,9 @@
  */
 
 import type { SkillResult, SkillContext, ParsedSkillCommand, SkillDefinition } from "./types"
-import type { WorkflowModeRuntime } from "../subtask"
+import type { RunWorkflowRuntime } from "../subtask"
 import { getSkill, hasSkill } from "./registry"
-import { runWorkflowTask, registerWorkflow, getWorkflow } from "../subtask"
+import { runRunWorkflow, registerWorkflow, getWorkflow } from "../subtask"
 
 // ============================================================================
 // Command Parser
@@ -143,7 +143,7 @@ export function isSkillCommand(input: string): boolean {
 /**
  * Skill 执行器运行时配置
  */
-export interface SkillExecutorRuntime extends WorkflowModeRuntime {}
+export interface SkillExecutorRuntime extends RunWorkflowRuntime {}
 
 /**
  * 执行 Skill
@@ -210,7 +210,7 @@ export async function executeSkill(
   }
 
   // 执行工作流
-  const result = await runWorkflowTask(
+  const result = await runRunWorkflow(
     {
       mode: "workflow",
       prompt: "",

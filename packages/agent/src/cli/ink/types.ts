@@ -45,6 +45,10 @@ export interface AIMessage extends BaseMessage {
   isStreaming: boolean
   /** 模型名称 */
   model: string
+  /** Extended Thinking 内容 */
+  thinking?: string
+  /** 是否正在思考 */
+  isThinking?: boolean
 }
 
 /**
@@ -464,6 +468,10 @@ export interface TokenUsage {
   output: number
   /** 总计 token 数 */
   total?: number
+  /** Prompt Cache 命中读取的 token 数 */
+  cacheRead?: number
+  /** Prompt Cache 创建的 token 数 */
+  cacheCreation?: number
 }
 
 /**
@@ -594,6 +602,10 @@ export interface AIMessageProps {
   model: string
   /** 是否正在流式输出 */
   isStreaming: boolean
+  /** Extended Thinking 内容 */
+  thinking?: string
+  /** 是否正在思考 */
+  isThinking?: boolean
 }
 
 /**
@@ -679,6 +691,8 @@ export interface UseMessagesReturn {
   addAIMessage: (content: string, model: string) => string
   /** 更新 AI 消息（流式） */
   updateAIMessage: (id: string, content: string) => void
+  /** 更新 AI 消息的 thinking 状态 */
+  updateAIThinking: (id: string, thinking: string, isThinking: boolean) => void
   /** 完成 AI 消息流式输出 */
   finishAIMessage: (id: string) => void
   /** 添加工具调用 */
@@ -808,7 +822,7 @@ export type AppAction =
   | { type: 'TOOL_START'; toolId: string; status: StatusType; message: string; detail: string }
   | { type: 'TOOL_END'; status: StatusType; message: string; detail: string }
   | { type: 'STREAM_START'; status: StatusType; message: string; detail: string }
-  | { type: 'TASK_DONE'; usage?: { input: number; output: number } }
+  | { type: 'TASK_DONE'; usage?: { input: number; output: number; cacheRead?: number; cacheCreation?: number } }
 
 // ============================================================================
 // 工具函数类型

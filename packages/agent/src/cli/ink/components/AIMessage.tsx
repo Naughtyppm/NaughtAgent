@@ -3,22 +3,19 @@
  *
  * 显示 AI 消息，包括：
  * - AI 标题（含模型名）
+ * - Extended Thinking 内联展示（CC 风格）
  * - 消息内容（支持流式显示）
- * - Markdown 渲染
  *
  * 需求: 5.2, 5.3, 5.5
  */
 
 import React, { memo } from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text } from '../../cc-ink/index.js'
 import { Spinner } from '@inkjs/ui'
 import type { AIMessageProps } from '../types.js'
 
 /** 流式输出时显示的最大行数 */
-const STREAMING_MAX_LINES = 5
-
-/** 完成后显示的最大行数 — 超出部分折叠，防止大段内容导致 Ink 重绘抽搐 */
-const COMPLETED_MAX_LINES = 15
+const STREAMING_MAX_LINES = 30
 
 /**
  * 生成 AI 消息标题
@@ -44,9 +41,56 @@ function getLastLines(content: string, maxLines: number): { lines: string[]; tru
 }
 
 /**
+ * 内联 Thinking 展示（CC 风格）
+ *
+ * - 思考中：显示 "🤔 思考中..." + spinner
+ * - 思考完成：折叠为 "💭 思考了 N 行"，可通过 isExpanded 展开
+ */
+function ThinkingInline({ thinking, isThinking }: { thinking: string; isThinking: boolean }): React.ReactElement | null {
+  if (!thinking && !isThinking) return null
+
+  const lines = thinking ? thinking.split('\n') : []
+  const lineCount = lines.length
+
+  // 正在思考中：实时动态显示最后几行
+  if (isThinking) {
+    const preview = lines.length > 3 ? lines.slice(-3) : lines
+    return (
+      <Box flexDirection="column" marginLeft={2} marginY={0}>
+        <Box flexDirection="row" gap={1}>
+          <Text color="magenta">🤔 思考中</Text>
+          <Spinner />
+          {lineCount > 0 && <Text color="gray" dimColor>({lineCount} 行)</Text>}
+        </Box>
+        {preview.length > 0 && (
+          <Box marginLeft={2}>
+            <Text color="gray" dimColor wrap="wrap">
+              {preview.join('\n')}
+            </Text>
+          </Box>
+        )}
+      </Box>
+    )
+  }
+
+  // 思考完成：折叠显示摘要
+  const previewLines = lines.slice(0, 3)
+  return (
+    <Box flexDirection="column" marginLeft={2} marginBottom={1}>
+      <Text color="magenta" dimColor>💭 思考了 {lineCount} 行</Text>
+      <Box marginLeft={2}>
+        <Text color="gray" dimColor wrap="wrap">
+          {previewLines.join('\n')}{lineCount > 3 ? '\n...' : ''}
+        </Text>
+      </Box>
+    </Box>
+  )
+}
+
+/**
  * AIMessage 组件
  *
- * 显示 AI 消息，支持流式输出和 Markdown 渲染。
+ * 显示 AI 消息，支持流式输出和内联 thinking 展示。
  * 流式输出时只显示最后几行，减少屏幕闪烁。
  *
  * @param props AIMessageProps
@@ -55,32 +99,25 @@ export const AIMessage = memo(function AIMessage({
   content,
   model,
   isStreaming,
+  thinking,
+  isThinking,
 }: AIMessageProps): React.ReactElement {
   const header = getAIHeader(model)
 
-  // 流式和完成后都限制行数，防止大段内容导致终端抽搐
+  // 流式阶段限制行数（终端滚动优化），完成后不截断（CC 风格）
   const displayContent = React.useMemo(() => {
     if (!content) return { text: '', truncatedHint: '' }
-    
+
     if (isStreaming) {
       const { lines, truncated } = getLastLines(content, STREAMING_MAX_LINES)
       return {
         text: lines.join('\n'),
-        truncatedHint: truncated > 0 ? `... (${truncated} 行已隐藏，完成后显示摘要)` : '',
+        truncatedHint: truncated > 0 ? `... (${truncated} 行已隐藏，完成后显示全文)` : '',
       }
     }
-    
-    // 完成后也截断，只显示最后 N 行
-    const allLines = content.split('\n')
-    if (allLines.length <= COMPLETED_MAX_LINES) {
-      return { text: content, truncatedHint: '' }
-    }
-    const displayed = allLines.slice(-COMPLETED_MAX_LINES)
-    const hidden = allLines.length - COMPLETED_MAX_LINES
-    return {
-      text: displayed.join('\n'),
-      truncatedHint: `... (前 ${hidden} 行已折叠)`,
-    }
+
+    // 完成后：显示全文，不截断
+    return { text: content, truncatedHint: '' }
   }, [content, isStreaming])
 
   return (
@@ -90,8 +127,11 @@ export const AIMessage = memo(function AIMessage({
         <Text color="cyan" bold>
           {header}
         </Text>
-        {isStreaming && <Spinner />}
+        {isStreaming && !isThinking && <Spinner />}
       </Box>
+
+      {/* 内联 Thinking 展示 */}
+      <ThinkingInline thinking={thinking || ''} isThinking={isThinking || false} />
 
       {/* 截断提示 */}
       {displayContent.truncatedHint && (

@@ -4,7 +4,7 @@
  * 使用官方 Anthropic SDK（原生）
  *
  * 注意：使用原生 SDK 而非 AI SDK，因为 AI SDK 的 tools 格式
- * 与 Anthropic 原生 API 不兼容，会导致 kiro-proxy 返回 500 错误
+ * 与 Anthropic 原生 API 不兼容，会导致代理返回 500 错误
  */
 
 import Anthropic from "@anthropic-ai/sdk"
@@ -23,6 +23,7 @@ import type {
   ImageContent,
   ToolUseContent,
   ToolResultContent,
+  ThinkingContent,
 } from "./types"
 import { resolveModelName, isProxyBaseURL, DEFAULT_MAX_TOKENS, DEFAULT_THINKING_BUDGET } from "../config"
 
@@ -45,7 +46,7 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
   function convertTools(tools?: ToolDefinition[]): Anthropic.Tool[] | undefined {
     if (!tools || tools.length === 0) return undefined
 
-    return tools.map((t) => {
+    const converted: Anthropic.Tool[] = tools.map((t) => {
       // 使用 zodToJsonSchema 将 Zod schema 转换为 JSON Schema
       const jsonSchema = zodToJsonSchema(t.parameters, { $refStrategy: "none" })
       return {
@@ -54,84 +55,127 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
         input_schema: jsonSchema as Anthropic.Tool.InputSchema,
       }
     })
+
+    // 在最后一个工具上设置 cache_control，作为 Prompt Cache 断点
+    if (converted.length > 0) {
+      converted[converted.length - 1].cache_control = { type: "ephemeral" as const }
+    }
+
+    return converted
+  }
+
+  /**
+   * 转换单条消息内容为 Anthropic 格式（不含合并逻辑）
+   */
+  function convertSingleMessage(msg: Message): Anthropic.MessageParam {
+    if (msg.role === "user") {
+      if (typeof msg.content === "string") {
+        return { role: "user" as const, content: [{ type: "text" as const, text: msg.content }] }
+      }
+      const content: Anthropic.ContentBlockParam[] = []
+      for (const part of msg.content) {
+        if (part.type === "text") {
+          content.push({ type: "text", text: (part as TextContent).text })
+        } else if (part.type === "image") {
+          const imgPart = part as ImageContent
+          content.push({
+            type: "image",
+            source: imgPart.source as Anthropic.Base64ImageSource,
+          })
+        } else if (part.type === "tool_result") {
+          const toolResult = part as ToolResultContent
+          let resultContent: string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>
+          if (typeof toolResult.content === "string") {
+            resultContent = toolResult.content
+          } else {
+            resultContent = toolResult.content
+              .filter((c): c is TextContent | ImageContent =>
+                c.type === "text" || c.type === "image"
+              )
+              .map((c) => {
+                if (c.type === "text") {
+                  return { type: "text" as const, text: c.text }
+                } else {
+                  return {
+                    type: "image" as const,
+                    source: c.source as Anthropic.Base64ImageSource,
+                  }
+                }
+              })
+          }
+          content.push({
+            type: "tool_result",
+            tool_use_id: toolResult.tool_use_id,
+            content: resultContent,
+            is_error: toolResult.is_error,
+          })
+        }
+      }
+      return { role: "user" as const, content }
+    } else {
+      if (typeof msg.content === "string") {
+        return { role: "assistant" as const, content: msg.content }
+      }
+      const content: (Anthropic.ThinkingBlockParam | Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam)[] = []
+      for (const part of msg.content) {
+        if (part.type === "thinking") {
+          const thinkingPart = part as ThinkingContent
+          content.push({ type: "thinking", thinking: thinkingPart.thinking, signature: thinkingPart.signature })
+        } else if (part.type === "text") {
+          content.push({ type: "text", text: (part as TextContent).text })
+        } else if (part.type === "tool_use") {
+          const toolUse = part as ToolUseContent
+          content.push({
+            type: "tool_use",
+            id: toolUse.id,
+            name: toolUse.name,
+            input: toolUse.input as Record<string, unknown>,
+          })
+        }
+      }
+      return { role: "assistant" as const, content }
+    }
   }
 
   /**
    * 转换消息为 Anthropic 原生格式
+   * 合并连续同角色消息（Anthropic API 要求 user/assistant 严格交替）
    */
   function convertMessages(messages: Message[]): Anthropic.MessageParam[] {
-    return messages.map((msg) => {
-      if (msg.role === "user") {
-        // 用户消息
-        if (typeof msg.content === "string") {
-          return { role: "user" as const, content: msg.content }
-        }
-
-        // 数组格式
-        const content: Anthropic.ContentBlockParam[] = []
-        for (const part of msg.content) {
-          if (part.type === "text") {
-            content.push({ type: "text", text: (part as TextContent).text })
-          } else if (part.type === "image") {
-            const imgPart = part as ImageContent
-            content.push({
-              type: "image",
-              source: imgPart.source as Anthropic.Base64ImageSource,
-            })
-          } else if (part.type === "tool_result") {
-            const toolResult = part as ToolResultContent
-            // 转换 tool_result content
-            let resultContent: string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>
-            if (typeof toolResult.content === "string") {
-              resultContent = toolResult.content
-            } else {
-              resultContent = toolResult.content
-                .filter((c): c is TextContent | ImageContent =>
-                  c.type === "text" || c.type === "image"
-                )
-                .map((c) => {
-                  if (c.type === "text") {
-                    return { type: "text" as const, text: c.text }
-                  } else {
-                    return {
-                      type: "image" as const,
-                      source: c.source as Anthropic.Base64ImageSource,
-                    }
-                  }
-                })
-            }
-            content.push({
-              type: "tool_result",
-              tool_use_id: toolResult.tool_use_id,
-              content: resultContent,
-              is_error: toolResult.is_error,
-            })
-          }
-        }
-        return { role: "user" as const, content }
+    // ── 第一步：转换 + 合并连续同角色消息 ──
+    // loop.ts 中 circuit breaker、background notifications 等会注入 text-only user 消息，
+    // 紧跟在上一轮的 tool_result user 消息后面，形成连续 user 消息。
+    // Anthropic API 要求 user/assistant 交替，这里统一合并。
+    const converted: Anthropic.MessageParam[] = []
+    for (const msg of messages) {
+      const cur = convertSingleMessage(msg)
+      const prev = converted.length > 0 ? converted[converted.length - 1] : null
+      if (prev && prev.role === cur.role) {
+        // 合并连续同角色消息的 content
+        const prevContent = Array.isArray(prev.content) ? prev.content : [{ type: "text" as const, text: prev.content }]
+        const curContent = Array.isArray(cur.content) ? cur.content : [{ type: "text" as const, text: cur.content }]
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(prevContent as any[]).push(...(curContent as any[]))
+        prev.content = prevContent
+        logger.debug(`merged consecutive ${cur.role} messages`)
       } else {
-        // 助手消息
-        if (typeof msg.content === "string") {
-          return { role: "assistant" as const, content: msg.content }
-        }
-
-        const content: (Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam)[] = []
-        for (const part of msg.content) {
-          if (part.type === "text") {
-            content.push({ type: "text", text: (part as TextContent).text })
-          } else if (part.type === "tool_use") {
-            const toolUse = part as ToolUseContent
-            content.push({
-              type: "tool_use",
-              id: toolUse.id,
-              name: toolUse.name,
-              input: toolUse.input as Record<string, unknown>,
-            })
-          }
-        }
-        return { role: "assistant" as const, content }
+        converted.push(cur)
       }
-    })
+    }
+
+    // 在最后一条 user 消息的最后一个 content block 上添加 cache_control
+    for (let i = converted.length - 1; i >= 0; i--) {
+      const msg = converted[i]
+      if (msg.role === "user" && Array.isArray(msg.content) && msg.content.length > 0) {
+        const lastBlock = msg.content[msg.content.length - 1] as Anthropic.ContentBlockParam & {
+          cache_control?: { type: "ephemeral" }
+        }
+        lastBlock.cache_control = { type: "ephemeral" }
+        break
+      }
+    }
+
+    return converted
   }
 
   /**
@@ -198,7 +242,18 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           system: params.system,
           messages: convertMessages(params.messages),
           tools: convertTools(params.tools),
+          // 传 session_id 给 copilot-api，固定 x-interaction-id 避免重复扣费
+          ...(params.sessionId && isProxyBaseURL(config.baseURL) ? {
+            metadata: { user_id: JSON.stringify({ session_id: params.sessionId }) }
+          } : {}),
         }
+
+        logger.info('stream request', {
+          sessionId: params.sessionId,
+          isProxy: isProxyBaseURL(config.baseURL),
+          hasMetadata: !!requestParams.metadata,
+          metadataUserId: requestParams.metadata?.user_id,
+        })
 
         // Extended Thinking 配置
         if (thinkingEnabled) {
@@ -214,17 +269,24 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           requestParams.temperature = params.model.temperature
         }
 
-        const stream = await withRetry(async () => {
-          return client.messages.stream(requestParams, {
-            signal: params.abortSignal,
-          })
-        })
+        let streamAttempt = 0
+        const maxStreamAttempts = 3
+        let stream: Awaited<ReturnType<typeof client.messages.stream>>
 
-        let textChunks = 0
-        let toolCalls = 0
-        let isInThinking = false
+        while (true) {
+          streamAttempt++
+          try {
+            stream = await withRetry(async () => {
+              return client.messages.stream(requestParams, {
+                signal: params.abortSignal,
+              })
+            })
 
-        for await (const event of stream) {
+            let textChunks = 0
+            let toolCalls = 0
+            let isInThinking = false
+
+            for await (const event of stream) {
           if (event.type === "content_block_start") {
             const block = event.content_block
             if (block.type === "thinking") {
@@ -260,7 +322,8 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
         // 获取最终消息
         const finalMessage = await stream.finalMessage()
 
-        // 处理工具调用
+        // 处理工具调用 + 提取 thinking 块（含 signature，用于消息回放）
+        const thinkingBlocks: Array<{ type: "thinking"; thinking: string; signature: string }> = []
         for (const block of finalMessage.content) {
           if (block.type === "tool_use") {
             toolCalls++
@@ -270,6 +333,12 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
               name: block.name,
               args: block.input,
             }
+          } else if (block.type === "thinking" && "signature" in block) {
+            thinkingBlocks.push({
+              type: "thinking",
+              thinking: (block as { type: "thinking"; thinking: string; signature: string }).thinking,
+              signature: (block as { type: "thinking"; thinking: string; signature: string }).signature,
+            })
           }
         }
 
@@ -277,7 +346,9 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           textChunks,
           toolCalls,
           inputTokens: finalMessage.usage.input_tokens,
-          outputTokens: finalMessage.usage.output_tokens
+          outputTokens: finalMessage.usage.output_tokens,
+          cacheCreationTokens: finalMessage.usage.cache_creation_input_tokens,
+          cacheReadTokens: finalMessage.usage.cache_read_input_tokens,
         })
 
         yield {
@@ -285,9 +356,28 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           usage: {
             inputTokens: finalMessage.usage.input_tokens,
             outputTokens: finalMessage.usage.output_tokens,
+            cacheCreationTokens: finalMessage.usage.cache_creation_input_tokens ?? undefined,
+            cacheReadTokens: finalMessage.usage.cache_read_input_tokens ?? undefined,
           },
           stopReason: finalMessage.stop_reason as "end_turn" | "max_tokens" | "tool_use" | "stop_sequence" | undefined,
+          thinkingBlocks: thinkingBlocks.length > 0 ? thinkingBlocks : undefined,
         }
+        break // 成功完成，退出 retry 循环
+          } catch (streamErr) {
+            // 特定的流错误可以重试（如 proxy 断连）
+            const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr)
+            const isStreamAborted = errMsg.includes('stream ended without producing') ||
+                                     errMsg.includes('ECONNRESET') ||
+                                     errMsg.includes('socket hang up')
+            if (isStreamAborted && streamAttempt < maxStreamAttempts) {
+              logger.warn(`流式传输中断，重试 (${streamAttempt}/${maxStreamAttempts}): ${errMsg}`)
+              const delay = Math.min(1000 * Math.pow(2, streamAttempt - 1), 5000)
+              await new Promise(r => setTimeout(r, delay))
+              continue // 重试
+            }
+            throw streamErr // 不可重试，抛给外层 catch
+          }
+        } // end while
       } catch (err) {
         const agentError = convertError(err)
         logger.error('流式调用失败', {
@@ -323,6 +413,10 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           system: params.system,
           messages: convertedMessages,
           tools: convertedTools,
+          // 传 session_id 给 copilot-api，固定 x-interaction-id 避免重复扣费
+          ...(params.sessionId && isProxyBaseURL(config.baseURL) ? {
+            metadata: { user_id: JSON.stringify({ session_id: params.sessionId }) }
+          } : {}),
         }
 
         // Extended Thinking 配置
@@ -364,7 +458,9 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           textLength: text.length,
           toolCallCount: toolCalls.length,
           inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens,
+          cacheReadTokens: response.usage.cache_read_input_tokens,
         })
 
         return {
@@ -374,6 +470,8 @@ export function createAnthropicProvider(config: AnthropicConfig): LLMProvider {
           usage: {
             inputTokens: response.usage.input_tokens,
             outputTokens: response.usage.output_tokens,
+            cacheCreationTokens: response.usage.cache_creation_input_tokens ?? undefined,
+            cacheReadTokens: response.usage.cache_read_input_tokens ?? undefined,
           },
         }
       } catch (err) {

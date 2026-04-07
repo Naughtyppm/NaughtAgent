@@ -22,7 +22,7 @@ import { loadProjectStructure, type TechStack } from "./context"
 
 /**
  * 项目索引数据结构
- * 存储在 `.naught/cache/project-index.json`
+ * 存储在 `.naughty/cache/project-index.json`
  */
 export interface ProjectIndex {
   /** 索引版本号 */
@@ -154,7 +154,7 @@ const INDEX_VERSION = "1.0.0"
 const DEFAULT_TTL = 24 * 60 * 60 * 1000
 
 /** 默认缓存目录 */
-const DEFAULT_CACHE_DIR = ".naught/cache"
+const DEFAULT_CACHE_DIR = ".naughty/cache"
 
 /** 默认缓存文件名 */
 const DEFAULT_CACHE_FILE = "project-index.json"
@@ -237,7 +237,7 @@ export function createDefaultIndexCache(cwd: string): IndexCache {
  * 从缓存文件加载项目索引
  *
  * 需求 1.1: 检查是否存在有效的缓存 Project_Index
- * 需求 1.5: 从 `.naught/cache/project-index.json` 加载
+ * 需求 1.5: 从 `.naughty/cache/project-index.json` 加载
  */
 async function loadIndex(cachePath: string): Promise<ProjectIndex | null> {
   try {
@@ -283,7 +283,7 @@ function loadIndexSync(cachePath: string): ProjectIndex | null {
  * 保存项目索引到缓存文件
  *
  * 需求 1.3: 生成新的 Project_Index 并持久化
- * 需求 1.5: 存储在 `.naught/cache/project-index.json`
+ * 需求 1.5: 存储在 `.naughty/cache/project-index.json`
  */
 async function saveIndex(cachePath: string, index: ProjectIndex): Promise<void> {
   // 确保缓存目录存在
