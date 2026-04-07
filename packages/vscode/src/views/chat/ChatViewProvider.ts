@@ -99,7 +99,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private sessionUsage: SessionUsage = { totalInput: 0, totalOutput: 0, requestCount: 0 };
   private todoList: TodoItem[] = [];
   private webviewErrors: string[] = [];
-  private currentUnsubscribe: (() => void) | null = null;
+  /** 每个 session 的聊天消息缓存 */
+  private readonly sessionMessages = new Map<string, ChatMessage[]>();
+  /** 当前活动的 sessionId（用于消息缓存切换） */
+  private activeSessionId: string | null = null;
+  /** 是否已注册持久消息处理器 */
+  private persistentHandlerRegistered = false;
+  /** 当前 sendMessage 调用的运行状态（持久 handler 引用） */
+  private currentAssistantMessage: ChatMessage | null = null;
+  private currentRunState: { thinkingMessage?: ChatMessage; activeTextMessage?: ChatMessage } = {};
+  /** 用于取消 waitForRunCompletion 的 abort controller（切换 session 时触发） */
+  private runCompletionAbort: AbortController | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -107,6 +117,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly contextCollector: ContextCollector,
     private readonly output?: vscode.OutputChannel
   ) {}
+
+  /**
+   * 注册持久消息处理器（只注册一次，不随 session 切换而取消）
+   * 消息路由到当前活动 session 的 UI 状态
+   */
+  private ensurePersistentHandler(): void {
+    if (this.persistentHandlerRegistered) return;
+    this.persistentHandlerRegistered = true;
+    this.agentClient.onMessage(async (event) => {
+      this.logEvent(event);
+      if (this.currentAssistantMessage) {
+        this.log(`persistent: routing ${event.type} to session=${this.activeSessionId} msgCount=${this.messages.length}`);
+        await this.handleAgentMessage(event, this.currentAssistantMessage, this.currentRunState);
+      } else if (event.type === 'error') {
+        this.log(`persistent: error without activeMsg, session=${this.activeSessionId}`);
+        // 没有活跃的 send 但收到 error，显示出来
+        this.messages.push({
+          role: 'error',
+          content: event.message || event.content || 'Agent 返回错误',
+          timestamp: Date.now(),
+        });
+        this.postState();
+      } else {
+        this.log(`persistent: DROPPED ${event.type} (no currentAssistantMessage) session=${this.activeSessionId}`);
+      }
+    });
+  }
 
   private log(message: string): void {
     this.output?.appendLine(`[chat] ${message}`);
@@ -244,12 +281,56 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
 
       if (message.type === 'newSession') {
-        await this.newChat();
+        this.log(`newSession: activeSessionId=${this.activeSessionId} messages.length=${this.messages.length} agentSessionId=${this.agentClient.getSessionId()}`);
+        // 保存旧会话消息
+        if (this.activeSessionId) {
+          this.sessionMessages.set(this.activeSessionId, [...this.messages]);
+          this.log(`newSession: saved ${this.messages.length} messages for ${this.activeSessionId}`);
+        }
+
+        // 直接创建新 session（不复用旧的）
+        const cwd = this.contextCollector.getWorkspaceRoot();
+        if (!cwd) {
+          this.messages.push({
+            role: 'error',
+            content: '请先打开一个工作区后再新建会话。',
+            timestamp: Date.now(),
+          });
+          this.postState();
+          return;
+        }
+        const newSession = await this.agentClient.createSession(cwd, this.agentType);
+        this.log(`newSession: created ${newSession.id}`);
+        // 使用 subscribe 切换到新 session（不断开 WS）
+        if (this.agentClient.isConnected()) {
+          this.agentClient.subscribeToSession(newSession.id);
+        } else {
+          await this.agentClient.connect(newSession.id);
+          this.persistentHandlerRegistered = false;
+        }
+        this.ensurePersistentHandler();
+        this.log(`newSession: subscribed to ${newSession.id}`);
+        this.activeSessionId = newSession.id;
+
+        this.messages.length = 0;
+        this.pending = false;
+        this.runStatus = 'idle';
+        this.pendingQuestion = null;
+        this.currentAssistantMessage = null;
+        this.currentRunState = {};
+        this.sessionUsage = { totalInput: 0, totalOutput: 0, requestCount: 0 };
+        this.todoList = [];
+        // 取消旧 session 的 waitForRunCompletion
+        if (this.runCompletionAbort) {
+          this.runCompletionAbort.abort();
+          this.runCompletionAbort = null;
+        }
         this.messages.push({
           role: 'system',
-          content: `已新建会话（模式: ${this.agentType}, 模型: ${this.model}）。`,
+          content: `已新建会话 ${newSession.id.slice(0, 8)}（模式: ${this.agentType}, 模型: ${this.model}）。`,
           timestamp: Date.now(),
         });
+        this.log(`newSession: done, messages=[${this.messages.map(m => m.role + ':' + m.content.slice(0, 20)).join(', ')}]`);
         this.postState();
         return;
       }
@@ -363,23 +444,121 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   async newChat(): Promise<void> {
-    if (this.currentUnsubscribe) {
-      this.currentUnsubscribe();
-      this.currentUnsubscribe = null;
+    // 保存当前会话的消息
+    if (this.activeSessionId) {
+      this.sessionMessages.set(this.activeSessionId, [...this.messages]);
     }
     this.messages.length = 0;
+    this.currentAssistantMessage = null;
+    this.currentRunState = {};
     this.agentClient.disconnect();
     await this.agentClient.closeSession();
+    this.persistentHandlerRegistered = false; // WS 断开后需重新注册
     this.runStatus = 'idle';
+    this.pending = false;
     this.pendingQuestion = null;
     this.sessionUsage = { totalInput: 0, totalOutput: 0, requestCount: 0 };
     this.todoList = [];
+    this.activeSessionId = null;
     this.postState();
   }
 
   async clearChat(): Promise<void> {
     this.messages.length = 0;
     this.postState();
+  }
+
+  /**
+   * 当前是否有消息正在处理中
+   */
+  isPending(): boolean {
+    return this.pending;
+  }
+
+  /**
+   * 切换到指定会话：保存当前消息 → 恢复目标会话消息
+   * 不断开 WS、不取消消息处理器 — 使用 subscribe 切换
+   */
+  switchSession(sessionId: string): void {
+    this.log(`switchSession: from=${this.activeSessionId} to=${sessionId} messages.length=${this.messages.length}`);
+    // 0. 取消旧 session 的 waitForRunCompletion（防止 done 事件串到新 session）
+    if (this.runCompletionAbort) {
+      this.runCompletionAbort.abort();
+      this.runCompletionAbort = null;
+    }
+    // 1. 保存当前会话的消息
+    if (this.activeSessionId) {
+      this.sessionMessages.set(this.activeSessionId, [...this.messages]);
+      this.log(`switchSession: saved ${this.messages.length} messages for ${this.activeSessionId}`);
+    }
+
+    // 2. 重置运行状态（切换后当前 session 不在运行中）
+    this.pending = false;
+    this.runStatus = 'idle';
+    this.pendingQuestion = null;
+    this.currentAssistantMessage = null;
+    this.currentRunState = {};
+    this.sessionUsage = { totalInput: 0, totalOutput: 0, requestCount: 0 };
+    this.todoList = [];
+
+    // 3. 恢复目标会话的消息（如果有缓存）
+    this.messages.length = 0;
+    const cached = this.sessionMessages.get(sessionId);
+    if (cached) {
+      cached.forEach((msg) => this.messages.push(msg));
+      this.log(`switchSession: restored ${cached.length} cached messages for ${sessionId}`);
+    } else {
+      this.log(`switchSession: no cached messages for ${sessionId}`);
+    }
+
+    // 4. 更新活动 sessionId
+    this.activeSessionId = sessionId;
+
+    this.postState();
+
+    // 5. 异步同步后端消息（后台 session 可能有新回复）
+    this.syncMessagesFromBackend(sessionId);
+  }
+
+  /**
+   * 从后端获取 session 最新消息，补充到前端缓存
+   */
+  private async syncMessagesFromBackend(sessionId: string): Promise<void> {
+    try {
+      const config = (this.agentClient as any).config;
+      if (!config?.baseURL) return;
+
+      const resp = await fetch(`${config.baseURL}/sessions/${sessionId}/messages`);
+      if (!resp.ok) return;
+
+      const data = await resp.json() as { messages: Array<{ role: string; text: string; toolUses?: Array<{ id: string; name: string }>; toolResults?: Array<{ toolUseId: string; content: string }>; timestamp: number }> };
+      if (!data.messages || data.messages.length === 0) return;
+
+      // 只关心最后一条 assistant 消息的文本
+      const backendAssistantMsgs = data.messages.filter(m => m.role === 'assistant' && m.text);
+      if (backendAssistantMsgs.length === 0) return;
+
+      // 检查前端缓存是否已有所有 assistant 消息
+      const cachedAssistantCount = this.messages.filter(m => m.role === 'assistant').length;
+      const backendAssistantCount = backendAssistantMsgs.length;
+
+      if (backendAssistantCount > cachedAssistantCount && this.activeSessionId === sessionId) {
+        // 后端有新的 assistant 回复（在后台完成的），追加到前端
+        const newMsgs = backendAssistantMsgs.slice(cachedAssistantCount);
+        for (const msg of newMsgs) {
+          this.messages.push({
+            role: 'assistant',
+            content: msg.text,
+            timestamp: msg.timestamp || Date.now(),
+          });
+          this.log(`syncMessages: added backend assistant msg (${msg.text.length} chars) for ${sessionId}`);
+        }
+        this.sessionMessages.set(sessionId, [...this.messages]);
+        this.postState();
+      }
+    } catch (e) {
+      this.log(`syncMessages: error ${e}`);
+    }
   }
 
   async sendMessage(text: string, attachments?: Array<{ type: string; data: string; mimeType: string }>): Promise<void> {
@@ -407,7 +586,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    this.log('send start');
+    this.log(`send start session=${this.activeSessionId} agentSession=${this.agentClient.getSessionId()}`);
+
+    // 记住本次 send 对应的 sessionId，用于 finally 中判断是否被切走
+    const sendSessionId = this.activeSessionId;
 
     this.messages.push({
       role: 'user',
@@ -429,21 +611,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     try {
       await this.ensureSession();
       await this.ensureConnected();
+      this.ensurePersistentHandler();
       const prompt = await this.buildPrompt(trimmed);
       this.log(`prompt prepared len=${prompt.length}`);
 
-      const runState: { thinkingMessage?: ChatMessage; activeTextMessage?: ChatMessage } = {};
+      // 更新持久 handler 引用的运行状态
+      this.currentAssistantMessage = assistantMessage;
+      this.currentRunState = {};
 
-      // 注册消息处理器 — 不在 done 后立即 unsubscribe
-      // 因为 question_request 可能在 done 之后才到达（WS 消息顺序不保证）
-      if (this.currentUnsubscribe) {
-        this.currentUnsubscribe();
-      }
-      this.currentUnsubscribe = this.agentClient.onMessage(async (event) => {
-        // 有意义的日志，而不是简单的 event.type
-        this.logEvent(event);
-        await this.handleAgentMessage(event, assistantMessage, runState);
-      });
       try {
         await this.agentClient.sendMessage(prompt, {
           model: this.model,
@@ -459,13 +634,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       } catch (e) {
         throw e;
       }
-      // 不在这里 unsubscribe — handler 保持活跃直到下一次 sendMessage 或 newChat
+      // 不在这里 unsubscribe — 持久 handler 始终活跃
 
-      if (!assistantMessage.content.trim() && !runState.activeTextMessage) {
+      if (!assistantMessage.content.trim() && !this.currentRunState.activeTextMessage) {
         assistantMessage.content = '未收到有效回复。';
       }
       // 清理空的 assistant 占位消息（如果文本被追加到了后面的新消息中）
-      if (!assistantMessage.content.trim() && runState.activeTextMessage) {
+      if (!assistantMessage.content.trim() && this.currentRunState.activeTextMessage) {
         const idx = this.messages.indexOf(assistantMessage);
         if (idx !== -1) {
           this.messages.splice(idx, 1);
@@ -480,10 +655,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         timestamp: Date.now(),
       });
     } finally {
-      this.pending = false;
-      this.runStatus = 'idle';
-      this.postState();
-      this.log(`send finally pending=${this.pending} status=${this.runStatus}`);
+      // 只有当前仍在本次 send 对应的 session 时才重置状态
+      // 如果 session 已被切走，状态由 switchSession 管理
+      if (this.activeSessionId === sendSessionId) {
+        this.pending = false;
+        this.runStatus = 'idle';
+        this.currentAssistantMessage = null;
+        this.currentRunState = {};
+        this.postState();
+      }
+      this.log(`send finally pending=${this.pending} status=${this.runStatus} switched=${this.activeSessionId !== sendSessionId}`);
     }
   }
 
@@ -499,7 +680,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const config = vscode.workspace.getConfiguration('naughtyagent');
     await this.agentClient.findOrCreateSession(cwd, this.agentType);
-    this.log(`session ready: ${this.agentClient.getSessionId() || 'none'}`);
+    // 同步 activeSessionId
+    this.activeSessionId = this.agentClient.getSessionId();
+    this.log(`session ready: ${this.activeSessionId || 'none'}`);
   }
 
   private async ensureConnected(): Promise<void> {
@@ -512,9 +695,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private waitForRunCompletion(): Promise<void> {
+    const abort = new AbortController();
+    this.runCompletionAbort = abort;
     return new Promise((resolve) => {
+      let runStarted = false;
       const dispose = this.agentClient.onMessage((event) => {
+        if (abort.signal.aborted) {
+          dispose();
+          resolve();
+          return;
+        }
+        // 等 run_start 事件后才开始处理 done
+        if ((event as any).type === 'run_start') {
+          runStarted = true;
+          return;
+        }
         if (event.type === 'done') {
+          if (!runStarted) {
+            // 旧 loop 残余的 done 事件，忽略
+            this.log('done event ignored: run_start not received yet');
+            return;
+          }
           // 如果有 pendingQuestion，说明 Agent 在等用户回答
           // 此时 done 是中间状态（来自 onAwaitInput），不应结束
           if (this.pendingQuestion) {
@@ -522,10 +723,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             return;
           }
           dispose();
+          this.runCompletionAbort = null;
           resolve();
         }
         // question_request 到达时不 resolve — 需要等用户回答后继续
         // error 事件不再 reject — 持久循环模式下中间错误是正常的
+      });
+      // 如果在注册后立即被 abort，立即清理
+      abort.signal.addEventListener('abort', () => {
+        dispose();
+        resolve();
       });
     });
   }

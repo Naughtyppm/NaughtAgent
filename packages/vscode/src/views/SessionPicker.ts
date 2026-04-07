@@ -160,6 +160,43 @@ export class SessionPicker {
   }
 
   /**
+   * 清除所有非活动会话
+   */
+  async clearAllSessions(): Promise<void> {
+    const config = this.agentClient['config'];
+    const resp = await fetch(`${config.baseURL}/sessions`);
+    if (!resp.ok) {
+      vscode.window.showErrorMessage('获取会话列表失败');
+      return;
+    }
+    const data: { sessions: { id: string }[] } = await resp.json();
+    const sessions = data.sessions;
+    const activeId = this.agentClient.sessionId;
+    const toDelete = sessions.filter(s => s.id !== activeId);
+
+    if (toDelete.length === 0) {
+      vscode.window.showInformationMessage('没有可清除的会话');
+      return;
+    }
+
+    const confirm = await vscode.window.showWarningMessage(
+      `确定清除 ${toDelete.length} 个非活动会话？`,
+      { modal: true },
+      '清除'
+    );
+    if (confirm !== '清除') return;
+
+    let deleted = 0;
+    for (const s of toDelete) {
+      try {
+        const r = await fetch(`${config.baseURL}/sessions/${s.id}`, { method: 'DELETE' });
+        if (r.ok) deleted++;
+      } catch { /* skip */ }
+    }
+    vscode.window.showInformationMessage(`已清除 ${deleted} 个会话`);
+  }
+
+  /**
    * 删除会话
    */
   async deleteSession(sessionId?: string): Promise<boolean> {

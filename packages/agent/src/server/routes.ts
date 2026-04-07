@@ -115,8 +115,11 @@ export function createRoutes(config: ServerConfig) {
         }
       }
 
-      // 消息发送
+      // 消息发送 / 获取消息历史
       const messageMatch = matchRoute("/sessions/:id/messages", url)
+      if (messageMatch && method === "GET") {
+        return handleGetMessages(res, messageMatch.id, sessions)
+      }
       if (messageMatch && method === "POST") {
         return await handleSendMessage(req, res, messageMatch.id, sessions, daemonSessions, config)
       }
@@ -369,40 +372,12 @@ async function handleCreateSession(
   // 创建持久化会话
   const persistedSession = await daemonSessions.createSession(cwd, agentType)
 
-  // 后台任务通知队列（scheduler → agent loop）
-  const backgroundNotifications: Array<{ taskId: string; command: string; output: string; error?: string }> = []
-
   // 创建 Runner
   const runner = createRunner({
     agentType,
     cwd: persistedSession.cwd,
     apiKey: config.claudeApiKey,
     baseURL: config.claudeBaseURL,
-    backgroundNotifications,
-  })
-
-  // 监听 scheduler 任务完成，写入通知队列
-  // TODO: scheduler 实例需要从外部注入
-  // @ts-ignore - scheduler 尚未实现
-  scheduler?.on("taskCompleted", (task: any, result: any) => {
-    if (task.sessionId === persistedSession.id) {
-      backgroundNotifications.push({
-        taskId: task.id,
-        command: task.input?.command ?? task.type,
-        output: typeof result.output === "string" ? result.output : JSON.stringify(result.output),
-      })
-    }
-  })
-  // @ts-ignore - scheduler 尚未实现
-  scheduler?.on("taskFailed", (task: any, error: any) => {
-    if (task.sessionId === persistedSession.id) {
-      backgroundNotifications.push({
-        taskId: task.id,
-        command: task.input?.command ?? task.type,
-        output: "",
-        error: error.message,
-      })
-    }
   })
 
   const activeSession: ActiveSession = {
@@ -452,6 +427,57 @@ function handleGetSession(
   }
 
   sendJson(res, 200, response)
+}
+
+/**
+ * 获取会话消息历史（简化格式供前端展示）
+ */
+function handleGetMessages(
+  res: ServerResponse,
+  id: string,
+  sessions: Map<string, ActiveSession>
+): void {
+  const session = sessions.get(id)
+  if (!session) {
+    sendError(res, 404, "SESSION_NOT_FOUND", `Session not found: ${id}`)
+    return
+  }
+
+  const runner = session.runner as ReturnType<typeof createRunner>
+  const internalSession = runner.getSession()
+  if (!internalSession) {
+    sendJson(res, 200, { messages: [] })
+    return
+  }
+
+  // 转换为前端可展示的简化格式
+  const messages = internalSession.messages.map((msg) => {
+    // 提取文本内容
+    const textParts = msg.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+    const text = textParts.join("\n")
+
+    // 提取工具使用
+    const toolUses = msg.content
+      .filter((b): b is { type: "tool_use"; id: string; name: string; input: unknown } => b.type === "tool_use")
+      .map((b) => ({ id: b.id, name: b.name }))
+
+    // 提取工具结果
+    const toolResults = msg.content
+      .filter((b): b is { type: "tool_result"; tool_use_id: string; content: string } => b.type === "tool_result")
+      .map((b) => ({ toolUseId: b.tool_use_id, content: typeof b.content === "string" ? b.content.slice(0, 200) : "" }))
+
+    return {
+      role: msg.role,
+      text,
+      toolUses: toolUses.length > 0 ? toolUses : undefined,
+      toolResults: toolResults.length > 0 ? toolResults : undefined,
+      timestamp: msg.timestamp,
+    }
+  })
+
+  sendJson(res, 200, { messages })
 }
 
 /**

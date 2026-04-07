@@ -10,7 +10,7 @@ import { DaemonClient } from './services/DaemonClient';
 import { AgentClient, getDefaultConfig } from './services/AgentClient';
 import { ContextCollector } from './services/ContextCollector';
 import { SessionPicker } from './views/SessionPicker';
-import { SessionListProvider } from './views/SessionListProvider';
+import { SessionListProvider, SessionItem } from './views/SessionListProvider';
 import { DiffProvider } from './services/DiffProvider';
 import { FileReferenceProvider } from './services/FileReferenceProvider';
 import { registerCommands } from './commands';
@@ -75,12 +75,19 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 注册会话列表 TreeView
   sessionListProvider = new SessionListProvider(agentClient);
-  context.subscriptions.push(
-    vscode.window.registerTreeDataProvider(
-      'naughtyagent.sessionsView',
-      sessionListProvider
-    )
-  );
+  const sessionsTreeView = vscode.window.createTreeView('naughtyagent.sessionsView', {
+    treeDataProvider: sessionListProvider,
+  });
+  context.subscriptions.push(sessionsTreeView);
+
+  // 用户点击 TreeView item 时切换会话（auto-refresh 不触发）
+  sessionsTreeView.onDidChangeSelection((e) => {
+    const selected = e.selection[0];
+    if (selected) {
+      vscode.commands.executeCommand('naughtyagent.switchToSession', selected.session);
+    }
+  });
+
   sessionListProvider.startAutoRefresh();
   context.subscriptions.push(new vscode.Disposable(() => sessionListProvider?.dispose()));
 
@@ -95,14 +102,17 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('naughtyagent.switchToSession', async (session: { id: string }) => {
       if (!session?.id) return;
+      // 避免切换到当前已活动的 session
+      if (session.id === agentClient!.getSessionId()) return;
       try {
-        // 先断开旧连接
-        agentClient!.disconnect();
-        // 重新连接到新会话
-        await agentClient!.connect(session.id);
+        // 如果已连接，使用 subscribe 切换（不断开 WS）
+        if (agentClient!.isConnected()) {
+          agentClient!.subscribeToSession(session.id);
+        } else {
+          await agentClient!.connect(session.id);
+        }
+        chatViewProvider.switchSession(session.id);
         sessionListProvider?.setActiveSession(session.id);
-        // 清空 Chat View 消息（不断开连接）
-        await chatViewProvider.clearChat();
         outputChannel?.appendLine(`[session] switched to ${session.id}`);
       } catch (e) {
         vscode.window.showErrorMessage(
@@ -152,9 +162,13 @@ export function activate(context: vscode.ExtensionContext) {
         filterByCwd: true,
       });
       if (session) {
-        // 连接到选中的会话
         try {
-          await agentClient!.connect(session.id);
+          if (agentClient!.isConnected()) {
+            agentClient!.subscribeToSession(session.id);
+          } else {
+            await agentClient!.connect(session.id);
+          }
+          chatViewProvider.switchSession(session.id);
           sessionListProvider?.setActiveSession(session.id);
           vscode.window.showInformationMessage(`已切换到会话: ${session.id}`);
         } catch (e) {
@@ -171,7 +185,13 @@ export function activate(context: vscode.ExtensionContext) {
       const session = await sessionPicker.createNewSession();
       if (session) {
         try {
-          await agentClient!.connect(session.id);
+          // 新 session 需要 subscribe（daemon 端会加载/创建 session 对象）
+          if (agentClient!.isConnected()) {
+            agentClient!.subscribeToSession(session.id);
+          } else {
+            await agentClient!.connect(session.id);
+          }
+          chatViewProvider.switchSession(session.id);
           sessionListProvider?.setActiveSession(session.id);
           sessionListProvider?.refresh();
         } catch (e) {
@@ -184,8 +204,16 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('naughtyagent.deleteSession', async () => {
-      await sessionPicker.deleteSession();
+    vscode.commands.registerCommand('naughtyagent.deleteSession', async (item?: SessionItem) => {
+      const sid = item?.session?.id;
+      await sessionPicker.deleteSession(sid);
+      sessionListProvider?.refresh();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('naughtyagent.clearAllSessions', async () => {
+      await sessionPicker.clearAllSessions();
       sessionListProvider?.refresh();
     })
   );

@@ -100,6 +100,12 @@
         "icon": "$(trash)"
       },
       {
+        "command": "naughtyagent.clearAllSessions",
+        "title": "清除所有会话",
+        "category": "NaughtyAgent",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "naughtyagent.reconnect",
         "title": "重新连接",
         "category": "NaughtyAgent",
@@ -177,6 +183,11 @@
         },
         {
           "command": "naughtyagent.newSession",
+          "when": "view == naughtyagent.sessionsView",
+          "group": "navigation"
+        },
+        {
+          "command": "naughtyagent.clearAllSessions",
           "when": "view == naughtyagent.sessionsView",
           "group": "navigation"
         },

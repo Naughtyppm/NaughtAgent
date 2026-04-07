@@ -195,6 +195,8 @@ export class AgentClient {
     if (!sid) {
       throw new Error('No session ID. Create a session first.');
     }
+    // 保存当前连接的 sessionId
+    this.sessionId = sid;
 
     return new Promise((resolve, reject) => {
       const params = new URLSearchParams();
@@ -483,6 +485,25 @@ export class AgentClient {
    */
   getSessionId(): string | null {
     return this.sessionId;
+  }
+
+  /**
+   * 清除 sessionId（不发 DELETE 请求，用于切换会话场景）
+   */
+  clearSessionId(): void {
+    this.sessionId = null;
+  }
+
+  /**
+   * 通过 WS subscribe 消息切换到指定 session（不断开 WS 连接）
+   * daemon 端会更新 WS connection 的 sessionId/session 引用
+   */
+  subscribeToSession(sessionId: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Not connected. Cannot subscribe.');
+    }
+    this.sessionId = sessionId;
+    this.ws.send(JSON.stringify({ type: 'subscribe', sessionId }));
   }
 
   /**

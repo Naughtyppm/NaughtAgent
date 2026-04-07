@@ -40,12 +40,8 @@ export class SessionItem extends vscode.TreeItem {
 
     this.contextValue = isActive ? 'activeSession' : 'session';
 
-    // 点击切换会话
-    this.command = {
-      command: 'naughtyagent.switchToSession',
-      title: '切换到此会话',
-      arguments: [session],
-    };
+    // 不在 TreeItem 上设 command — 由 TreeView.onDidChangeSelection 处理
+    // 避免 auto-refresh 时误触发 switchToSession
   }
 }
 
