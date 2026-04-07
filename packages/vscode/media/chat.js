@@ -522,6 +522,9 @@
   });
   // Input change monitoring for slash/file popup
   inputEl.addEventListener('input',function(){
+    // Auto-grow textarea
+    inputEl.style.height='auto';
+    inputEl.style.height=Math.min(inputEl.scrollHeight,200)+'px';
     var val=inputEl.value;
     // Slash commands: only if line starts with /
     if(val.match(/^\/\w*$/)){showSlashPanel(val);return;}

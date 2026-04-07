@@ -12,7 +12,6 @@ import { ContextCollector } from './services/ContextCollector';
 import { SessionPicker } from './views/SessionPicker';
 import { SessionListProvider, SessionItem } from './views/SessionListProvider';
 import { DiffProvider } from './services/DiffProvider';
-import { FileReferenceProvider } from './services/FileReferenceProvider';
 import { registerCommands } from './commands';
 
 let daemonClient: DaemonClient | undefined;
@@ -48,7 +47,6 @@ export function activate(context: vscode.ExtensionContext) {
   const contextCollector = new ContextCollector();
   const sessionPicker = new SessionPicker(agentClient);
   diffProvider = new DiffProvider();
-  const fileReferenceProvider = new FileReferenceProvider();
 
   // 注册 Chat View
   const chatViewProvider = new ChatViewProvider(

@@ -65,13 +65,13 @@ export class SessionListProvider implements vscode.TreeDataProvider<SessionItem>
   }
 
   /**
-   * 启动自动刷新（每 10 秒拉取会话列表）
+   * 启动自动刷新（每 60 秒检查外部变化，关键操作已通过 refresh() 即时更新）
    */
   startAutoRefresh(): void {
     this.stopAutoRefresh();
     this.refreshTimer = setInterval(() => {
       this._onDidChangeTreeData.fire();
-    }, 10000);
+    }, 60000);
   }
 
   stopAutoRefresh(): void {

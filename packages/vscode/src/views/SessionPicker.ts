@@ -163,14 +163,13 @@ export class SessionPicker {
    * 清除所有非活动会话
    */
   async clearAllSessions(): Promise<void> {
-    const config = this.agentClient['config'];
-    const resp = await fetch(`${config.baseURL}/sessions`);
-    if (!resp.ok) {
+    let sessions: { id: string }[];
+    try {
+      sessions = await this.agentClient.listSessions();
+    } catch {
       vscode.window.showErrorMessage('获取会话列表失败');
       return;
     }
-    const data = await resp.json() as { sessions: { id: string }[] };
-    const sessions = data.sessions;
     const activeId = this.agentClient.sessionId;
     const toDelete = sessions.filter(s => s.id !== activeId);
 
@@ -189,8 +188,7 @@ export class SessionPicker {
     let deleted = 0;
     for (const s of toDelete) {
       try {
-        const r = await fetch(`${config.baseURL}/sessions/${s.id}`, { method: 'DELETE' });
-        if (r.ok) deleted++;
+        if (await this.agentClient.deleteSession(s.id)) deleted++;
       } catch { /* skip */ }
     }
     vscode.window.showInformationMessage(`已清除 ${deleted} 个会话`);
@@ -224,16 +222,13 @@ export class SessionPicker {
     }
 
     try {
-      const config = this.agentClient['config'];
-      const response = await fetch(`${config.baseURL}/sessions/${sessionId}`, {
-        method: 'DELETE',
-      });
+      const ok = await this.agentClient.deleteSession(sessionId);
 
-      if (response.ok) {
+      if (ok) {
         vscode.window.showInformationMessage('会话已删除');
         return true;
       } else {
-        throw new Error(await response.text());
+        throw new Error('Delete request failed');
       }
     } catch (e) {
       vscode.window.showErrorMessage(

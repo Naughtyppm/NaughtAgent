@@ -1189,7 +1189,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     textarea {
       width: 100%;
       min-height: 84px;
+      max-height: 200px;
       resize: vertical;
+      overflow-y: auto;
       border-radius: 8px;
       border: 1px solid var(--input-border);
       background: var(--input-bg);

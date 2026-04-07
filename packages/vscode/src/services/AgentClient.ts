@@ -192,6 +192,16 @@ export class AgentClient {
   }
 
   /**
+   * 删除会话
+   */
+  async deleteSession(sessionId: string): Promise<boolean> {
+    const response = await fetch(`${this.config.baseURL}/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+    return response.ok;
+  }
+
+  /**
    * 连接 WebSocket
    */
   async connect(sessionId?: string): Promise<void> {
