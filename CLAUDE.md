@@ -46,12 +46,12 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，自主可控。
 | s01 | Agent Loop | ✅ 全部对齐 | 无 |
 | s02 | Tool Use | ✅ 全部对齐 | 补充 safePath、ToolRegistry 实例注入 |
 | s03 | Todo Write | ✅ 全部对齐 | 补充 TodoTool + QuestionTool 注册到 ToolRegistry |
-| s04 | Subagent | ✅ 全部对齐 | 7 种模式远超教程标准，无需修改 |
+| s04 | Subagent | ✅ 全部对齐 | 4 种模式（ask_llm/run_agent/fork_agent/run_workflow）+ parallel_agents 并行工具 |
 | s05 | Skill Loading | ✅ 已修复 | 补充 initSkills/initKnowledgeSkillDirs 调用 + LoadSkillTool 注册 |
 | s06 | Context Compact | ✅ 已修复 | 补充 compact 工具（Layer 3）+ toolMeta 传递链 |
 | s07 | Task System | ⚠️ 偏移 | task-tool.ts 是统一子任务入口，任务板 CRUD 由 s11 工具覆盖 |
 | s08 | Background Tasks | ✅ 全部对齐 | concurrency + events + global-listener 完整 |
-| s09 | Agent Teams | ⚠️ 部分 | 仅 SubAgent 配置管理，缺 Team 创建/成员管理 |
+| s09 | Agent Teams | ✅ 全部对齐 | parallel_agents 并行工具 + autonomous-tools（全局任务板团队协作）+ protocol-tools（关机/计划审批） |
 | s10 | Team Protocols | ✅ 全部对齐 | 关机协议 + 计划审批，5 工具已注册 |
 | s11 | Autonomous Agents | ✅ 全部对齐 | 全局任务板 + Inbox + Idle 轮询，5 工具已注册 |
 | s12 | Worktree Isolation | ✅ 全部对齐 | Git worktree CRUD + 事件日志，6 工具已注册 |
@@ -59,12 +59,16 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，自主可控。
 ### NaughtAgent 特有功能（不套教程编号）
 
 - Provider 抽象层（Anthropic/OpenAI/Auto 三后端）
-- 模型映射（Anthropic/Copilot 两套模型名互转）
+- 模型注册表（7 模型：haiku/sonnet/sonnet-4.5/sonnet-4.6/opus/opus-4.5/opus-4.6，Anthropic/Copilot 双格式映射）
 - Copilot API 反代支持（localhost:4141）
-- Extended Thinking 支持
-- React Ink TUI
-- VS Code 扩展
-- 6+ 种子代理模式
+- Extended Thinking + Adaptive Thinking（sonnet-4.6/opus-4.6）
+- 双 CLI 模式：Plain-Text（默认，O(1) 流式）+ CC Ink fork（React TUI，Phase 2 适配层完成）
+- VS Code 扩展（ChatViewProvider + Webview 流式通信）
+- 47 个工具（基础 7 + 交互 2 + 管理 7 + CC 对齐 6 + MCP 2 + Cron 3 + 子代理 4 + 团队 16）
+- 4 种子代理模式 + parallel_agents 并行工具
+- 四层无限读取防护（read cache → 硬阻断 → 循环检测 → 全局熔断）
+- 文件访问预算（file-access-budget，跨 read/grep 统一计量）
+- 持久记忆系统（/memory 命令 + .naughty/memory.md）
 - Justfile 集成 + Daemon 模式
 
 ### 架构原则（不可违反）
@@ -110,19 +114,25 @@ NaughtyAgent - 一个类似 Claude Code 的 AI 编程助手，自主可控。
 
 ### 可复用零件（不要重写这些）
 
-- 工具实现：`tool/bash.ts`, `read.ts`, `edit.ts`, `glob.ts`, `grep.ts` — 直接复用
+- 工具实现：`tool/bash.ts`, `read.ts`, `edit.ts`, `glob.ts`, `grep.ts`, `write.ts`, `append.ts`, `memory.ts` — 直接复用
 - MCP 客户端：`mcp/` 全目录 — 直接复用
 - Session 数据结构：`session/session.ts` — 直接复用
-- Ink 组件：`cli/ink/components/` — 修小 bug 后复用
+- CC Ink fork：`cli/cc-ink/` — 自定义 Ink fork（96 文件 + yoga 布局），已供 ink/ 组件使用
+- Ink 组件：`cli/ink/components/` — 已迁移到 cc-ink，直接复用
+- Plain-Text CLI：`cli/plain-text/` — StreamRenderer/FoldManager/ScrollBuffer，直接复用
 - 统一命令系统：`command/` — 直接复用
 - Zod→JSON Schema：`tool/tool.ts` 中的 `zodToJsonSchema` — 直接复用
+- 子代理注册：`tool/subagent/register.ts` — 统一注册入口（sessionId getter 动态绑定），直接复用
+- 全局事件监听：`subtask/global-listener.ts` — 多监听器 Set 模式，直接复用
 
 ### 删除清单（已全部完成 ✅）
 
 - ~~`src/cli/repl.ts`（943 行传统 REPL）~~ → Phase C 已删除
 - ~~`provider/types.ts` 中 3 套独立映射表~~ → 已合并到 `config/models.ts`
 - ~~`provider/types.ts` 中 DEFAULT_MODEL/FAST_MODEL~~ → FAST_MODEL 已删，DEFAULT_MODEL 仍被 loop.ts/recovery.ts 引用（非死代码）
-- ~~冗余子代理模式（parallel_agents, multi_agent, run_workflow, dispatch_agent）~~ → v0.6.0 已删除，净减 1281 行，保留 ask_llm/run_agent/fork_agent 3 核心原语
+- ~~`provider/kiro.ts`（944 行 Kiro Provider）~~ → v0.9.5 已删除，清除 6 个文件中的 Kiro 引用
+- ~~冗余子代理模式（multi_agent, dispatch_agent）~~ → v0.6.0 已删除，净减 1281 行
+- **保留**：ask_llm / run_agent / fork_agent / run_workflow 4 核心模式 + parallel_agents 并行工具
 
 ## 核心原则
 
